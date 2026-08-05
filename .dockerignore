@@ -1,0 +1,16 @@
+# Keep the build context small and force a clean install inside the image.
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+**/.next
+.nx
+.yarn/cache
+.yarn/install-state.gz
+pnpm-lock.yaml
+*.log
+.env
+**/.env
+docs
+infra

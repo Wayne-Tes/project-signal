@@ -1,0 +1,38 @@
+{
+  "name": "api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/api/src",
+  "projectType": "application",
+  "tags": ["type:app", "scope:api"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn build", "cwd": "apps/api" },
+      "cache": true
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn dev", "cwd": "apps/api" }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn typecheck", "cwd": "apps/api" },
+      "cache": true
+    },
+    "generate": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn generate", "cwd": "apps/api" }
+    },
+    "seed": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn seed", "cwd": "apps/api" }
+    },
+    "docker-build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "docker build -t project-signal-api:{args.tag} -f apps/api/Dockerfile .",
+        "cwd": "{workspaceRoot}"
+      }
+    }
+  }
+}

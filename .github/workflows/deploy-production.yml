@@ -1,0 +1,95 @@
+name: Deploy — Production
+
+# Structural mirror of "Deploy — Staging" for the production environment: build + push all
+# images, then a single `terraform apply` that deploys image + infra/env atomically
+# (terraform owns the image via image_tag). The apply is gated by the "production" GitHub
+# environment (required reviewers).
+#
+# The push trigger is intentionally disabled until production is provisioned:
+#   1. Fill infra/envs/production.tfvars with the real project_id.
+#   2. Set the "production" environment secrets (WIF_PROVIDER, WIF_SERVICE_ACCOUNT,
+#      GCP_PROJECT_ID, TF_STATE_BUCKET) and required reviewers.
+#   3. Uncomment `push: branches: [main]` below for full parity with staging.
+on:
+  # push:
+  #   branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-push:
+    name: Build & push (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [api, web, ingestion, sentiment-worker, report-worker]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker europe-west2-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: true
+          tags: |
+            europe-west2-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/project-signal/${{ matrix.app }}:prod-${{ steps.sha.outputs.short }}
+            europe-west2-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/project-signal/${{ matrix.app }}:production
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  deploy:
+    name: Terraform apply — Production
+    needs: build-push
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: infra/stack
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '~> 1.9'
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="prefix=env/production"
+
+      - name: Terraform Apply (image + infra)
+        run: |
+          terraform apply -auto-approve \
+            -var-file=../envs/production.tfvars \
+            -var="image_tag=prod-$(git rev-parse --short HEAD)"

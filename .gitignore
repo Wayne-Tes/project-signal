@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+.next/
+out/
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+.terraform.lock.hcl
+infra/bootstrap/*.tfvars
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Nx
+.nx/cache/
+.nx/workspace-data/
+
+# Yarn
+.yarn/install-state.gz
+
+# Docker
+*.log
+
+# TypeScript incremental build info
+*.tsbuildinfo

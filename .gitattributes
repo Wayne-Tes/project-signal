@@ -1,0 +1,15 @@
+# Normalise line endings so a Windows checkout can't break Linux builds.
+* text=auto eol=lf
+
+# These are executed inside Alpine containers during the Docker build and by husky.
+# CRLF here fails at runtime with an opaque "\r: not found", so pin them to LF.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+.husky/*        text eol=lf
+
+# Binary — never touch.
+*.png           binary
+*.jpg           binary
+*.ico           binary
+*.docx          binary
+*.pdf           binary

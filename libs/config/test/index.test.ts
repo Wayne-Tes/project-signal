@@ -1,0 +1,84 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const BASE_ENV = {
+  DATABASE_URL: 'postgresql://project_signal_app:password@localhost:5432/project_signal',
+  GOOGLE_CLOUD_PROJECT: 'project-signal-local',
+};
+
+describe('getEnv', () => {
+  const original = process.env;
+
+  beforeEach(() => {
+    vi.resetModules();
+    process.env = { ...original, ...BASE_ENV } as NodeJS.ProcessEnv;
+  });
+
+  afterEach(() => {
+    process.env = original;
+  });
+
+  it('parses a valid environment and applies defaults', async () => {
+    delete process.env['NODE_ENV'];
+    delete process.env['PORT'];
+    const { getEnv } = await import('../src/index.js');
+    const env = getEnv();
+    expect(env.DATABASE_URL).toBe(BASE_ENV.DATABASE_URL);
+    expect(env.GOOGLE_CLOUD_PROJECT).toBe('project-signal-local');
+    expect(env.NODE_ENV).toBe('development');
+    expect(env.PORT).toBe(8080);
+    expect(env.VERTEX_AI_LOCATION).toBe('europe-west2');
+  });
+
+  it('coerces PORT from a string to a number', async () => {
+    process.env['PORT'] = '3000';
+    const { getEnv } = await import('../src/index.js');
+    expect(getEnv().PORT).toBe(3000);
+  });
+
+  it('memoises the parsed environment', async () => {
+    const { getEnv } = await import('../src/index.js');
+    expect(getEnv()).toBe(getEnv());
+  });
+
+  it('throws when a required variable is missing', async () => {
+    delete process.env['DATABASE_URL'];
+    const { getEnv } = await import('../src/index.js');
+    expect(() => getEnv()).toThrow(/Invalid environment/);
+  });
+
+  it('rejects an empty DATABASE_URL', async () => {
+    process.env['DATABASE_URL'] = '';
+    const { getEnv } = await import('../src/index.js');
+    expect(() => getEnv()).toThrow(/Invalid environment/);
+  });
+
+  it('accepts discrete socket config (DB_SOCKET_PATH) without DATABASE_URL', async () => {
+    delete process.env['DATABASE_URL'];
+    process.env['DB_SOCKET_PATH'] = '/cloudsql/example-project:europe-west2:staging-project-signal-pg';
+    const { getEnv } = await import('../src/index.js');
+    const env = getEnv();
+    expect(env.DB_SOCKET_PATH).toContain('/cloudsql/');
+    expect(env.DB_NAME).toBe('project_signal');
+    expect(env.DB_USER).toBe('project_signal_app');
+  });
+
+  it('accepts optional APIFY_API_KEY and YOUTUBE_API_KEY', async () => {
+    process.env['APIFY_API_KEY'] = 'apify-key-123';
+    process.env['YOUTUBE_API_KEY'] = 'yt-key-456';
+    const { getEnv } = await import('../src/index.js');
+    const env = getEnv();
+    expect(env.APIFY_API_KEY).toBe('apify-key-123');
+    expect(env.YOUTUBE_API_KEY).toBe('yt-key-456');
+  });
+
+  it('applies SCORER_MODEL default', async () => {
+    const { getEnv } = await import('../src/index.js');
+    expect(getEnv().SCORER_MODEL).toBe('gemini-2.0-flash-001');
+  });
+
+  it('accepts PUBSUB_EMULATOR_HOST override', async () => {
+    process.env['PUBSUB_EMULATOR_HOST'] = 'localhost:8085';
+    const { getEnv } = await import('../src/index.js');
+    expect(getEnv().PUBSUB_EMULATOR_HOST).toBe('localhost:8085');
+  });
+});

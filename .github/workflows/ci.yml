@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, staging]
+  push:
+    branches: [main, staging]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # ── Detect which apps have changed (used by docker-check) ──────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'apps/api/**'
+              - 'libs/**'
+              - 'package.json'
+              - 'yarn.lock'
+              - 'tsconfig.base.json'
+            ingestion:
+              - 'apps/ingestion/**'
+              - 'libs/**'
+              - 'package.json'
+              - 'yarn.lock'
+              - 'tsconfig.base.json'
+            report-worker:
+              - 'apps/report-worker/**'
+              - 'libs/**'
+              - 'package.json'
+              - 'yarn.lock'
+              - 'tsconfig.base.json'
+            sentiment-worker:
+              - 'apps/sentiment-worker/**'
+              - 'libs/**'
+              - 'package.json'
+              - 'yarn.lock'
+              - 'tsconfig.base.json'
+            web:
+              - 'apps/web/**'
+              - 'libs/**'
+              - 'package.json'
+              - 'yarn.lock'
+              - 'tsconfig.base.json'
+
+  # ── Lint + typecheck ───────────────────────────────────────────────────────
+  code-quality:
+    name: Lint & typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Lint
+        run: yarn nx run-many -t lint --parallel=4
+      - name: Typecheck
+        run: yarn nx run-many -t typecheck --parallel=4
+
+  # ── Unit tests — fail if any project is below 80 % coverage ───────────────
+  test:
+    name: Unit tests (≥80% coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Run tests with coverage
+        # Per-project coverage thresholds (80%) live in each vitest.config.ts so deferred
+        # skeletons (e.g. report-worker) can be exempt and barrels excluded.
+        run: yarn nx run-many -t test --parallel=4 -- --coverage --coverage.reporter=text
+
+  # ── Verify changed Docker images build successfully (no push) ──────────────
+  docker-check:
+    name: Docker build (${{ matrix.app }})
+    needs: changes
+    if: ${{ needs.changes.outputs.apps != '[]' && needs.changes.outputs.apps != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.changes.outputs.apps) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.app }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: false
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}

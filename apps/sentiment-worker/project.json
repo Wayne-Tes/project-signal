@@ -1,0 +1,23 @@
+{
+  "name": "sentiment-worker",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/sentiment-worker/src",
+  "projectType": "application",
+  "tags": ["type:app", "scope:sentiment-worker"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn build", "cwd": "apps/sentiment-worker" },
+      "cache": true
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn dev", "cwd": "apps/sentiment-worker" }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn typecheck", "cwd": "apps/sentiment-worker" },
+      "cache": true
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "ingestion",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/ingestion/src",
+  "projectType": "application",
+  "tags": ["type:app", "scope:ingestion"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn build", "cwd": "apps/ingestion" },
+      "cache": true
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn dev", "cwd": "apps/ingestion" }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn typecheck", "cwd": "apps/ingestion" },
+      "cache": true
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "rootDir": ".",
+    "baseUrl": ".",
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "paths": {
+      "@project-signal/shared-types": ["libs/shared-types/src/index.ts"],
+      "@project-signal/db": ["libs/db/src/index.ts"],
+      "@project-signal/config": ["libs/config/src/index.ts"],
+      "@project-signal/gemini": ["libs/gemini/src/index.ts"],
+      "@project-signal/messaging": ["libs/messaging/src/index.ts"],
+      "@project-signal/source-adapters": ["libs/source-adapters/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "**/node_modules", "**/dist"]
+}

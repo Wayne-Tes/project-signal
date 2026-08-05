@@ -1,0 +1,37 @@
+# Explicit project name so container/volume/network names don't depend on the directory
+# the repo happens to be cloned into.
+name: project-signal
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_DB: project_signal
+      POSTGRES_USER: project_signal_app
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U project_signal_app -d project_signal']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pubsub:
+    image: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    command: >
+      gcloud beta emulators pubsub start
+      --host-port=0.0.0.0:8085
+      --project=project-signal-local
+    ports:
+      - '8085:8085'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8085']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

@@ -1,0 +1,24 @@
+{
+  "name": "@project-signal/messaging",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "dependencies": {
+    "@google-cloud/pubsub": "^4.0.0",
+    "@project-signal/config": "workspace:*",
+    "@project-signal/shared-types": "workspace:*"
+  },
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js && tsc -p tsconfig.build.json --emitDeclarationOnly"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
