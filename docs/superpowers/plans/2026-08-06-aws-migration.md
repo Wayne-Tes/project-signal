@@ -1,5 +1,24 @@
 # AWS Migration Implementation Plan
 
+> # ⚠️ SUPERSEDED — do not execute this plan as written
+>
+> **On 2026-08-06 the owner decided not to stand up GCP at all.** The system goes straight to
+> AWS. This plan was written as a _migration_ from a live GCP environment to AWS, and its
+> central constraint — the first bullet of § Global Constraints, "Nothing in this plan may break
+> the GCP environment until Phase 7" — no longer has anything to protect. There is no GCP
+> environment; there never was one under this
+> team (see `docs/KNOWN-GAPS.md` #16).
+>
+> Consequences: the Phase 1 portability refactor is largely unnecessary as scoped, the
+> `CLOUD_PROVIDER` dual-path is questionable, Phase 7's cutover and decommission tasks dissolve,
+> Cognito stops being user-visible risk, and the 31–44 day estimate is wrong.
+>
+> **Read [`docs/HANDOVER.md`](../../HANDOVER.md) first.** It records the decision, a verified
+> GCP-coupling inventory, the regression checklist, and the open questions that must be answered
+> before a replacement plan is written. Mine this document for task-level detail — the Terraform
+> module breakdowns and the Cognito task are still valuable — but write a new plan rather than
+> patching this one.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move Project Signal from GCP to AWS `eu-west-2`, without breaking the GCP staging environment that is being stood up for testing in the meantime.

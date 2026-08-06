@@ -32,7 +32,7 @@
 | 13  | Four of six views wired; Roadmap + Report remain              | 🟠 partial  | web ↔ API             |
 | 14  | ~~Hardcoded contractor fallbacks in the web client~~          | ✅ resolved | web config            |
 | 15  | ~~Working directory is not a git repository~~                 | ✅ resolved | repo                  |
-| 16  | No GCP environment provisioned                                | 🔴          | infra                 |
+| 16  | No environment provisioned anywhere — now targets AWS         | 🔴          | infra                 |
 | 17  | ~~`apps/web` build failure~~ — was local Node 24              | ✅ resolved | tooling               |
 | 18  | ~~User writes not atomic with Firebase custom claims~~        | ✅ resolved | API                   |
 | 19  | Web components use literal hex, not CSS custom properties     | 🟡          | web style             |
@@ -103,10 +103,15 @@ change: the AWS migration replaces Cloud Tasks with SQS, which covers both the q
 rate-limiting role, so `apps/ingestion` grows a queue client once — for SQS — instead of twice.
 See `docs/superpowers/plans/2026-08-06-aws-migration.md` § "KNOWN-GAPS disposition".
 
-The in-process fan-out therefore stands on GCP. Two consequences to keep in mind while testing
-there: a dispatch across many brands can exceed the Cloud Run request timeout, and a failed
-source is counted in `failed` and dropped rather than retried. Neither breaks a single-tenant
-test run, which is what GCP is being stood up for.
+**The underlying defect does not dissolve with the queue, though — carry it into the AWS plan.**
+The dispatcher's in-process `Promise.allSettled` fan-out has two properties that outlive the
+choice of queue technology: a dispatch across many brands runs inside a single HTTP request and
+can exceed the platform's request timeout, and a failed source is counted in `failed` and
+dropped rather than retried. Whatever replaces Cloud Tasks has to actually fix those; "dissolved"
+means the Cloud Tasks implementation is not being built, not that the fan-out is fine as it is.
+
+Since the owner's 2026-08-06 decision to skip GCP entirely, this code never runs on Cloud Run at
+all — the first platform it meets is AWS. See [`HANDOVER.md`](HANDOVER.md).
 
 ---
 
@@ -433,7 +438,17 @@ Identity Federation will reject the CI token.
 
 ---
 
-## 16. 🔴 No GCP environment is provisioned
+## 16. 🔴 No environment is provisioned anywhere
+
+> **Superseded in target, not in substance (2026-08-06).** The owner has decided not to stand up
+> GCP at all — the system goes straight to AWS. This gap therefore stays open and stays the
+> binding constraint, but the checklist below is now historical: it describes the GCP
+> provisioning that will not happen. The AWS equivalent has to be written as part of the new
+> implementation plan. See [`HANDOVER.md`](HANDOVER.md).
+>
+> The substance is unchanged and is the point of this entry: **no part of this system has ever
+> run in any cloud.** Everything is verified against Docker Postgres and the Pub/Sub emulator
+> only.
 
 **Where:** `infra/envs/staging.tfvars`, `infra/envs/production.tfvars`,
 `infra/bootstrap/variables.tf`.
@@ -628,10 +643,12 @@ Remaining, in dependency order:
     cleanly, three frequent values sit between tokens, and the long tail needs new tokens
     defined in `globals.css`.
 13. **#12 (remainder)** — the users UI. Blocked on #16; the API half is done and tested.
-14. **#16** — stand up the GCP environment. Now the gate on almost everything left: it unblocks
-    #12's UI, browser verification of the four newly wired views, and any visual check of #19.
-    Everything to date is developed and verified locally against Docker Postgres and the
-    Pub/Sub emulator.
+14. **#16** — stand up a real environment. **Target changed to AWS on 2026-08-06**; GCP will not
+    be provisioned. Still the gate on almost everything left: it unblocks #12's UI, browser
+    verification of the four newly wired views, and any visual check of #19. Everything to date
+    is developed and verified locally against Docker Postgres and the Pub/Sub emulator.
+    See [`HANDOVER.md`](HANDOVER.md) for the decision, the coupling inventory and the open
+    questions that must be answered before the implementation plan is written.
 
 Closed by architectural decision rather than by a fix:
 

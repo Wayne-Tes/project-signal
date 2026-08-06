@@ -4,14 +4,18 @@
 
 Follow all development rules in @DEVRULES.md
 
-| Document                                       | Why                                                                                                                                                                                                       |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete code-accurate reference — every app, lib, table, route and infra module, plus end-to-end flows and a "gotchas before you edit" section. **Read this before making changes anywhere unfamiliar.** |
-| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)     | Pipeline links that are provisioned but not connected. **Read before debugging any end-to-end flow** — several things that look broken were never wired.                                                  |
-| [`docs/PLAN.md`](docs/PLAN.md)                 | Design rationale, key decisions and epic status.                                                                                                                                                          |
+| Document                                       | Why                                                                                                                                                                                                         |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs/HANDOVER.md`](docs/HANDOVER.md)         | **Read first.** The current state of play and the live decision: GCP is abandoned, AWS is the target, work starts now. Carries the GCP-coupling inventory, the regression checklist and the open questions. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete code-accurate reference — every app, lib, table, route and infra module, plus end-to-end flows and a "gotchas before you edit" section. **Read this before making changes anywhere unfamiliar.**   |
+| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)     | Pipeline links that are provisioned but not connected. **Read before debugging any end-to-end flow** — several things that look broken were never wired.                                                    |
+| [`docs/PLAN.md`](docs/PLAN.md)                 | Design rationale, key decisions and epic status.                                                                                                                                                            |
 
-Keep all three current when you change structure, and update `ARCHITECTURE.md` in the same
+Keep all of these current when you change structure, and update `ARCHITECTURE.md` in the same
 change as the code it describes.
+
+> **`ARCHITECTURE.md`, `PLAN.md` and `SETUP.md` all describe a GCP deployment.** That is still an
+> accurate description of the code, but no longer of the destination — see `docs/HANDOVER.md` §2.
 
 ## Monorepo: NX
 
@@ -71,17 +75,19 @@ apps/
   sentiment-worker/ — Pub/Sub consumer → Gemini Flash scoring
   report-worker/    — Health-check skeleton; reporting deferred
 libs/
-  config/          — zod-validated env loader
+  config/          — zod-validated env loader; the authority on env vars
   db/              — Drizzle schema + postgres-js client
+  storage/         — ObjectStore interface + GCS implementation + factory
+  scoring/         — Brand Perception Index: decay, dimensions, clustering (pure)
   gemini/          — Vertex AI client wrapper
   messaging/       — Pub/Sub client + topic constants
   shared-types/    — Cross-service contracts
   source-adapters/ — Adapter interface + 5 implementations
-infra/             — Terraform: bootstrap / modules / stack / envs
+infra/             — Terraform: bootstrap / modules / stack / envs (GCP; see HANDOVER.md)
 ```
 
 Lib dependency order (hard-coded in `scripts/build-libs.sh`):
-`config → shared-types → db → gemini → messaging → source-adapters`.
+`config → shared-types → db → storage → scoring → gemini → messaging → source-adapters`.
 
 ## Workspace Scripts
 
