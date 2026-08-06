@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import sensible from '@fastify/sensible';
+import type { UserClaims } from '../../src/plugins/auth.js';
 
 const mockVerifyIdToken = vi.fn();
 const mockSetCustomUserClaims = vi.fn();
@@ -25,6 +26,51 @@ async function buildAuthApp() {
   await app.ready();
   return app;
 }
+
+/** Builds an app with a stubbed `request.user` and requireBrandAccess on a `/brands/:id` route. */
+async function buildBrandGuardApp(user: {
+  role: 'owner' | 'admin' | 'user';
+  brandEntityId?: string;
+}) {
+  const app = Fastify({ logger: false });
+  await app.register(sensible);
+  const { requireBrandAccess } = await import('../../src/plugins/auth.js');
+
+  app.decorateRequest<UserClaims | null>('user', null);
+  app.addHook('onRequest', async (req) => {
+    (req as unknown as { user: UserClaims }).user = { uid: 'u', tenantId: 'tenant-1', ...user };
+  });
+  app.get('/brands/:id/signals', { preHandler: requireBrandAccess }, async () => ({ ok: true }));
+  await app.ready();
+  return app;
+}
+
+describe('requireBrandAccess', () => {
+  it('allows a pinned user to reach their own brand', async () => {
+    const app = await buildBrandGuardApp({ role: 'user', brandEntityId: 'brand-1' });
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('forbids a pinned user from reaching another brand', async () => {
+    const app = await buildBrandGuardApp({ role: 'user', brandEntityId: 'brand-1' });
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/signals' });
+    expect(res.statusCode).toBe(403);
+  });
+
+  // Matches GET /brands, which returns every brand in the tenant when no pin is set.
+  it('does not constrain an unpinned user', async () => {
+    const app = await buildBrandGuardApp({ role: 'user' });
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/signals' });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it.each(['owner', 'admin'] as const)('does not constrain %s', async (role) => {
+    const app = await buildBrandGuardApp({ role, brandEntityId: 'brand-1' });
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/signals' });
+    expect(res.statusCode).toBe(200);
+  });
+});
 
 describe('auth plugin', () => {
   beforeEach(() => {

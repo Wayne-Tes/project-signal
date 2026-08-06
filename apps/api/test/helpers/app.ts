@@ -16,6 +16,14 @@ export const DEFAULT_OWNER: TestUser = {
   tenantId: 'tenant-1',
 };
 
+/** Role `user` pinned to a single brand — the case brand-scoped routes must constrain. */
+export const DEFAULT_PINNED_USER: TestUser = {
+  uid: 'user-uid',
+  role: 'user',
+  tenantId: 'tenant-1',
+  brandEntityId: 'brand-1',
+};
+
 export async function buildTestApp(
   plugin: FastifyPluginAsync | ((app: FastifyInstance) => Promise<void>),
   mockUser: TestUser = DEFAULT_ADMIN,

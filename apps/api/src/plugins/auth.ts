@@ -89,4 +89,25 @@ export const requireRole =
     }
   };
 
+/**
+ * Guard for `/brands/:id/*` routes: a `user` pinned to a brand may only read that brand.
+ *
+ * Cross-tenant isolation is enforced by the `tenant_id` filter in every query; this closes
+ * the intra-tenant hole, where changing `:id` in the URL exposed a sibling brand — including
+ * competitors tracked by the same tenant.
+ *
+ * An unpinned `user` (no `brandEntityId` claim) is deliberately NOT constrained here, which
+ * matches `GET /brands`: that route filters to the pinned brand only when the claim is set,
+ * and otherwise returns every brand in the tenant. Both routes therefore treat "no pin" as
+ * tenant-wide read access. `owner` and `admin` are never constrained.
+ */
+export const requireBrandAccess = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = request.params as { id?: string };
+  const { role, brandEntityId } = request.user;
+
+  if (role === 'user' && brandEntityId && brandEntityId !== id) {
+    return reply.forbidden('Brand access denied');
+  }
+};
+
 export default fp(authPlugin);

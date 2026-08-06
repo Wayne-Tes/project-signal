@@ -21,8 +21,8 @@
 | 2   | Scheduler calls `/reconcile`, which does not exist               | 🔴          | infra ↔ ingestion     |
 | 3   | Cloud Tasks queue provisioned but never used                     | 🟠          | ingestion             |
 | 4   | Raw payloads never written to Cloud Storage; scoring reads a URL | 🔴          | ingestion + sentiment |
-| 5   | Brand-scoped reads don't enforce `brandEntityId`                 | 🟠          | API authz             |
-| 6   | Cursor pagination has no `ORDER BY`                              | 🟠          | API correctness       |
+| 5   | ~~Brand-scoped reads don't enforce `brandEntityId`~~             | ✅ resolved | API authz             |
+| 6   | ~~Cursor pagination has no `ORDER BY`~~                          | ✅ resolved | API correctness       |
 | 7   | Topic names differ between code and Terraform                    | 🔴          | messaging             |
 | 8   | ~~Web app can't be pointed at the API at deploy time~~           | ✅ resolved | web ↔ infra           |
 | 9   | Sentiment worker swallows errors — DLQ never receives anything   | 🟠          | sentiment             |
@@ -129,40 +129,42 @@ highest-value gap on the list.
 
 ---
 
-## 5. 🟠 Brand-scoped reads don't enforce `brandEntityId`
+## 5. ✅ Brand-scoped reads don't enforce `brandEntityId` — **resolved**
 
-**Where:** `apps/api/src/routes/signals.ts` — all three handlers.
+**Where:** `apps/api/src/plugins/auth.ts`, `apps/api/src/routes/signals.ts`.
 
-`GET /brands/:id/signals`, `/sentiment-summary` and `/dimension-scores` filter on
-`request.user.tenantId` and the `:id` from the URL, but never compare `:id` against
-`request.user.brandEntityId`.
+`GET /brands/:id/signals`, `/sentiment-summary` and `/dimension-scores` filtered on
+`request.user.tenantId` and the `:id` from the URL, but never compared `:id` against
+`request.user.brandEntityId`. A user with role `user` pinned to brand A could read brand B's
+signals and sentiment — including competitor brands tracked by their tenant — by changing the
+URL. Cross-tenant isolation held; intra-tenant brand isolation did not.
 
-**Effect:** a user with role `user`, pinned to brand A, can read brand B's signals and
-sentiment by changing the URL — including competitor brands tracked by their tenant.
-Cross-tenant isolation holds; **intra-tenant brand isolation does not**. `GET /brands` _does_
-enforce it, so the restriction is visibly intended.
+**Resolved** by a shared `requireBrandAccess` preHandler in the auth plugin, applied to all
+three `/brands/:id/*` routes. It rejects with 403 when `role === 'user'` and the user's pinned
+`brandEntityId` differs from `:id`.
 
-`PLAN.md`'s Epic 5 acceptance criterion — "a signed-in user with role `user` can only access
-their assigned brand's data" — is not met.
+One deliberate nuance: an **unpinned** `user` (no `brandEntityId` claim) is not constrained.
+That matches `GET /brands`, which returns every brand in the tenant when no pin is set — both
+routes treat "no pin" as tenant-wide read access. `owner` and `admin` are never constrained.
 
-**Fix:** add a shared preHandler or helper that rejects when
-`role === 'user' && brandEntityId !== params.id`, and apply it to every `/brands/:id/*` route.
+This meets `PLAN.md`'s Epic 5 acceptance criterion.
 
 ---
 
-## 6. 🟠 Cursor pagination has no `ORDER BY`
+## 6. ✅ Cursor pagination has no `ORDER BY` — **resolved**
 
 **Where:** `apps/api/src/routes/signals.ts`, `GET /brands/:id/signals`.
 
-The query uses `gt(signals.id, cursor)` for keyset pagination but issues no `ORDER BY`.
-Postgres is free to return rows in any order, and `signals.id` is a **random UUID**, so it
-carries no meaningful sequence.
+The query used `gt(signals.id, cursor)` for keyset pagination but issued no `ORDER BY`.
+Postgres was free to return rows in any order, and `signals.id` is a random UUID carrying no
+sequence, so pages could repeat rows, skip rows, or terminate early.
 
-**Effect:** pages can repeat rows, skip rows, or terminate early. The bug is invisible at
-small row counts, which is exactly when it will be tested.
+**Resolved** with `ORDER BY published_at DESC, id DESC` and a composite cursor. The cursor is
+base64url of `<publishedAt ISO>|<id>`, and the keyset predicate is the row-value comparison
+`(published_at, id) < (cursor.publishedAt, cursor.id)`. Both columns are encoded because
+neither is a stable sort key alone — `published_at` is not unique and `id` carries no order.
 
-**Fix:** order by a stable, meaningful key — `ORDER BY published_at DESC, id DESC` — and make
-the cursor a composite of those columns.
+A malformed cursor now returns **400** rather than silently serving page one.
 
 ---
 
@@ -358,21 +360,39 @@ GCP account.
 
 ---
 
-## Suggested order of attack
+## Burn-down order
 
-If the goal is a working end-to-end MVP, the dependency order is:
+**This register is the backlog** (owner's decision, 2026-08-06 — see `DEVRULES.md` § Standing
+conflicts). It is not a list of sanctioned deferrals: no new feature work, including the AWS
+migration, starts while items remain open.
 
-1. ~~**#15** — get it into git.~~ ✅ done at handover.
-2. **#16** — stand up a GCP project and run `infra/bootstrap/`. Nothing deployable can be
-   verified until this exists. Note that the pipeline fixes below can all be developed and
-   unit-tested locally in the meantime, against Docker Postgres and the Pub/Sub emulator.
-3. **#7 → #1 → #2** — reconnect the pipeline: correct topic names, matching push endpoints,
-   the sweep endpoint. Cheap fixes, and nothing downstream can be observed until they land.
-4. **#4** — persist raw text and score it. Until this is done, every sentiment number in the
-   system is noise.
-5. **#9** — make failures visible via the DLQ, so #4's rollout is debuggable.
-6. **#5 and #6** — close the authz gap and fix pagination before the dashboard starts reading
-   real data through those endpoints.
-7. ~~**#8** — make the deployed web app configurable~~ ✅ done, then **#13** wire the views to
-   live data.
-8. **#3, #11, #12** — hardening and cleanup once the vertical slice is proven.
+Done:
+
+1. ~~**#15** — get it into git.~~ ✅ at handover.
+2. ~~**#8** — make the deployed web app configurable.~~ ✅ build args.
+3. ~~**#14** — remove hardcoded contractor fallbacks.~~ ✅ at handover.
+4. ~~**#5 and #6** — close the intra-tenant authz hole and fix pagination.~~ ✅ — taken first
+   because #5 was a live security defect, and both live in the same file.
+
+Remaining, in dependency order:
+
+5. **#7 → #2** — reconnect the pipeline: topic names from env, then the sweep endpoint.
+   Cheap, and nothing downstream is observable until they land.
+6. **#4** — persist raw text and score it. Until this is done every sentiment number in the
+   system is noise, so it gates any judgement about output quality.
+7. **#9** — make failures visible via the DLQ, so #4's rollout is debuggable.
+8. **#11** — decide the denormalised sentiment columns before anything starts writing them.
+9. **#12** — admin role gating and the users UI.
+10. **#13** — wire the six mock-data views to the live API. The largest single item.
+11. **#16** — stand up the GCP environment. Ordered here rather than first because every fix
+    above is developed and unit-tested locally against Docker Postgres and the Pub/Sub
+    emulator; the environment is needed to _verify_ the pipeline end to end, not to build it.
+
+Closed by architectural decision rather than by a fix — the AWS migration dissolves them, so
+paying them down on GCP is waste, not rigour:
+
+- **#1** (push endpoint mismatch) — SQS is pulled; there is no push endpoint to mismatch.
+- **#3** (Cloud Tasks provisioned but unused) — SQS covers both roles.
+
+Not debt: **#10** (`dimension_scores` never written) is the Epic 11 scoring engine, a feature
+not yet built. The table and read endpoint exist so the dashboard can query them.
