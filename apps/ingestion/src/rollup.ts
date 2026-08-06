@@ -1,10 +1,5 @@
 import { db, brandEntities, signals, sentimentResults } from '@project-signal/db';
-import {
-  DEFAULT_DIMENSION_WEIGHTS,
-  HALF_LIFE_DAYS,
-  scoreAllDimensions,
-  type ScoredItem,
-} from '@project-signal/scoring';
+import { HALF_LIFE_DAYS, scoreAllDimensions, type ScoredItem } from '@project-signal/scoring';
 import type { Dimension, SentimentLabel } from '@project-signal/shared-types';
 import { and, eq, gte } from 'drizzle-orm';
 import { dimensionScores } from '@project-signal/db';
@@ -23,27 +18,6 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** `date` columns are plain dates; normalise to YYYY-MM-DD in UTC. */
 function toDateKey(d: Date): string {
   return d.toISOString().slice(0, 10);
-}
-
-/**
- * Reads a brand's configured Brand Perception Index weights.
- *
- * `dimension_weights` is operator-supplied jsonb, so it is validated rather than trusted: any
- * non-numeric, negative or non-finite entry is dropped, and an empty result falls back to the
- * equal default. A malformed weight silently skewing a customer's headline score would be worse
- * than ignoring it.
- */
-export function parseWeights(raw: unknown): Readonly<Partial<Record<Dimension, number>>> {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return DEFAULT_DIMENSION_WEIGHTS;
-
-  const parsed: Partial<Record<Dimension, number>> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
-    if (!(key in DEFAULT_DIMENSION_WEIGHTS)) continue;
-    parsed[key as Dimension] = value;
-  }
-
-  return Object.keys(parsed).length > 0 ? parsed : DEFAULT_DIMENSION_WEIGHTS;
 }
 
 /**

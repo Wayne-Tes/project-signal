@@ -9,6 +9,7 @@ import authPlugin from './plugins/auth.js';
 import usersRoutes from './routes/users.js';
 import brandsRoutes from './routes/brands.js';
 import signalsRoutes from './routes/signals.js';
+import scoresRoutes from './routes/scores.js';
 import { integrationsRoutes } from './routes/integrations.js';
 import { aliasesRoutes } from './routes/aliases.js';
 import { adminRoutes } from './routes/admin.js';
@@ -58,6 +59,7 @@ const start = async () => {
     await app.register(usersRoutes);
     await app.register(brandsRoutes);
     await app.register(signalsRoutes);
+    await app.register(scoresRoutes);
     await app.register(integrationsRoutes);
     await app.register(aliasesRoutes);
     await app.register(adminRoutes);

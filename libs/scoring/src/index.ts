@@ -17,3 +17,5 @@ export {
   scoreDimension,
   toIndex,
 } from './score.js';
+
+export { parseWeights } from './weights.js';

@@ -282,10 +282,21 @@ Cloud Run service for a nightly aggregation.
 | Recency decay                      | recent −1 vs 180-day-old +1 in one dimension → **20.00**, matching `(1×−1 + 0.25×1)/1.25 = −0.6`. An unweighted mean would have scored 50. |
 | Idempotency                        | 3 rows before a second run, 3 after — upsert, not duplicate                                                                                |
 
-**Still outstanding in Epic 11.** `compositeScore`, `clusterTopics` and `achillesHeels` are
-implemented and unit-tested but have no API endpoint yet, so the BPI headline number and the
-Achilles Heel ranking are not readable by the dashboard. #13 needs those before Dashboard,
-Achilles and Competitors can be wired.
+**Read endpoints added.** `GET /brands/:id/score` returns the composite for the latest rollup
+with its per-dimension breakdown and the comparison point at least seven days earlier;
+`GET /brands/:id/achilles` returns the top damage-ranked topic clusters, computed on read;
+`GET /brands/:id/dimension-scores` now takes `from`/`to` and defaults to 90 days, which it
+needed once the table started growing daily. All three live in `apps/api/src/routes/scores.ts`.
+
+Verified live against real Postgres with per-brand weights `{trust: 0.75, quality: 0.25}`:
+
+| Endpoint                    | Result                                                              |
+| --------------------------- | ------------------------------------------------------------------- |
+| `/score`                    | `31.25` = `.75×10 + .25×95`; previous `45` = `.75×40 + .25×60`      |
+| `/score` comparison         | picked the 9-day-old rollup, correctly skipping a 5-day-old one     |
+| `/dimension-scores`         | 4 rows across 2 dates, ordered by date then dimension               |
+| `/dimension-scores?from&to` | narrowed to the requested day only                                  |
+| `/achilles`                 | `fees` damage `3.969` = `volume 5 × negativity 0.8 × recency 0.992` |
 
 ---
 

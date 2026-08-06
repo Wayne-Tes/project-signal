@@ -150,7 +150,7 @@ describe('GET /brands/:id/signals', () => {
 // KNOWN-GAPS #5 — cross-tenant isolation held, but a `user` pinned to brand A could read
 // brand B's data inside the same tenant by changing the URL.
 describe('brand-scoped authorisation', () => {
-  const routes = ['signals', 'sentiment-summary', 'dimension-scores'] as const;
+  const routes = ['signals', 'sentiment-summary'] as const;
 
   for (const route of routes) {
     it(`allows a pinned user to read their own brand's ${route}`, async () => {
@@ -239,20 +239,5 @@ describe('GET /brands/:id/sentiment-summary', () => {
     const body = JSON.parse(res.body);
     expect(body.totalCount).toBe(0);
     expect(body.avgScore).toBeNull();
-  });
-});
-
-describe('GET /brands/:id/dimension-scores', () => {
-  it('returns dimension scores for a brand', async () => {
-    _dbRows = [
-      { dimension: 'trust', score: 78.5, date: '2024-01-01', signalCount: 5 },
-      { dimension: 'quality', score: 82.0, date: '2024-01-01', signalCount: 5 },
-    ];
-    const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/dimension-scores' });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    expect(body).toHaveLength(2);
-    expect(body[0].dimension).toBe('trust');
   });
 });

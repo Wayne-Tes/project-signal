@@ -5187,6 +5187,7 @@ __metadata:
     "@fastify/swagger-ui": "npm:^5.2.6"
     "@project-signal/config": "workspace:*"
     "@project-signal/db": "workspace:*"
+    "@project-signal/scoring": "workspace:*"
     "@project-signal/shared-types": "workspace:*"
     drizzle-kit: "npm:^0.28.0"
     drizzle-orm: "npm:^0.45.2"

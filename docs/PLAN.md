@@ -325,9 +325,14 @@ and topic-cluster damage scoring. `POST /rollup` on ingestion writes daily rollu
 `GET /brands/:id/dimension-scores` now returns real data. Per-brand weights live in
 `brand_entities.dimension_weights`.
 
-**Outstanding:** the composite (BPI) and the Achilles Heel ranking are implemented and tested
-in the library but have no API endpoint, so the dashboard cannot read them yet. That is the
-remaining blocker on Epic 6 / KNOWN-GAPS #13.
+Read endpoints follow in `apps/api/src/routes/scores.ts`: `GET /brands/:id/score` (composite +
+breakdown + week-earlier comparison), `GET /brands/:id/achilles` (damage-ranked clusters), and
+a date-ranged `GET /brands/:id/dimension-scores`.
+
+**Outstanding:** topic clusters are computed on read rather than persisted, so there is no
+cluster history and no drill-down from a cluster to its underlying signals — the DrillDown view
+will need one. The action roadmap (`PS_ROADMAP`) has no producer at all; nothing in Epics 11–13
+generates prioritised recommendations, so that view stays on mock data until it is specified.
 
 ### Epic 12 — Reporting
 

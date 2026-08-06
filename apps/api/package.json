@@ -20,6 +20,7 @@
     "@fastify/swagger-ui": "^5.2.6",
     "@project-signal/config": "workspace:*",
     "@project-signal/db": "workspace:*",
+    "@project-signal/scoring": "workspace:*",
     "@project-signal/shared-types": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.0.0",

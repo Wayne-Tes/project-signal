@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { db, signals, sentimentResults, dimensionScores } from '@project-signal/db';
+import { db, signals, sentimentResults } from '@project-signal/db';
 import { and, desc, eq, gt, lt, or, count, avg, sql, type SQL } from 'drizzle-orm';
 import { requireBrandAccess } from '../plugins/auth.js';
 
@@ -199,50 +199,6 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
         avgScore: row?.avgScore != null ? Number(row.avgScore) : null,
         period: `${SENTIMENT_PERIOD_DAYS}d`,
       };
-    },
-  );
-
-  fastify.get(
-    '/brands/:id/dimension-scores',
-    {
-      preHandler: requireBrandAccess,
-      schema: {
-        security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
-        response: {
-          200: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                dimension: { type: 'string' },
-                score: { type: 'number' },
-                date: { type: 'string' },
-                signalCount: { type: 'integer' },
-              },
-            },
-          },
-        },
-      },
-    },
-    async (request) => {
-      const { id } = request.params as { id: string };
-
-      return db
-        .get()
-        .select({
-          dimension: dimensionScores.dimension,
-          score: dimensionScores.score,
-          date: dimensionScores.date,
-          signalCount: dimensionScores.signalCount,
-        })
-        .from(dimensionScores)
-        .where(
-          and(
-            eq(dimensionScores.tenantId, request.user.tenantId),
-            eq(dimensionScores.brandEntityId, id),
-          ),
-        );
     },
   );
 };

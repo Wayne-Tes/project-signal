@@ -37,7 +37,7 @@ vi.mock('@project-signal/db', () => {
   };
 });
 
-import { parseWeights, rollupDimensionScores } from '../src/rollup.js';
+import { rollupDimensionScores } from '../src/rollup.js';
 
 const ASOF = new Date('2026-08-06T12:00:00.000Z');
 
@@ -46,35 +46,6 @@ beforeEach(() => {
   _brands = [];
   _scored = [];
   vi.clearAllMocks();
-});
-
-describe('parseWeights', () => {
-  it('falls back to the equal default when unset', () => {
-    expect(parseWeights(null).trust).toBeCloseTo(0.2, 10);
-  });
-
-  it('accepts a valid per-brand configuration', () => {
-    expect(parseWeights({ trust: 0.5, quality: 0.5 })).toEqual({ trust: 0.5, quality: 0.5 });
-  });
-
-  // Operator-supplied jsonb: a malformed weight must not skew a customer's headline score.
-  it('drops negative, zero, non-finite and non-numeric entries', () => {
-    expect(parseWeights({ trust: -1, quality: 0, service: 'high', value: NaN })).toEqual(
-      expect.objectContaining({ trust: 0.2 }),
-    );
-  });
-
-  it('ignores keys that are not dimensions', () => {
-    expect(parseWeights({ trust: 0.5, nonsense: 0.5 })).toEqual({ trust: 0.5 });
-  });
-
-  it('falls back to the default when nothing valid survives', () => {
-    expect(parseWeights({ nonsense: 1 }).experience).toBeCloseTo(0.2, 10);
-  });
-
-  it('ignores an array, which is a valid JSON value but not a weight map', () => {
-    expect(parseWeights([1, 2, 3]).trust).toBeCloseTo(0.2, 10);
-  });
 });
 
 describe('rollupDimensionScores', () => {
