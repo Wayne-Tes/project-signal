@@ -37,7 +37,10 @@ resource "google_pubsub_subscription" "item" {
   ack_deadline_seconds = 60
 
   push_config {
-    push_endpoint = "${var.sentiment_push_url}/events"
+    # Must match the route the worker actually serves (apps/sentiment-worker/src/main.ts).
+    # This was `/events`, which the worker has never served: every message 404'd, retried
+    # five times and dead-lettered, so no signal was ever scored in a deployed environment.
+    push_endpoint = "${var.sentiment_push_url}/pubsub/item"
     oidc_token {
       service_account_email = var.push_invoker_sa_email
       audience              = var.sentiment_push_url
@@ -55,14 +58,20 @@ resource "google_pubsub_subscription" "item" {
   }
 }
 
+# Not created by default. report-worker is a health-check skeleton with no POST route at all
+# (reporting is Epic 12), so a push subscription would 404 every weekly trigger, burn five
+# delivery attempts and dead-letter it. The topic still exists so Cloud Scheduler has
+# somewhere to publish; enable this once the worker serves /pubsub/report.
 resource "google_pubsub_subscription" "report" {
+  count = var.enable_report_subscription ? 1 : 0
+
   project              = var.project_id
   name                 = "${var.name_prefix}-report-sub"
   topic                = google_pubsub_topic.report.id
   ack_deadline_seconds = 60
 
   push_config {
-    push_endpoint = "${var.report_push_url}/events"
+    push_endpoint = "${var.report_push_url}/pubsub/report"
     oidc_token {
       service_account_email = var.push_invoker_sa_email
       audience              = var.report_push_url
@@ -134,8 +143,10 @@ resource "google_pubsub_subscription_iam_member" "item_sub_subscriber" {
 }
 
 resource "google_pubsub_subscription_iam_member" "report_sub_subscriber" {
+  count = var.enable_report_subscription ? 1 : 0
+
   project      = var.project_id
-  subscription = google_pubsub_subscription.report.name
+  subscription = google_pubsub_subscription.report[0].name
   role         = "roles/pubsub.subscriber"
   member       = local.pubsub_sa
 }

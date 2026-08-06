@@ -1,5 +1,6 @@
-import { db, brandEntities, signals, sourceConfigs } from '@project-signal/db';
-import { getPubSub, TOPICS } from '@project-signal/messaging';
+import { db, brandEntities, signals, sentimentResults, sourceConfigs } from '@project-signal/db';
+import { getPubSub, topicName } from '@project-signal/messaging';
+import { getObjectStore, rawKey } from '@project-signal/storage';
 import { getEnv } from '@project-signal/config';
 import {
   GoogleReviewsAdapter,
@@ -9,8 +10,11 @@ import {
   YoutubeAdapter,
 } from '@project-signal/source-adapters';
 import type { AdapterConfig } from '@project-signal/source-adapters';
-import { eq, and, max } from 'drizzle-orm';
+import { eq, and, isNull, max } from 'drizzle-orm';
 import type { SignalSource } from '@project-signal/shared-types';
+
+/** Bounds one sweep so a large backlog cannot exceed the Cloud Run request timeout. */
+const RECONCILE_LIMIT = 500;
 
 const ADAPTERS = {
   google_reviews: new GoogleReviewsAdapter(),
@@ -30,24 +34,63 @@ function getSystemCredentials(source: string): Record<string, string> {
   return {};
 }
 
-async function getLastIngestedAt(brandEntityId: string, source: SignalSource): Promise<Date | undefined> {
-  const [row] = await db.get()
+async function getLastIngestedAt(
+  brandEntityId: string,
+  source: SignalSource,
+): Promise<Date | undefined> {
+  const [row] = await db
+    .get()
     .select({ latest: max(signals.publishedAt) })
     .from(signals)
     .where(and(eq(signals.brandEntityId, brandEntityId), eq(signals.source, source)));
   return row?.latest ?? undefined;
 }
 
+/**
+ * Re-publishes signals that were persisted but never scored.
+ *
+ * The safety net for a failed dual-write: a signal row commits, then the Pub/Sub publish
+ * fails, and nothing ever scores it. Cloud Scheduler calls this hourly (KNOWN-GAPS #2 — the
+ * job existed and 404'd because the endpoint did not).
+ *
+ * Idempotent by construction: it selects only signals with no `sentiment_results` row, so a
+ * signal already scored is never re-published, and re-running immediately is a no-op.
+ */
+export async function reconcilePendingSignals(
+  limit = RECONCILE_LIMIT,
+): Promise<{ pending: number; published: number }> {
+  const pending = await db
+    .get()
+    .select({ id: signals.id })
+    .from(signals)
+    .leftJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
+    .where(isNull(sentimentResults.signalId))
+    .limit(limit);
+
+  const pubsub = getPubSub();
+  const topic = pubsub.topic(topicName('item'));
+
+  let published = 0;
+  for (const { id } of pending) {
+    await topic.publishMessage({ data: Buffer.from(id) });
+    published++;
+  }
+
+  return { pending: pending.length, published };
+}
+
 export async function handleIngestionJob(
   sourceConfigId: string,
 ): Promise<{ signalsCreated: number; signalsPublished: number }> {
-  const [cfg] = await db.get()
+  const [cfg] = await db
+    .get()
     .select()
     .from(sourceConfigs)
     .where(eq(sourceConfigs.id, sourceConfigId));
   if (!cfg) throw new Error(`source_config not found: ${sourceConfigId}`);
 
-  const [brand] = await db.get()
+  const [brand] = await db
+    .get()
     .select()
     .from(brandEntities)
     .where(eq(brandEntities.id, cfg.brandEntityId));
@@ -69,12 +112,31 @@ export async function handleIngestionJob(
 
   let signalsCreated = 0;
   const createdIds: string[] = [];
+  const store = getObjectStore();
 
   for (const item of items) {
     const base = adapter.toSignal(item, adapterConfig);
-    const inserted = await db.get()
+
+    // Persist the verbatim payload BEFORE the row, so raw_storage_ref can never point at an
+    // object that does not exist. The reverse order would leave rows whose evidence is
+    // unresolvable if the upload fails. This is the audit trail the product spec promises,
+    // and the text the sentiment worker scores.
+    const rawStorageRef = await store.put(
+      rawKey(cfg.tenantId, cfg.brandEntityId, cfg.source, item.externalId),
+      JSON.stringify({
+        externalId: item.externalId,
+        url: item.url,
+        text: item.text,
+        publishedAt: item.publishedAt,
+        metadata: item.metadata,
+        fetchedAt: new Date().toISOString(),
+      }),
+    );
+
+    const inserted = await db
+      .get()
       .insert(signals)
-      .values({ ...base, rawStorageRef: item.url, publishedAt: item.publishedAt })
+      .values({ ...base, rawStorageRef, publishedAt: item.publishedAt })
       .onConflictDoNothing()
       .returning({ id: signals.id });
 
@@ -85,12 +147,13 @@ export async function handleIngestionJob(
   }
 
   const pubsub = getPubSub();
-  const topic = pubsub.topic(TOPICS.ITEM_QUEUE);
+  const topic = pubsub.topic(topicName('item'));
   for (const id of createdIds) {
     await topic.publishMessage({ data: Buffer.from(id) });
   }
 
-  await db.get()
+  await db
+    .get()
     .update(sourceConfigs)
     .set({ lastFetchedAt: new Date(), updatedAt: new Date() })
     .where(eq(sourceConfigs.id, sourceConfigId));

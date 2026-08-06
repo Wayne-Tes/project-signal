@@ -15,6 +15,7 @@ export default {
         "config",
         "gemini",
         "messaging",
+        "storage",
         "source-adapters",
         "infra",
         "ci",

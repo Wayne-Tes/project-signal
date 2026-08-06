@@ -76,7 +76,8 @@ project-signal/
 │   ├── config/               zod-validated env loader
 │   ├── db/                   Drizzle schema + postgres-js client
 │   ├── gemini/               Vertex AI client wrapper
-│   ├── messaging/            Pub/Sub client + topic-name constants
+│   ├── messaging/            Pub/Sub client + env-resolved topic names
+│   ├── storage/              ObjectStore interface + GCS implementation
 │   └── source-adapters/      Adapter interface + 5 implementations
 ├── infra/
 │   ├── bootstrap/            One-shot: APIs, TF state bucket, Workload Identity Federation
@@ -92,7 +93,7 @@ project-signal/
 order (which `scripts/build-libs.sh` hard-codes):
 
 ```
-config → shared-types → db → gemini → messaging → source-adapters
+config → shared-types → db → storage → gemini → messaging → source-adapters
 ```
 
 No app imports another app. Workers talk to Postgres **directly** via `libs/db` rather than
@@ -157,8 +158,8 @@ All ids are `uuid` with `defaultRandom()`. All timestamps are `timestamptz`.
 
 **`users`** — mirrors Identity Platform users so the admin UI can list/manage them.
 `firebase_uid` (**unique**), `tenant_id` → tenants, `role` varchar(20), `brand_entity_id`
-(nullable) → brand_entities, timestamps.
-Role is _also_ stored as a Firebase custom claim — the claim is what authorises requests; this
+(nullable) → brand*entities, timestamps.
+Role is \_also* stored as a Firebase custom claim — the claim is what authorises requests; this
 table exists for management UI and audit.
 
 **`brand_aliases`** — alternative names/abbreviations so ingestion and scoring can match
@@ -275,19 +276,38 @@ Thin Vertex AI wrapper: `getVertexAI()` (memoised, configured with project + loc
 ### `libs/messaging`
 
 Memoised `getPubSub()` client — automatically targets the emulator when
-`PUBSUB_EMULATOR_HOST` is set — and a `TOPICS` constant:
+`PUBSUB_EMULATOR_HOST` is set — plus `topicName(logical)`, which is how topic names must be
+resolved:
 
 ```ts
-TOPICS = {
-  ITEM_QUEUE: 'project-signal-item-queue',
-  ITEM_DLQ: 'project-signal-item-dlq',
-  REPORT_QUEUE: 'project-signal-report-queue',
-  REPORT_DLQ: 'project-signal-report-dlq',
-};
+topicName('item'); // ITEM_TOPIC from env, else TOPICS.ITEM_QUEUE
+topicName('report'); // REPORT_TOPIC from env, else TOPICS.REPORT_QUEUE
 ```
 
-> ⚠️ These names do **not** match the topics Terraform creates (`<env>-item`, `<env>-item-dlq`,
-> …). See `KNOWN-GAPS.md`.
+The `TOPICS` constants are **local-development names only**, used against the emulator.
+Terraform creates `<env>-item` / `<env>-report` and injects them as `ITEM_TOPIC` /
+`REPORT_TOPIC`. Publishing to a `TOPICS` constant in a deployed environment targets a topic
+that does not exist — always go through `topicName()`. An empty-string env override is treated
+as unset.
+
+### `libs/storage`
+
+Object storage for raw ingested payloads, behind a deliberately narrow interface:
+
+```ts
+interface ObjectStore {
+  put(key: string, body: string, contentType?: string): Promise<string>; // → gs://… | s3://…
+  get(key: string): Promise<string>;
+}
+```
+
+`getObjectStore()` returns a memoised `GcsObjectStore` built from `RAW_BUCKET`, throwing a
+named error if it is unset. `rawKey(tenant, brand, source, externalId)` builds the deterministic
+key (percent-encoding `externalId`, which can contain slashes); `keyFromRef()` parses a stored
+reference back to a key and accepts both `gs://` and `s3://`.
+
+Two methods is the whole surface, so the AWS migration's `S3ObjectStore` drops in behind
+`getObjectStore()` without touching a caller.
 
 ### `libs/source-adapters`
 
@@ -461,10 +481,15 @@ broken connection fails fast rather than at first request.
 4. Build `AdapterConfig.credentials` by merging `getSystemCredentials(source)` (env-derived
    API keys) **over** by the row's JSONB `config` (placeId, feedUrl, appId, …).
 5. `adapter.fetch(config, since)`.
-6. For each item: insert into `signals` with `onConflictDoNothing()`. The
-   `(source_url, brand_entity_id)` unique constraint does the deduplication; `.returning()`
-   is empty for a duplicate, so only genuinely new rows are collected.
-7. Publish one Pub/Sub message per **newly created** signal id to `TOPICS.ITEM_QUEUE`
+6. For each item: upload the verbatim payload (text + metadata) to
+   `gs://<RAW_BUCKET>/<tenant>/<brand>/<source>/<externalId>.json` via `getObjectStore()`,
+   **then** insert into `signals` with the returned `gs://` reference and
+   `onConflictDoNothing()`. Upload-before-insert means `raw_storage_ref` can never point at a
+   missing object. The `(source_url, brand_entity_id)` unique constraint does the
+   deduplication; `.returning()` is empty for a duplicate, so only genuinely new rows are
+   collected.
+7. Publish one Pub/Sub message per **newly created** signal id to `topicName('item')` — which
+   resolves `ITEM_TOPIC` from the environment, NOT the local-dev `TOPICS` constant
    (payload = the raw uuid as a Buffer).
 8. Stamp `last_fetched_at` / `updated_at` on the `source_config`.
 9. Return `{ signalsCreated, signalsPublished }`.

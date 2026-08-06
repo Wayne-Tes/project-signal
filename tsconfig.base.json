@@ -20,6 +20,7 @@
       "@project-signal/config": ["libs/config/src/index.ts"],
       "@project-signal/gemini": ["libs/gemini/src/index.ts"],
       "@project-signal/messaging": ["libs/messaging/src/index.ts"],
+      "@project-signal/storage": ["libs/storage/src/index.ts"],
       "@project-signal/source-adapters": ["libs/source-adapters/src/index.ts"]
     }
   },

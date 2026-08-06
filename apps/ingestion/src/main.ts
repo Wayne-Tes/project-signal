@@ -3,7 +3,7 @@ import { getPubSub } from '@project-signal/messaging';
 import { getEnv } from '@project-signal/config';
 import { eq } from 'drizzle-orm';
 import Fastify from 'fastify';
-import { handleIngestionJob } from './handler.js';
+import { handleIngestionJob, reconcilePendingSignals } from './handler.js';
 
 const app = Fastify({ logger: true });
 
@@ -33,6 +33,13 @@ app.post('/ingest/dispatch', async (_request, reply) => {
       failed: results.filter((r) => r.status === 'rejected').length,
     },
   });
+});
+
+// Hourly pending sweep (Cloud Scheduler). Re-publishes signals that were persisted but never
+// scored — the safety net for a failed dual-write.
+app.post('/reconcile', async (_request, reply) => {
+  const result = await reconcilePendingSignals();
+  return reply.status(200).send({ status: 'ok', data: result });
 });
 
 const start = async () => {

@@ -18,6 +18,11 @@ const envSchema = z
     // (safe here because auth is Bearer-token only, with no cookies/ambient credentials).
     CORS_ORIGINS: z.string().optional(),
     PUBSUB_EMULATOR_HOST: z.string().optional(),
+    // Concrete Pub/Sub topic names, injected per environment by Terraform (`<env>-item`).
+    // Resolved through topicName() in @project-signal/messaging, which falls back to the
+    // local-dev constants when these are unset.
+    ITEM_TOPIC: z.string().optional(),
+    REPORT_TOPIC: z.string().optional(),
     VERTEX_AI_LOCATION: z.string().default('europe-west2'),
     // Both default to 2.5 Flash: it is the only Gemini model available in europe-west2, which
     // is where VERTEX_AI_LOCATION is pinned. The 2.0 defaults these replace were retired on
@@ -25,6 +30,10 @@ const envSchema = z
     // means moving inference to europe-west1/west4 or the EU multi-region. See docs/SETUP.md §8.
     SCORER_MODEL: z.string().default('gemini-2.5-flash'),
     REPORTER_MODEL: z.string().default('gemini-2.5-flash'),
+    // Cloud Storage buckets, injected per environment by Terraform. RAW_BUCKET holds the
+    // verbatim ingested payloads that sentiment scoring reads back.
+    RAW_BUCKET: z.string().optional(),
+    REPORTS_BUCKET: z.string().optional(),
     // System-level credentials for ingestion adapters — one key shared across all tenants.
     APIFY_API_KEY: z.string().optional(),
     YOUTUBE_API_KEY: z.string().optional(),

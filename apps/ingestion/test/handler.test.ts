@@ -1,34 +1,50 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockPublishMessage, mockTopic, mockFetch, mockToSignal } = vi.hoisted(() => ({
+const { mockPublishMessage, mockTopic, mockFetch, mockToSignal, mockPut } = vi.hoisted(() => ({
   mockPublishMessage: vi.fn().mockResolvedValue('msg-id'),
   mockTopic: vi.fn(),
   mockFetch: vi.fn(),
   mockToSignal: vi.fn(),
+  mockPut: vi.fn(),
 }));
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
   let _rows: unknown[] = [];
   const queue: unknown[][] = [];
-  ['select', 'from', 'where', 'insert', 'values', 'update', 'set']
-    .forEach(m => { chain[m] = vi.fn(() => chain); });
+  ['select', 'from', 'where', 'insert', 'values', 'update', 'set', 'leftJoin', 'limit'].forEach(
+    (m) => {
+      chain[m] = vi.fn(() => chain);
+    },
+  );
   const nextRows = () => (queue.length ? queue.shift()! : _rows);
   chain['onConflictDoNothing'] = vi.fn(() => chain);
   chain['returning'] = vi.fn(() => Promise.resolve(nextRows()));
-  chain['then'] = (r: unknown, j?: unknown) => Promise.resolve(nextRows()).then(r as never, j as never);
-  (chain as any)._setRows = (rows: unknown[]) => { _rows = rows; };
+  chain['then'] = (r: unknown, j?: unknown) =>
+    Promise.resolve(nextRows()).then(r as never, j as never);
+  (chain as any)._setRows = (rows: unknown[]) => {
+    _rows = rows;
+  };
   (chain as any)._queue = queue;
   return {
     db: { get: vi.fn(() => chain) },
-    brandEntities: {}, signals: {}, sourceConfigs: {},
+    brandEntities: {},
+    signals: {},
+    sentimentResults: {},
+    sourceConfigs: {},
     client: { get: vi.fn() },
   };
 });
 
 vi.mock('@project-signal/messaging', () => ({
-  getPubSub: vi.fn(() => ({ topic: () => ({ publishMessage: mockPublishMessage }) })),
-  TOPICS: { ITEM_QUEUE: 'item-queue' },
+  getPubSub: vi.fn(() => ({ topic: mockTopic })),
+  topicName: vi.fn(() => 'staging-item'),
+  TOPICS: { ITEM_QUEUE: 'project-signal-item-queue' },
+}));
+
+vi.mock('@project-signal/storage', () => ({
+  getObjectStore: vi.fn(() => ({ put: mockPut, get: vi.fn() })),
+  rawKey: (t: string, b: string, s: string, e: string) => `${t}/${b}/${s}/${e}.json`,
 }));
 
 vi.mock('@project-signal/config', () => ({
@@ -52,7 +68,7 @@ vi.mock('@project-signal/source-adapters', () => {
   };
 });
 
-import { handleIngestionJob } from '../src/handler.js';
+import { handleIngestionJob, reconcilePendingSignals } from '../src/handler.js';
 
 const now = new Date();
 const cfg = {
@@ -66,10 +82,20 @@ const cfg = {
   createdAt: now,
   updatedAt: now,
 };
-const brand = { id: 'brand-1', tenantId: 'tenant-1', name: 'Acme', slug: 'acme', isOwned: true, createdAt: now, updatedAt: now };
+const brand = {
+  id: 'brand-1',
+  tenantId: 'tenant-1',
+  name: 'Acme',
+  slug: 'acme',
+  isOwned: true,
+  createdAt: now,
+  updatedAt: now,
+};
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  mockPut.mockResolvedValue('gs://raw/t/b/s/x.json');
+  mockTopic.mockReturnValue({ publishMessage: mockPublishMessage });
   const { db } = await import('@project-signal/db');
   const chain = db.get() as any;
   chain._setRows([]);
@@ -85,13 +111,106 @@ describe('handleIngestionJob', () => {
     chain.returning.mockResolvedValue([]);
 
     mockFetch.mockResolvedValue({ items: [{ url: 'https://example.com/r/1', publishedAt: now }] });
-    mockToSignal.mockReturnValue({ brandEntityId: 'brand-1', tenantId: 'tenant-1', source: 'google_reviews' });
+    mockToSignal.mockReturnValue({
+      brandEntityId: 'brand-1',
+      tenantId: 'tenant-1',
+      source: 'google_reviews',
+    });
 
     const result = await handleIngestionJob('cfg-1');
 
     expect(result.signalsCreated).toBe(1);
     expect(result.signalsPublished).toBe(1);
     expect(mockPublishMessage).toHaveBeenCalledWith({ data: Buffer.from('signal-new-1') });
+  });
+
+  // KNOWN-GAPS #7 — publishing to the hardcoded constant targeted a topic Terraform never
+  // created. The name must come from topicName(), which reads ITEM_TOPIC.
+  it('publishes to the topic resolved from the environment, not the local constant', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValueOnce([{ id: 'signal-new-1' }]);
+    chain.returning.mockResolvedValue([]);
+
+    mockFetch.mockResolvedValue({ items: [{ url: 'https://example.com/r/1', publishedAt: now }] });
+    mockToSignal.mockReturnValue({
+      brandEntityId: 'brand-1',
+      tenantId: 'tenant-1',
+      source: 'google_reviews',
+    });
+
+    await handleIngestionJob('cfg-1');
+
+    expect(mockTopic).toHaveBeenCalledWith('staging-item');
+    expect(mockTopic).not.toHaveBeenCalledWith('project-signal-item-queue');
+  });
+
+  // KNOWN-GAPS #4 — rawStorageRef held item.url and the fetched text was discarded, so the
+  // audit trail was empty and scoring had nothing real to read.
+  it('stores the raw payload and persists the returned reference, not the source URL', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValueOnce([{ id: 'signal-new-1' }]);
+    chain.returning.mockResolvedValue([]);
+
+    mockPut.mockResolvedValue('gs://raw/tenant-1/brand-1/google_reviews/ext-1.json');
+    mockFetch.mockResolvedValue({
+      items: [
+        {
+          externalId: 'ext-1',
+          url: 'https://example.com/r/1',
+          text: 'The app keeps crashing.',
+          publishedAt: now,
+          metadata: { rating: 1 },
+        },
+      ],
+    });
+    mockToSignal.mockReturnValue({
+      brandEntityId: 'brand-1',
+      tenantId: 'tenant-1',
+      source: 'google_reviews',
+    });
+
+    await handleIngestionJob('cfg-1');
+
+    expect(mockPut).toHaveBeenCalledOnce();
+    const [key, body] = mockPut.mock.calls[0]!;
+    expect(key).toBe('tenant-1/brand-1/google_reviews/ext-1.json');
+    expect(JSON.parse(body as string)).toMatchObject({
+      externalId: 'ext-1',
+      url: 'https://example.com/r/1',
+      text: 'The app keeps crashing.',
+      metadata: { rating: 1 },
+    });
+
+    expect(chain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rawStorageRef: 'gs://raw/tenant-1/brand-1/google_reviews/ext-1.json',
+      }),
+    );
+  });
+
+  it('does not insert a signal row when the raw upload fails', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+
+    mockPut.mockRejectedValue(new Error('bucket unavailable'));
+    mockFetch.mockResolvedValue({
+      items: [
+        { externalId: 'ext-1', url: 'https://e.com/1', text: 'x', publishedAt: now, metadata: {} },
+      ],
+    });
+    mockToSignal.mockReturnValue({
+      brandEntityId: 'brand-1',
+      tenantId: 'tenant-1',
+      source: 'google_reviews',
+    });
+
+    await expect(handleIngestionJob('cfg-1')).rejects.toThrow('bucket unavailable');
+    expect(chain.insert).not.toHaveBeenCalled();
   });
 
   it('throws when source config is not found', async () => {
@@ -129,7 +248,11 @@ describe('handleIngestionJob', () => {
     chain.returning.mockResolvedValue([]);
 
     mockFetch.mockResolvedValue({ items: [{ url: 'https://dup.com', publishedAt: now }] });
-    mockToSignal.mockReturnValue({ brandEntityId: 'brand-1', tenantId: 'tenant-1', source: 'google_reviews' });
+    mockToSignal.mockReturnValue({
+      brandEntityId: 'brand-1',
+      tenantId: 'tenant-1',
+      source: 'google_reviews',
+    });
 
     const result = await handleIngestionJob('cfg-1');
     expect(result.signalsCreated).toBe(0);
@@ -147,7 +270,9 @@ describe('getSystemCredentials (via handler behaviour)', () => {
     await handleIngestionJob('cfg-1');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.objectContaining({ credentials: expect.objectContaining({ apifyApiKey: 'apify-key' }) }),
+      expect.objectContaining({
+        credentials: expect.objectContaining({ apifyApiKey: 'apify-key' }),
+      }),
       undefined,
     );
   });
@@ -162,7 +287,9 @@ describe('getSystemCredentials (via handler behaviour)', () => {
     await handleIngestionJob('cfg-1');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.objectContaining({ credentials: expect.objectContaining({ youtubeApiKey: 'yt-key' }) }),
+      expect.objectContaining({
+        credentials: expect.objectContaining({ youtubeApiKey: 'yt-key' }),
+      }),
       undefined,
     );
   });
@@ -176,7 +303,9 @@ describe('getSystemCredentials (via handler behaviour)', () => {
     await handleIngestionJob('cfg-1');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.objectContaining({ credentials: expect.objectContaining({ apifyApiKey: 'apify-key' }) }),
+      expect.objectContaining({
+        credentials: expect.objectContaining({ apifyApiKey: 'apify-key' }),
+      }),
       undefined,
     );
   });
@@ -190,7 +319,9 @@ describe('getSystemCredentials (via handler behaviour)', () => {
     await handleIngestionJob('cfg-1');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.objectContaining({ credentials: expect.objectContaining({ apifyApiKey: 'apify-key' }) }),
+      expect.objectContaining({
+        credentials: expect.objectContaining({ apifyApiKey: 'apify-key' }),
+      }),
       undefined,
     );
   });
@@ -211,5 +342,43 @@ describe('getSystemCredentials (via handler behaviour)', () => {
     expect(callArgs.credentials.apifyApiKey).toBeUndefined();
     expect(callArgs.credentials.youtubeApiKey).toBeUndefined();
     expect(callArgs.credentials.feedUrl).toBe('https://x/feed');
+  });
+});
+
+// KNOWN-GAPS #2 — Cloud Scheduler POSTed /reconcile hourly and got a 404 because the
+// endpoint did not exist, so signals lost to a failed dual-write were never recovered.
+describe('reconcilePendingSignals', () => {
+  it('re-publishes signals that have no sentiment_results row', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([{ id: 'sig-1' }, { id: 'sig-2' }]);
+
+    const result = await reconcilePendingSignals();
+
+    expect(result).toEqual({ pending: 2, published: 2 });
+    expect(mockTopic).toHaveBeenCalledWith('staging-item');
+    expect(mockPublishMessage).toHaveBeenCalledWith({ data: Buffer.from('sig-1') });
+    expect(mockPublishMessage).toHaveBeenCalledWith({ data: Buffer.from('sig-2') });
+  });
+
+  it('is a no-op when nothing is pending', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([]);
+
+    const result = await reconcilePendingSignals();
+
+    expect(result).toEqual({ pending: 0, published: 0 });
+    expect(mockPublishMessage).not.toHaveBeenCalled();
+  });
+
+  it('bounds the sweep so a large backlog cannot exceed the request timeout', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([]);
+
+    await reconcilePendingSignals(250);
+
+    expect(chain.limit).toHaveBeenCalledWith(250);
   });
 });

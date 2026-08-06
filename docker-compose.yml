@@ -20,7 +20,10 @@ services:
       retries: 10
 
   pubsub:
-    image: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    # Must be the `emulators` tag, not `slim`: the Pub/Sub emulator is a Java program and
+    # `slim` ships no JRE, so it exited on every start with
+    # "a Java 7+ JRE must be installed and on your system PATH".
+    image: gcr.io/google.com/cloudsdktool/cloud-sdk:emulators
     command: >
       gcloud beta emulators pubsub start
       --host-port=0.0.0.0:8085

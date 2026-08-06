@@ -15,59 +15,60 @@
 
 ## Summary
 
-| #   | Gap                                                              | Severity    | Area                  |
-| --- | ---------------------------------------------------------------- | ----------- | --------------------- |
-| 1   | Pub/Sub pushes to `/events`; workers serve `/pubsub/item`        | 🔴          | infra ↔ worker        |
-| 2   | Scheduler calls `/reconcile`, which does not exist               | 🔴          | infra ↔ ingestion     |
-| 3   | Cloud Tasks queue provisioned but never used                     | 🟠          | ingestion             |
-| 4   | Raw payloads never written to Cloud Storage; scoring reads a URL | 🔴          | ingestion + sentiment |
-| 5   | ~~Brand-scoped reads don't enforce `brandEntityId`~~             | ✅ resolved | API authz             |
-| 6   | ~~Cursor pagination has no `ORDER BY`~~                          | ✅ resolved | API correctness       |
-| 7   | Topic names differ between code and Terraform                    | 🔴          | messaging             |
-| 8   | ~~Web app can't be pointed at the API at deploy time~~           | ✅ resolved | web ↔ infra           |
-| 9   | Sentiment worker swallows errors — DLQ never receives anything   | 🟠          | sentiment             |
-| 10  | `dimension_scores` is never written                              | 🟡          | deferred (Epic 11)    |
-| 11  | Unused denormalised sentiment columns on `signals`               | 🟡          | schema                |
-| 12  | `POST /admin/users` is owner-only; no users UI                   | 🟡          | API + web             |
-| 13  | Six dashboard views still render mock data                       | 🟡          | deferred (Epic 6)     |
-| 14  | ~~Hardcoded contractor fallbacks in the web client~~             | ✅ resolved | web config            |
-| 15  | ~~Working directory is not a git repository~~                    | ✅ resolved | repo                  |
-| 16  | No GCP environment provisioned (contractor's was abandoned)      | 🔴          | infra                 |
+| #   | Gap                                                           | Severity    | Area                  |
+| --- | ------------------------------------------------------------- | ----------- | --------------------- |
+| 1   | ~~Pub/Sub pushes to `/events`; workers serve `/pubsub/item`~~ | ✅ resolved | infra ↔ worker        |
+| 2   | ~~Scheduler calls `/reconcile`, which does not exist~~        | ✅ resolved | infra ↔ ingestion     |
+| 3   | Cloud Tasks queue provisioned but never used                  | 🟠          | ingestion             |
+| 4   | ~~Raw payloads never written to Cloud Storage~~               | ✅ resolved | ingestion + sentiment |
+| 5   | ~~Brand-scoped reads don't enforce `brandEntityId`~~          | ✅ resolved | API authz             |
+| 6   | ~~Cursor pagination has no `ORDER BY`~~                       | ✅ resolved | API correctness       |
+| 7   | ~~Topic names differ between code and Terraform~~             | ✅ resolved | messaging             |
+| 8   | ~~Web app can't be pointed at the API at deploy time~~        | ✅ resolved | web ↔ infra           |
+| 9   | ~~Sentiment worker swallows errors — DLQ never fires~~        | ✅ resolved | sentiment             |
+| 10  | `dimension_scores` is never written                           | 🟡          | deferred (Epic 11)    |
+| 11  | Unused denormalised sentiment columns on `signals`            | 🟡          | schema                |
+| 12  | `POST /admin/users` is owner-only; no users UI                | 🟡          | API + web             |
+| 13  | Six dashboard views still render mock data                    | 🟡          | deferred (Epic 6)     |
+| 14  | ~~Hardcoded contractor fallbacks in the web client~~          | ✅ resolved | web config            |
+| 15  | ~~Working directory is not a git repository~~                 | ✅ resolved | repo                  |
+| 16  | No GCP environment provisioned (contractor's was abandoned)   | 🔴          | infra                 |
 
 ---
 
-## 1. 🔴 Pub/Sub pushes to `/events`; the workers serve different paths
+## 1. ✅ Pub/Sub pushed to `/events`; the workers serve different paths — **resolved**
 
-**Where:** `infra/modules/pubsub/main.tf` (both subscriptions) vs
-`apps/sentiment-worker/src/main.ts`, `apps/report-worker/src/main.ts`.
+**Where:** `infra/modules/pubsub/main.tf`.
 
-Terraform configures both push subscriptions with
-`push_endpoint = "${var.sentiment_push_url}/events"` (and `${var.report_push_url}/events`).
-The sentiment worker exposes **`POST /pubsub/item`**. The report worker exposes **no POST
-route at all** — only `/health` and `/ready`.
+Both push subscriptions targeted `/events`. The sentiment worker serves **`POST /pubsub/item`**;
+the report worker serves **no POST route at all**. Every scoring message 404'd, retried five
+times and dead-lettered, so no signal was ever scored in a deployed environment.
 
-**Effect:** every scoring message 404s, retries 5 times, then dead-letters. No signal is ever
-scored in a deployed environment.
+**Resolved** on the Terraform side, which is the half that was wrong:
 
-**Fix options:** change the worker route to `/events`, or change the Terraform
-`push_endpoint` to `/pubsub/item`. Whichever is chosen, apply it consistently — and give
-report-worker a matching endpoint (or drop its subscription until Epic 12).
+- The item subscription now pushes to `${var.sentiment_push_url}/pubsub/item`.
+- The report subscription is **no longer created by default**. It is gated behind
+  `enable_report_subscription` (default `false`) because report-worker is a health-check
+  skeleton until Epic 12 — creating it would 404 every weekly trigger and dead-letter it. The
+  report _topic_ still exists so Cloud Scheduler has a publish target.
+
+Note this gap was briefly recorded as "dissolved by the AWS migration" on the grounds that SQS
+is pulled. That was wrong while GCP remains the environment being stood up for testing: it
+would have blocked the first end-to-end run.
 
 ---
 
-## 2. 🔴 Scheduler calls `/reconcile`, which does not exist
+## 2. ✅ Scheduler called `/reconcile`, which did not exist — **resolved**
 
-**Where:** `infra/modules/scheduler/main.tf` (`google_cloud_scheduler_job.sweep`) vs
-`apps/ingestion/src/main.ts`.
+**Where:** `apps/ingestion/src/main.ts`, `apps/ingestion/src/handler.ts`.
 
-The hourly pending-sweep job POSTs `${ingestion_url}/reconcile`. Ingestion serves only
-`/health`, `/ready`, `/ingest`, and `/ingest/dispatch`.
+The hourly pending-sweep job POSTed `${ingestion_url}/reconcile` and got a 404, so the safety
+net in `PLAN.md` step 5 — re-publishing signals missed by a failed dual-write — never ran.
 
-**Effect:** the safety net described in `PLAN.md` step 5 — re-publishing signals missed by a
-failed dual-write — never runs. The job 404s hourly.
-
-**Fix:** implement `POST /reconcile` in ingestion (find signals with no `sentiment_results`
-row and re-publish their ids to the item topic), or remove the scheduler job until it exists.
+**Resolved** by `reconcilePendingSignals()` behind `POST /reconcile`. It selects signals with
+no `sentiment_results` row (LEFT JOIN … IS NULL) and re-publishes their ids to the item topic.
+Idempotent by construction: a scored signal is never selected, so repeated runs are safe. The
+sweep is bounded at 500 rows so a large backlog cannot exceed the Cloud Run request timeout.
 
 ---
 
@@ -96,36 +97,31 @@ nothing reads `TASKS_QUEUE`.
 
 ---
 
-## 4. 🔴 Raw payloads never reach Cloud Storage; scoring reads a URL
+## 4. ✅ Raw payloads never reached Cloud Storage; scoring read a URL — **resolved**
 
-**Where:** `apps/ingestion/src/handler.ts` vs `infra/modules/storage/`, and
-`apps/sentiment-worker/src/handler.ts`.
+**Where:** `libs/storage/`, `apps/ingestion/src/handler.ts`, `apps/sentiment-worker/src/handler.ts`.
 
-The `raw` bucket exists, ingestion's SA has `objectAdmin` on it, the sentiment SA has
-`objectViewer`, and `RAW_BUCKET` is injected into both services. But **no GCS client exists
-in the codebase** (`@google-cloud/storage` is not a dependency) and nothing reads
-`RAW_BUCKET`. Ingestion sets `rawStorageRef: item.url` — a URL, not a storage reference — and
-the `RawItem.text` it fetched is discarded.
+No GCS client existed, nothing read `RAW_BUCKET`, ingestion stored `rawStorageRef: item.url`
+and discarded the fetched text, and the sentiment worker scored that URL string — writing
+real-looking labels and confidences derived from nothing. The audit trail was empty and every
+sentiment number in the system was noise.
 
-Downstream, the sentiment worker logs its own warning and scores the URL string:
+**Resolved** with a new `@project-signal/storage` lib exposing a two-method `ObjectStore`
+(`put`/`get`) plus `rawKey()` and `keyFromRef()`, with a GCS implementation behind
+`getObjectStore()`.
 
-```ts
-console.warn(`[placeholder] Using source_url as scoring text — raw storage not yet wired.`);
-const text = signal.sourceUrl;
-```
+- **Ingestion** uploads each item as
+  `gs://<RAW_BUCKET>/<tenant>/<brand>/<source>/<externalId>.json` and stores the returned
+  reference. The upload happens **before** the row insert, so `raw_storage_ref` can never point
+  at an object that does not exist.
+- **The sentiment worker** resolves the reference and scores the stored `text`.
 
-**Effect:** two failures compounded —
+The interface is deliberate: the AWS migration's `S3ObjectStore` drops in behind it without
+touching a caller, and `keyFromRef()` already parses both `gs://` and `s3://`.
 
-- The **audit trail is empty**. `raw_storage_ref` cannot be resolved to anything; the
-  verbatim-evidence promise in the product spec is unbacked.
-- **Every sentiment score is meaningless.** Gemini is asked to judge the sentiment of a URL.
-  Rows are written to `sentiment_results` with real-looking labels and confidences, so this
-  fails silently and looks like it works.
-
-**Fix:** in ingestion, upload each `RawItem` (text + metadata) to
-`gs://<RAW_BUCKET>/<tenant>/<brand>/<source>/<externalId>.json` and store that path as
-`raw_storage_ref`; in the sentiment worker, fetch and score the stored text. This is the single
-highest-value gap on the list.
+**Rows written before this fix hold a bare URL** in `raw_storage_ref`. `keyFromRef()` rejects
+those, and the worker classifies the rejection as a permanent failure (see #9), so they are
+acked and logged rather than retried forever. They cannot be scored — the text was never kept.
 
 ---
 
@@ -183,25 +179,22 @@ which any mocked test could reach. Both are fixed:
 
 ---
 
-## 7. 🔴 Topic names differ between code and Terraform
+## 7. ✅ Topic names differed between code and Terraform — **resolved**
 
-**Where:** `libs/messaging/src/index.ts` vs `infra/modules/pubsub/main.tf`.
+**Where:** `libs/messaging/src/index.ts`, `apps/ingestion/src/handler.ts`.
 
-|                 | Item topic                         | Item DLQ                  |
-| --------------- | ---------------------------------- | ------------------------- |
-| Code (`TOPICS`) | `project-signal-item-queue`        | `project-signal-item-dlq` |
-| Terraform       | `<env>-item` (e.g. `staging-item`) | `<env>-item-dlq`          |
+|                 | Item topic                  | Item DLQ                  |
+| --------------- | --------------------------- | ------------------------- |
+| Code (`TOPICS`) | `project-signal-item-queue` | `project-signal-item-dlq` |
+| Terraform       | `<env>-item`                | `<env>-item-dlq`          |
 
-Terraform even injects the correct name as `ITEM_TOPIC`, but **no code reads `ITEM_TOPIC`** —
-ingestion publishes to the hardcoded `TOPICS.ITEM_QUEUE`.
+Terraform injected the correct name as `ITEM_TOPIC`, but nothing read it — ingestion published
+to the hardcoded constant, a topic that does not exist in any deployed environment.
 
-**Effect:** in a deployed environment, ingestion publishes to a topic that does not exist.
-Depending on client behaviour this either throws or silently creates an unsubscribed topic;
-either way the sentiment worker never receives the message. Combined with gap #1, the scoring
-pipeline is disconnected at both ends.
-
-**Fix:** read topic names from the environment (`ITEM_TOPIC`, and add `REPORT_TOPIC`), with
-the `TOPICS` constants as local-development defaults.
+**Resolved** with `topicName('item' | 'report')`, which reads `ITEM_TOPIC` / `REPORT_TOPIC`
+from the environment and falls back to the `TOPICS` constants for local development against the
+emulator. An empty-string override is treated as unset rather than becoming the topic name.
+Both `handleIngestionJob` and `reconcilePendingSignals` publish through it.
 
 ---
 
@@ -228,20 +221,23 @@ allowlist code path is untested in a deployed environment.
 
 ---
 
-## 9. 🟠 The sentiment worker swallows errors, so the DLQ never fires
+## 9. ✅ The sentiment worker swallowed errors, so the DLQ never fired — **resolved**
 
-**Where:** `apps/sentiment-worker/src/handler.ts`.
+**Where:** `apps/sentiment-worker/src/handler.ts`, `apps/sentiment-worker/src/main.ts`.
 
-`handlePubSubMessage` wraps scoring in `try/catch`, logs, and returns normally. `main.ts`
-then returns 204 regardless.
+`handlePubSubMessage` wrapped scoring in try/catch, logged, and returned normally; `main.ts`
+returned 204 regardless. Pub/Sub saw every delivery as a success, so the DLQ,
+`max_delivery_attempts = 5` and the 10s–600s retry backoff configured in Terraform could never
+trigger. A Gemini outage silently dropped every signal in the window.
 
-**Effect:** Pub/Sub sees every delivery as successful. The DLQ, `max_delivery_attempts = 5`,
-and the 10s–600s retry backoff configured in Terraform can never trigger. A Gemini outage
-silently drops every signal in the window, and there is no queue of failures to replay.
+**Resolved** by classifying failures:
 
-**Fix:** distinguish permanent failures (malformed JSON from the model → log, ack, move on)
-from transient ones (network, quota, 5xx → rethrow so Pub/Sub retries and eventually
-dead-letters). A missing signal row should stay a permanent, acked failure as it is today.
+- **Permanent** — missing signal row, unresolvable `raw_storage_ref`, stored payload that is
+  not JSON or has no text, model output that will not parse. Raised as `PermanentScoringError`;
+  `main.ts` logs at error level and returns **204** (ack). Retrying sends the identical prompt
+  and gets the identical garbage, so five deliveries add noise, not information.
+- **Transient** — network, quota, 5xx from Vertex or the bucket. Rethrown; `main.ts` returns
+  **500** (nack), so Pub/Sub retries with backoff and eventually dead-letters.
 
 ---
 
@@ -384,30 +380,42 @@ migration, starts while items remain open.
 Done:
 
 1. ~~**#15** — get it into git.~~ ✅ at handover.
-2. ~~**#8** — make the deployed web app configurable.~~ ✅ build args.
-3. ~~**#14** — remove hardcoded contractor fallbacks.~~ ✅ at handover.
-4. ~~**#5 and #6** — close the intra-tenant authz hole and fix pagination.~~ ✅ — taken first
-   because #5 was a live security defect, and both live in the same file.
+2. ~~**#14** — remove hardcoded contractor fallbacks.~~ ✅ at handover.
+3. ~~**#8** — make the deployed web app configurable.~~ ✅ Docker build args.
+4. ~~**#5 and #6** — intra-tenant authz hole and non-deterministic pagination.~~ ✅ Taken first
+   because #5 was a live security defect.
+5. ~~**#7 → #2 → #4 → #9**, plus **#1**.~~ ✅ The pipeline group: topic names from the
+   environment, the `/reconcile` sweep, raw payload storage behind an `ObjectStore` interface,
+   and permanent-vs-transient failure classification so the DLQ can fire. #1 was folded in
+   because it blocks the very first end-to-end run on GCP.
 
 Remaining, in dependency order:
 
-5. **#7 → #2** — reconnect the pipeline: topic names from env, then the sweep endpoint.
-   Cheap, and nothing downstream is observable until they land.
-6. **#4** — persist raw text and score it. Until this is done every sentiment number in the
-   system is noise, so it gates any judgement about output quality.
-7. **#9** — make failures visible via the DLQ, so #4's rollout is debuggable.
-8. **#11** — decide the denormalised sentiment columns before anything starts writing them.
-9. **#12** — admin role gating and the users UI.
-10. **#13** — wire the six mock-data views to the live API. The largest single item.
-11. **#16** — stand up the GCP environment. Ordered here rather than first because every fix
-    above is developed and unit-tested locally against Docker Postgres and the Pub/Sub
-    emulator; the environment is needed to _verify_ the pipeline end to end, not to build it.
+6. **#11** — decide the denormalised sentiment columns before anything starts writing them.
+7. **#12** — admin role gating and the users UI.
+8. **#13** — wire the six mock-data views to the live API. The largest single item, and the
+   one that finally exercises the pipeline the group above just connected.
+9. **#16** — stand up the GCP environment. Everything above was developed and verified locally
+   against Docker Postgres and the Pub/Sub emulator; the environment is needed to verify the
+   pipeline against real Cloud Storage and Vertex AI, which local work cannot reach.
 
-Closed by architectural decision rather than by a fix — the AWS migration dissolves them, so
-paying them down on GCP is waste, not rigour:
+Closed by architectural decision rather than by a fix:
 
-- **#1** (push endpoint mismatch) — SQS is pulled; there is no push endpoint to mismatch.
-- **#3** (Cloud Tasks provisioned but unused) — SQS covers both roles.
+- **#3** (Cloud Tasks provisioned but unused) — the AWS migration replaces it with SQS, which
+  covers both the queue and the rate-limiting role. Building a Cloud Tasks fan-out on a
+  platform being left is waste.
 
 Not debt: **#10** (`dimension_scores` never written) is the Epic 11 scoring engine, a feature
 not yet built. The table and read endpoint exist so the dashboard can query them.
+
+## Verification note
+
+The pipeline group was verified against running services, not only unit tests — Docker
+Postgres plus the Pub/Sub emulator, with the ingestion service and sentiment worker started
+locally. Two defects surfaced that way which no mocked test reached: see #6's entry for the
+keyset serialisation bug and the empty-`items` serialisation bug.
+
+**Not reachable locally:** a successful Cloud Storage round-trip. There is no GCS emulator in
+this repo, so #4's write path and the happy-path read are covered by unit tests and by the
+worker genuinely attempting a GCS fetch (which fails on credentials, exercising the transient
+branch). The first real round-trip happens when #16 lands.

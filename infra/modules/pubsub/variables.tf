@@ -38,6 +38,12 @@ variable "push_invoker_sa_email" {
   type        = string
 }
 
+variable "enable_report_subscription" {
+  description = "Create the report push subscription. Keep false until report-worker serves /pubsub/report (Epic 12) — otherwise every weekly trigger 404s and dead-letters."
+  type        = bool
+  default     = false
+}
+
 variable "max_delivery_attempts" {
   description = "Deliveries before a message is dead-lettered."
   type        = number

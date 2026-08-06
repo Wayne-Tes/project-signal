@@ -1,17 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as StorageModule from '@project-signal/storage';
 
-const mockScoreSignal = vi.hoisted(() => vi.fn());
+const { mockScoreSignal, mockGet } = vi.hoisted(() => ({
+  mockScoreSignal: vi.fn(),
+  mockGet: vi.fn(),
+}));
 
 let _dbRows: unknown[] = [];
 const _dbRowQueue: unknown[][] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
-  ['select', 'from', 'where', 'insert', 'values', 'onConflictDoUpdate']
-    .forEach(m => { chain[m] = vi.fn(() => chain); });
+  ['select', 'from', 'where', 'insert', 'values', 'onConflictDoUpdate'].forEach((m) => {
+    chain[m] = vi.fn(() => chain);
+  });
   const nextRows = () => (_dbRowQueue.length ? _dbRowQueue.shift()! : _dbRows);
   chain['returning'] = vi.fn(() => Promise.resolve(nextRows()));
-  chain['then'] = (r: unknown, j?: unknown) => Promise.resolve(nextRows()).then(r as never, j as never);
+  chain['then'] = (r: unknown, j?: unknown) =>
+    Promise.resolve(nextRows()).then(r as never, j as never);
   return {
     db: { get: vi.fn(() => chain) },
     signals: {},
@@ -19,14 +25,24 @@ vi.mock('@project-signal/db', () => {
   };
 });
 
+// keyFromRef is real: the legacy-URL rejection is behaviour under test, not a stub.
+vi.mock('@project-signal/storage', async (importOriginal) => {
+  const actual = await importOriginal<typeof StorageModule>();
+  return {
+    getObjectStore: vi.fn(() => ({ get: mockGet, put: vi.fn() })),
+    keyFromRef: actual.keyFromRef,
+  };
+});
+
 vi.mock('../src/scorer.js', () => ({ scoreSignal: mockScoreSignal }));
 
-import { handlePubSubMessage } from '../src/handler.js';
+import { handlePubSubMessage, PermanentScoringError } from '../src/handler.js';
 
 const now = new Date();
 const mockSignal = {
   id: 'signal-1',
   sourceUrl: 'https://example.com/review',
+  rawStorageRef: 'gs://raw-bucket/tenant-1/brand-1/rss/ext-1.json',
   brandEntityId: 'brand-1',
   publishedAt: now,
 };
@@ -37,56 +53,97 @@ const mockScore = {
   confidence: 0.9,
   dimensions: {},
   topics: [],
-  modelVersion: 'gemini-1.5',
+  modelVersion: 'gemini-2.5-flash',
 };
 
 beforeEach(() => {
   _dbRows = [];
   _dbRowQueue.length = 0;
   vi.clearAllMocks();
+  mockGet.mockResolvedValue(JSON.stringify({ text: 'The app keeps crashing.' }));
 });
 
 describe('handlePubSubMessage', () => {
-  it('scores signal and persists the sentiment result', async () => {
+  // KNOWN-GAPS #4 — the worker scored signal.sourceUrl, so every stored sentiment score was
+  // Gemini's opinion of a URL string, written with real-looking labels and confidences.
+  it('scores the stored raw text, not the source URL', async () => {
     _dbRows = [mockSignal];
     mockScoreSignal.mockResolvedValueOnce(mockScore);
 
     await handlePubSubMessage('signal-1');
 
-    expect(mockScoreSignal).toHaveBeenCalledWith(mockSignal.sourceUrl);
+    expect(mockGet).toHaveBeenCalledWith('tenant-1/brand-1/rss/ext-1.json');
+    expect(mockScoreSignal).toHaveBeenCalledWith('The app keeps crashing.');
+    expect(mockScoreSignal).not.toHaveBeenCalledWith(mockSignal.sourceUrl);
   });
 
-  it('logs warning and returns early when signal is not found', async () => {
+  it('persists the sentiment result', async () => {
+    _dbRows = [mockSignal];
+    mockScoreSignal.mockResolvedValueOnce(mockScore);
+
+    await handlePubSubMessage('signal-1');
+
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as unknown as { values: ReturnType<typeof vi.fn> };
+    expect(chain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ signalId: 'signal-1', label: 'positive', score: 0.85 }),
+    );
+  });
+
+  it('acks a missing signal rather than retrying forever', async () => {
     _dbRows = [];
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await handlePubSubMessage('missing-id');
-
+    await expect(handlePubSubMessage('missing-id')).resolves.toBeUndefined();
     expect(mockScoreSignal).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
+});
 
-  it('catches and logs scoring errors without rethrowing', async () => {
+// KNOWN-GAPS #9 — the handler caught every error and returned normally, so Pub/Sub saw every
+// delivery as a success. The DLQ, max_delivery_attempts and the retry backoff configured in
+// Terraform could never fire.
+describe('failure classification', () => {
+  it('rethrows a transient scoring failure so Pub/Sub retries', async () => {
     _dbRows = [mockSignal];
-    mockScoreSignal.mockRejectedValueOnce(new Error('AI failure'));
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockScoreSignal.mockRejectedValueOnce(new Error('429 quota exceeded'));
 
-    await expect(handlePubSubMessage('signal-1')).resolves.toBeUndefined();
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('signal-1'),
-      expect.any(Error),
-    );
-    errorSpy.mockRestore();
+    await expect(handlePubSubMessage('signal-1')).rejects.toThrow('429 quota exceeded');
   });
 
-  it('uses sourceUrl as scoring text (placeholder behaviour)', async () => {
+  it('rethrows a transient storage failure so Pub/Sub retries', async () => {
     _dbRows = [mockSignal];
-    mockScoreSignal.mockResolvedValueOnce(mockScore);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGet.mockRejectedValueOnce(new Error('503 backend error'));
 
-    await handlePubSubMessage('signal-1');
+    await expect(handlePubSubMessage('signal-1')).rejects.toThrow('503 backend error');
+  });
 
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('source_url'));
-    warnSpy.mockRestore();
+  it('raises a permanent error when the model returns unparseable output', async () => {
+    _dbRows = [mockSignal];
+    mockScoreSignal.mockRejectedValueOnce(new SyntaxError('Unexpected token < in JSON'));
+
+    await expect(handlePubSubMessage('signal-1')).rejects.toBeInstanceOf(PermanentScoringError);
+  });
+
+  it('raises a permanent error for a legacy URL rawStorageRef', async () => {
+    // Rows written before #4 was fixed hold a bare URL, which is not a storage key.
+    _dbRows = [{ ...mockSignal, rawStorageRef: 'https://example.com/review/1' }];
+
+    await expect(handlePubSubMessage('signal-1')).rejects.toBeInstanceOf(PermanentScoringError);
+    expect(mockScoreSignal).not.toHaveBeenCalled();
+  });
+
+  it('raises a permanent error when the stored payload is not JSON', async () => {
+    _dbRows = [mockSignal];
+    mockGet.mockResolvedValueOnce('not json at all');
+
+    await expect(handlePubSubMessage('signal-1')).rejects.toBeInstanceOf(PermanentScoringError);
+  });
+
+  it('raises a permanent error when the stored payload has no text', async () => {
+    _dbRows = [mockSignal];
+    mockGet.mockResolvedValueOnce(JSON.stringify({ url: 'https://example.com' }));
+
+    await expect(handlePubSubMessage('signal-1')).rejects.toBeInstanceOf(PermanentScoringError);
   });
 });
