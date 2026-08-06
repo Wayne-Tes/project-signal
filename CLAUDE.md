@@ -98,6 +98,11 @@ All top-level scripts delegate to NX. **This project uses yarn, not pnpm.**
 | `yarn db:generate` | Generates migration SQL from the schema (drizzle-kit) |
 | `yarn db:seed`     | Seeds the local database (`nx run api:seed`)          |
 
+> **Use Node 20.** `.nvmrc` pins it and `engines` enforces `>=20 <23`. On Node 24 `next build`
+> fails with a null React dispatcher on Next's internal `/_global-error` page — a confusing
+> error three layers from the cause. CI and every Dockerfile are on Node 20. `next dev` works
+> on newer runtimes, which is how this stayed hidden.
+
 There is no `db:migrate` script — **the API applies migrations on startup**, guarded by a
 Postgres advisory lock. Never add migration calls to a worker.
 

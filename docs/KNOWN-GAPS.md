@@ -291,10 +291,11 @@ maintained by the sentiment worker in the same transaction as the `sentiment_res
 Verified against a live API: escalation 403, modifying an owner 403, foreign tenant 404.
 
 **The UI is written but cannot be called done.** `UserManager.tsx` lists the tenant's users,
-allows role changes within the assignable set, and provisions new users. It lints and
-typechecks, and the endpoints behind it are verified — but it has never been rendered in a
-browser, because `apps/web` cannot build (#17). DEVRULES requires UI work to be exercised as a
-real user before it is complete; that is impossible until #17 is decided.
+allows role changes within the assignable set, and provisions new users. It lints, typechecks,
+builds, and the endpoints behind it are verified — but it has never been driven in a browser.
+The panel sits behind `AuthGate`, and signing in needs a real Identity Platform project, so it
+is gated on **#16**, not on the build. DEVRULES requires UI work to be exercised as a real user
+before it is complete.
 
 ---
 
@@ -382,46 +383,54 @@ GCP account.
 
 ---
 
-## 17. 🔴 `apps/web` production build fails — upstream Next.js 16 bug
+## 17. ✅ `apps/web` production build failed — **resolved (local Node version)**
 
-**Where:** `apps/web`, Next.js 16.2.7 + React 19.2.7.
+**Where:** the developer machine, not the codebase.
 
-`yarn nx run @project-signal/web:build` fails during static generation:
+`yarn nx run @project-signal/web:build` failed during static generation:
 
 ```
 Error occurred prerendering page "/_global-error"
 TypeError: Cannot read properties of null (reading 'useContext')
-Export encountered an error on /_global-error/page, exiting the build.
 ```
 
-**This is a known Next.js 16 framework bug, not application code.** Confirmed by building a
-clean tree with every local change stashed — identical failure. Upstream reports:
-[#86178](https://github.com/vercel/next.js/issues/86178),
+The symptom matches a widely-reported Next.js 16 issue
+([#86178](https://github.com/vercel/next.js/issues/86178),
 [#85668](https://github.com/vercel/next.js/issues/85668),
-[#84994](https://github.com/vercel/next.js/issues/84994),
-[discussion #94667](https://github.com/vercel/next.js/discussions/94667). Next synthesises the
-`/_global-error` page and prerenders it; its renderer misaligns with React 19's RSC path so
-`useContext` returns null. Reporters confirm it occurs with `global-error.tsx` deleted
-entirely, and that removing hooks, forcing dynamic rendering and disabling providers all fail
-to work around it.
+[#84994](https://github.com/vercel/next.js/issues/84994)), and the obvious readings — an
+application bug, or a stale Next version — were both wrong.
 
-**Effect — this is the most severe open item.** The web image cannot be built, so
-`deploy-staging.yml` fails at the build-push step and **the dashboard cannot be deployed at
-all**. It also blocks browser verification of any UI work, which is what DEVRULES requires
-before UI work can be called done.
+**Root cause: the local Node runtime was v24.14.0.** Next 16 targets Node 20/22. On Node 24 the
+React dispatcher is null during the SSR prerender pass, which surfaces as the `useContext`
+error on Next's internal `/_global-error` page.
 
-**Tried and rejected here:** an explicit `app/global-error.tsx` (no effect), and removing the
-hand-rolled `<head>` from the root layout so React 19 hoists the font links (no effect — the
-"unique key prop" warnings come from Next's internals). Both were reverted rather than left in
-as unverified speculation.
+Established by elimination, each step tested rather than reasoned about:
 
-**Decision needed** — this is a dependency choice, not a code fix:
+| Test                                                       | Result                                        |
+| ---------------------------------------------------------- | --------------------------------------------- |
+| Clean tree, all local changes stashed                      | Fails — pre-existing, not introduced          |
+| Next 16.2.7 → 16.3.0 (latest)                              | Still fails                                   |
+| Next → 16.3.1-canary.4                                     | Still fails                                   |
+| Trivial `page.tsx`                                         | Still fails                                   |
+| Trivial `page.tsx` **and** `layout.tsx`                    | Still fails                                   |
+| `output: 'standalone'` removed                             | Still fails                                   |
+| React copies in the tree                                   | Exactly one, 19.2.7, cleanly hoisted          |
+| **`docker build -f apps/web/Dockerfile` (node:20-alpine)** | **Succeeds — 3/3 static pages, image tagged** |
+| `next dev` on Node 24                                      | Works fine, serves 200                        |
 
-- pin Next.js to a 15.x line, which contradicts `CLAUDE.md`'s Next 16 premise;
-- try a 16.x canary, per the discussion thread; or
-- wait for a patch release and accept that web cannot deploy until then.
+**So nothing was ever broken for CI or deploy.** `ci.yml` pins `node-version: 20` for lint,
+typecheck and test; every app Dockerfile is `node:20-alpine`. Only `next build` run directly on
+a Node 24 host failed — and `next dev` on Node 24 is unaffected, which is why this went
+unnoticed.
 
-Local `next dev` is unaffected, so feature work can continue.
+**Resolved** by pinning the local runtime rather than touching Next.js: added `.nvmrc` (`20`)
+and narrowed `engines.node` to `>=20.0.0 <23.0.0` so an unsupported runtime fails loudly at
+install instead of surfacing as a null React dispatcher three layers down.
+
+> Correction to an earlier note in this document: this gap was recorded as blocking browser
+> verification of UI work. It never did — `next dev` works. The actual blocker for verifying
+> authed views is #16, because everything behind `AuthGate` needs a real Identity Platform
+> project to sign in against.
 
 ---
 
@@ -481,19 +490,16 @@ Done:
 Remaining, in dependency order:
 
 6. ~~**#11** — decide the denormalised sentiment columns.~~ ✅ dropped.
-7. **#17** — `apps/web` cannot build (upstream Next.js 16 bug). **Now the top item.** It blocks
-   the web deploy entirely and blocks browser verification of all UI work, including #12's
-   panel and everything in #13. Needs a dependency decision, not a code fix.
-8. **#12 (UI half)** — `UserManager.tsx` is written and its API is verified, but it cannot be
-   rendered until #17 lifts.
-9. **#18** — make the user row and its Firebase claims atomic.
-10. **#13** — wire the six mock-data views to the live API. The largest single item, and also
-    gated on #17 for verification.
-11. **#19** — convert web components to CSS custom properties. Do it alongside #13, which
+7. ~~**#17** — `apps/web` build failure.~~ ✅ local Node 24; pinned to 20.
+8. **#18** — make the user row and its Firebase claims atomic. Small, self-contained, and the
+   only remaining correctness defect.
+9. **#13** — wire the six mock-data views to the live API. The largest single item.
+10. **#19** — convert web components to CSS custom properties. Do it alongside #13, which
     rewrites those components anyway.
-12. **#16** — stand up the GCP environment. Everything above is developed and verified locally
-    against Docker Postgres and the Pub/Sub emulator; the environment is needed to verify
-    against real Cloud Storage, Vertex AI and Identity Platform.
+11. **#16** — stand up the GCP environment. Now also the gate on finishing **#12's UI half**
+    and on browser-verifying anything behind `AuthGate`, since sign-in needs a real Identity
+    Platform project. Everything else is developed and verified locally against Docker
+    Postgres and the Pub/Sub emulator.
 
 Closed by architectural decision rather than by a fix:
 
