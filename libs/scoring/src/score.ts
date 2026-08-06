@@ -139,6 +139,7 @@ export function clusterTopics(
   for (const [topic, bucket] of byTopic) {
     const volume = bucket.length;
     const negativity = bucket.reduce((acc, i) => acc + Math.max(0, -i.score), 0) / volume;
+    const positivity = bucket.reduce((acc, i) => acc + Math.max(0, i.score), 0) / volume;
     const recency =
       bucket.reduce((acc, i) => acc + recencyWeight(i.publishedAt, asOf, halfLifeDays), 0) / volume;
     const sentiment = bucket.reduce((acc, i) => acc + i.score, 0) / volume;
@@ -153,8 +154,10 @@ export function clusterTopics(
       topic,
       volume,
       negativity,
+      positivity,
       recency,
       damage: volume * negativity * recency,
+      strength: volume * positivity * recency,
       sentiment,
       dimensions,
     });
@@ -174,4 +177,22 @@ export function achillesHeels(
   topN: number = ACHILLES_TOP_N,
 ): TopicCluster[] {
   return clusters.filter((c) => c.damage > 0).slice(0, topN);
+}
+
+/**
+ * The mirror of the Achilles Heel: the clusters doing the most good.
+ *
+ * Ranked by `strength` rather than by taking the least-damaging clusters, which would surface
+ * topics nobody mentioned. Zero-strength clusters are excluded for the same reason their
+ * negative counterparts are: a topic with no positive sentiment is not a strength.
+ */
+export function topStrengths(
+  clusters: readonly TopicCluster[],
+  topN: number = ACHILLES_TOP_N,
+): TopicCluster[] {
+  return clusters
+    .filter((c) => c.strength > 0)
+    .slice()
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, topN);
 }

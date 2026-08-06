@@ -16,6 +16,7 @@ export {
   scoreAllDimensions,
   scoreDimension,
   toIndex,
+  topStrengths,
 } from './score.js';
 
 export { parseWeights } from './weights.js';

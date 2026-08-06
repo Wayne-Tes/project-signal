@@ -1,26 +1,44 @@
 'use client';
 import { useInView } from '@/hooks/useInView';
 import { useCountUp } from '@/hooks/useCountUp';
+import { useApi } from '@/hooks/useApi';
+import { useBrand } from '@/lib/brand-context';
 import {
-  PS_BRAND,
-  PS_DIMENSIONS,
-  PS_CLUSTERS,
-  PS_SOURCES,
-  PS_HISTORY,
-  PS_VOLUME,
-  PS_ALERT,
-  clusterById,
-} from '@/lib/data';
+  toDimensionCards,
+  toHeelCards,
+  toHistory,
+  type ApiBrandScore,
+  type ApiCluster,
+  type ApiDimensionRow,
+  type DimensionCard,
+} from '@/lib/brand-data';
 import { scoreColor } from '@/lib/utils';
-import { Delta, SourceGlyph } from '@/components/primitives';
+import { Delta } from '@/components/primitives';
 import { RadialGauge } from '@/components/RadialGauge';
 import { DimBar } from '@/components/DimBar';
-import { LineChart, Sparkline, VolumeBars } from '@/components/charts';
+import { LineChart, Sparkline } from '@/components/charts';
+import { ViewState } from '@/components/ViewState';
 import type { NavActions } from '@/lib/types';
 
-function HeroBars({ play }: { play: boolean }) {
-  const shown = useCountUp(PS_BRAND.score, { play, duration: 1600 });
-  const col = scoreColor(PS_BRAND.score);
+interface BrandStats {
+  signalsThisWeek: number;
+  signalsPreviousWeek: number;
+  totalSignals: number;
+  scoredSignals: number;
+  activeSources: number;
+  configuredSources: number;
+}
+
+function HeroBars({
+  cards,
+  score,
+  play,
+}: {
+  cards: DimensionCard[];
+  score: number;
+  play: boolean;
+}) {
+  const shown = useCountUp(Math.round(score), { play, duration: 1600 });
   return (
     <div style={{ width: '100%', padding: '8px 0 4px', textAlign: 'center' }}>
       <div
@@ -29,7 +47,7 @@ function HeroBars({ play }: { play: boolean }) {
           fontWeight: 600,
           fontSize: 92,
           lineHeight: 1,
-          color: col,
+          color: scoreColor(score),
           fontVariantNumeric: 'tabular-nums',
         }}
       >
@@ -39,7 +57,7 @@ function HeroBars({ play }: { play: boolean }) {
         composite index
       </div>
       <div style={{ display: 'flex', gap: 5, marginTop: 22 }}>
-        {PS_DIMENSIONS.map((d, i) => (
+        {cards.map((d, i) => (
           <div key={d.key} style={{ flex: 1 }}>
             <div
               style={{
@@ -77,313 +95,331 @@ function HeroBars({ play }: { play: boolean }) {
   );
 }
 
+/**
+ * The dashboard overview.
+ *
+ * Two panels were removed rather than left on mock data: the anomaly banner (alerting is Epic
+ * 13, nothing detects anomalies) and signal volume by source (no endpoint aggregates weekly
+ * counts per source). A hard-coded narrative caption about an "April support incident" went
+ * with them — it described a fictional brand's history.
+ */
 export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; hero?: string }) {
   const [ref, play] = useInView(0.1);
-  const vshown = useCountUp(PS_BRAND.signalsThisWeek, { duration: 1500, play });
+  const { brandId, error: brandError } = useBrand();
 
-  const topNeg = [
-    PS_CLUSTERS['service']![0]!,
-    PS_CLUSTERS['quality']![0]!,
-    PS_CLUSTERS['trust']![0]!,
-  ];
-  const topPos = [
-    PS_CLUSTERS['value']![0]!,
-    PS_CLUSTERS['experience']![0]!,
-    PS_CLUSTERS['trust']![1]!,
-  ];
+  const score = useApi<ApiBrandScore>(brandId ? `/brands/${brandId}/score` : null);
+  const history = useApi<ApiDimensionRow[]>(brandId ? `/brands/${brandId}/dimension-scores` : null);
+  const stats = useApi<BrandStats>(brandId ? `/brands/${brandId}/stats` : null);
+  const heels = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/achilles` : null);
+  const strengths = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/strengths` : null);
+
+  const cards = score.data ? toDimensionCards(score.data) : [];
+  const points = history.data ? toHistory(history.data) : [];
+  const chartRows = points.map((p) => ({ label: p.label, ...p.scores }));
+  const composite = score.data?.score ?? null;
+  const previous = score.data?.previousScore ?? null;
+
+  const vshown = useCountUp(stats.data?.signalsThisWeek ?? 0, { duration: 1500, play });
+  const weekDelta =
+    stats.data && stats.data.signalsPreviousWeek > 0
+      ? +(
+          ((stats.data.signalsThisWeek - stats.data.signalsPreviousWeek) /
+            stats.data.signalsPreviousWeek) *
+          100
+        ).toFixed(1)
+      : null;
+
+  const topNeg = heels.data ? toHeelCards(heels.data) : [];
+  const topPos = strengths.data ? toHeelCards(strengths.data) : [];
 
   return (
     <div className="content view-enter" ref={ref}>
-      {PS_ALERT.active && (
-        <div
-          className="alert-banner"
-          style={{ marginBottom: 20, cursor: 'pointer' }}
-          onClick={() => {
-            const c = clusterById(PS_ALERT.cluster);
-            if (c) nav.openCluster(PS_ALERT.cluster, c.dimKey);
-          }}
-        >
-          <span className="pulse" />
-          <div style={{ flex: 1 }}>
-            <div className="at">
-              Anomaly detected · {PS_ALERT.metric} {PS_ALERT.delta} pts
-            </div>
-            <div className="ad">
-              {PS_ALERT.detail}{' '}
-              <span className="mono" style={{ color: 'var(--t3)' }}>
-                · {PS_ALERT.window}
-              </span>
-            </div>
-          </div>
-          <span className="drill-hint">{PS_ALERT.when} · investigate →</span>
-        </div>
-      )}
-
-      <div className="grid" style={{ gridTemplateColumns: '360px 1fr' }}>
-        <div
-          className="card clickable"
-          style={{
-            padding: 24,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            cursor: 'pointer',
-          }}
-          onClick={nav.openOverview}
-        >
+      <ViewState
+        loading={score.loading || stats.loading}
+        error={score.error ?? stats.error ?? brandError}
+        empty={
+          composite === null
+            ? 'This brand has no Brand Perception Index yet — the daily rollup has not scored it.'
+            : null
+        }
+      >
+        <div className="grid" style={{ gridTemplateColumns: '360px 1fr' }}>
           <div
+            className="card clickable"
             style={{
+              padding: 24,
               display: 'flex',
-              width: '100%',
-              justifyContent: 'space-between',
+              flexDirection: 'column',
               alignItems: 'center',
-              marginBottom: 8,
+              cursor: 'pointer',
             }}
+            onClick={nav.openOverview}
           >
-            <span className="kicker">Brand Perception Index</span>
-            <span className="drill-hint">dig in →</span>
-          </div>
-          {hero === 'Bars' ? (
-            <HeroBars play={play} />
-          ) : (
-            <RadialGauge
-              value={PS_BRAND.score}
-              size={236}
-              stroke={15}
-              play={play}
-              sub={
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                  <Delta value={PS_BRAND.score - PS_BRAND.prevScore} />{' '}
-                  <span style={{ color: 'var(--t3)', fontSize: 12 }}>vs prev period</span>
-                </div>
-              }
-            />
-          )}
-          {hero === 'Bars' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-              <Delta value={PS_BRAND.score - PS_BRAND.prevScore} />{' '}
-              <span style={{ color: 'var(--t3)', fontSize: 12 }}>vs prev period</span>
-            </div>
-          )}
-          <div style={{ width: '100%', marginTop: 8 }}>
             <div
               style={{
                 display: 'flex',
+                width: '100%',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                marginBottom: 4,
+                marginBottom: 8,
               }}
             >
-              <span className="kicker">26-week trend</span>
-              <span className="mono" style={{ fontSize: 11, color: 'var(--t3)' }}>
-                {PS_BRAND.period}
+              <span className="kicker">Brand Perception Index</span>
+              <span className="drill-hint">dig in →</span>
+            </div>
+            {hero === 'Bars' ? (
+              <HeroBars cards={cards} score={composite ?? 0} play={play} />
+            ) : (
+              <RadialGauge
+                value={composite ?? 0}
+                size={236}
+                stroke={15}
+                play={play}
+                sub={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                    {/* No earlier rollup means no delta to show — not a delta of zero. */}
+                    {previous !== null && composite !== null ? (
+                      <>
+                        <Delta value={+(composite - previous).toFixed(1)} />
+                        <span style={{ color: 'var(--t3)', fontSize: 12 }}>vs previous</span>
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--t3)', fontSize: 12 }}>no prior rollup</span>
+                    )}
+                  </div>
+                }
+              />
+            )}
+            <div style={{ width: '100%', marginTop: 8 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 4,
+                }}
+              >
+                <span className="kicker">trend</span>
+                <span className="mono" style={{ fontSize: 11, color: 'var(--t3)' }}>
+                  {points.length} {points.length === 1 ? 'day' : 'days'}
+                </span>
+              </div>
+              {points.length >= 2 ? (
+                <Sparkline
+                  data={chartRows}
+                  dkey={cards[0]?.key ?? 'trust'}
+                  color={scoreColor(composite ?? 0)}
+                  width={312}
+                  height={56}
+                  play={play}
+                />
+              ) : (
+                <p style={{ color: 'var(--t3)', fontSize: 12, margin: 0 }}>
+                  A trend needs at least two daily rollups.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: '20px 22px' }}>
+            <div className="card-h" style={{ padding: 0, marginBottom: 8 }}>
+              <h3>Perception dimensions</h3>
+              <span className="sub">click any to dig down</span>
+              <div className="spacer" />
+              <span className="drill-hint">
+                {cards.length} {cards.length === 1 ? 'dimension' : 'dimensions'}
               </span>
             </div>
-            <Sparkline
-              data={PS_HISTORY}
-              color={scoreColor(PS_BRAND.score)}
-              width={312}
-              height={56}
-              play={play}
-            />
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: '20px 22px' }}>
-          <div className="card-h" style={{ padding: 0, marginBottom: 8 }}>
-            <h3>Perception dimensions</h3>
-            <span className="sub">click any to dig down</span>
-            <div className="spacer" />
-            <span className="drill-hint">5 dimensions</span>
-          </div>
-          {PS_DIMENSIONS.map((d, i) => (
-            <DimBar
-              key={d.key}
-              dim={d}
-              play={play}
-              delay={i * 120}
-              onClick={() => nav.openDimension(d.key)}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginTop: 18 }}>
-        <div className="card stat">
-          <div className="lab">Signals this week</div>
-          <div className="num">{Number(vshown).toLocaleString()}</div>
-          <div className="foot">
-            <Delta
-              value={
-                +(
-                  ((PS_BRAND.signalsThisWeek - PS_BRAND.signalsPrevWeek) /
-                    PS_BRAND.signalsPrevWeek) *
-                  100
-                ).toFixed(1)
-              }
-              suffix="%"
-            />{' '}
-            vs last week
-          </div>
-        </div>
-        <div className="card stat">
-          <div className="lab">Active sources</div>
-          <div className="num">
-            {PS_BRAND.sourcesActive}
-            <span style={{ fontSize: 16, color: 'var(--t3)' }}> / 8</span>
-          </div>
-          <div className="foot" style={{ gap: 4 }}>
-            {['Google', 'Trustpilot', 'App Store', 'YouTube', 'News', 'X'].map((s) => (
-              <SourceGlyph key={s} name={s} size={15} />
+            {cards.map((d, i) => (
+              <DimBar
+                key={d.key}
+                dim={{
+                  key: d.key,
+                  label: d.label,
+                  score: d.score,
+                  prev: d.previous ?? d.score,
+                  weight: 0,
+                  blurb: `${d.signalCount.toLocaleString()} signals`,
+                }}
+                play={play}
+                delay={i * 120}
+                onClick={() => nav.openDimension(d.key)}
+              />
             ))}
           </div>
         </div>
-        <div className="card stat">
-          <div className="lab">Competitive rank</div>
-          <div className="num">
-            #2<span style={{ fontSize: 16, color: 'var(--t3)' }}> of 4</span>
-          </div>
-          <div className="foot">8 pts behind leader Northwind</div>
-        </div>
-        <div className="card stat">
-          <div className="lab">Open critical actions</div>
-          <div className="num" style={{ color: 'var(--coral)' }}>
-            2
-          </div>
-          <div className="foot">+6.4 pts potential uplift</div>
-        </div>
-      </div>
 
-      <div className="grid" style={{ gridTemplateColumns: '1.4fr 1fr', marginTop: 18 }}>
-        <div className="card" style={{ padding: '20px 22px' }}>
-          <div className="card-h" style={{ padding: 0, marginBottom: 14 }}>
-            <h3>Dimension history</h3>
-            <span className="sub">26 weeks</span>
-            <div className="spacer" />
-            <div className="legend">
-              {PS_DIMENSIONS.map((d) => (
-                <span className="it" key={d.key}>
-                  <span className="sw" style={{ background: scoreColor(d.score) }} />
-                  {d.label}
-                </span>
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginTop: 18 }}>
+          <div className="card stat">
+            <div className="lab">Signals this week</div>
+            <div className="num">{Number(vshown).toLocaleString()}</div>
+            <div className="foot">
+              {weekDelta === null ? (
+                'no prior week to compare'
+              ) : (
+                <>
+                  <Delta value={weekDelta} suffix="%" /> vs last week
+                </>
+              )}
+            </div>
+          </div>
+          <div className="card stat">
+            <div className="lab">Active sources</div>
+            <div className="num">
+              {stats.data?.activeSources ?? 0}
+              <span style={{ fontSize: 16, color: 'var(--t3)' }}>
+                {' '}
+                / {stats.data?.configuredSources ?? 0}
+              </span>
+            </div>
+            <div className="foot">configured for this brand</div>
+          </div>
+          {/* Replaces "Competitive rank" and "Open critical actions". Rank needs every brand's
+              composite (the Competitors view does that), and open actions need the roadmap,
+              which nothing produces. Scoring coverage is real and answers a question the
+              operator actually has. */}
+          <div className="card stat">
+            <div className="lab">Scoring coverage</div>
+            <div className="num">
+              {stats.data && stats.data.totalSignals > 0
+                ? Math.round((stats.data.scoredSignals / stats.data.totalSignals) * 100)
+                : 0}
+              <span style={{ fontSize: 16, color: 'var(--t3)' }}>%</span>
+            </div>
+            <div className="foot">
+              {(stats.data?.scoredSignals ?? 0).toLocaleString()} of{' '}
+              {(stats.data?.totalSignals ?? 0).toLocaleString()} scored
+            </div>
+          </div>
+          <div className="card stat">
+            <div className="lab">Worst cluster damage</div>
+            <div className="num" style={{ color: 'var(--coral)' }}>
+              {topNeg[0]?.damage ?? 0}
+            </div>
+            <div className="foot">{topNeg[0]?.title ?? 'nothing negative surfaced'}</div>
+          </div>
+        </div>
+
+        <div className="grid" style={{ marginTop: 18 }}>
+          <div className="card" style={{ padding: '20px 22px' }}>
+            <div className="card-h" style={{ padding: 0, marginBottom: 14 }}>
+              <h3>Dimension history</h3>
+              <span className="sub">
+                {points.length} {points.length === 1 ? 'day' : 'days'}
+              </span>
+              <div className="spacer" />
+              <div className="legend">
+                {cards.map((d) => (
+                  <span className="it" key={d.key}>
+                    <span className="sw" style={{ background: scoreColor(d.score) }} />
+                    {d.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {points.length >= 2 ? (
+              <LineChart
+                data={chartRows}
+                width={1180}
+                height={250}
+                yMin={0}
+                yMax={100}
+                play={play}
+                series={cards.map((d) => ({ key: d.key, color: scoreColor(d.score), w: 1.6 }))}
+              />
+            ) : (
+              <p style={{ color: 'var(--t3)', fontSize: 13, margin: 0 }}>
+                Not enough history to plot yet.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 18 }}>
+          <div className="card" style={{ padding: '20px 22px' }}>
+            <div className="card-h" style={{ padding: 0, marginBottom: 14 }}>
+              <h3 style={{ color: 'var(--coral)' }}>Top negative clusters</h3>
+              <div className="spacer" />
+              <span className="drill-hint">by damage</span>
+            </div>
+            <div className="drill-list">
+              {topNeg.length === 0 && (
+                <p style={{ color: 'var(--t3)', fontSize: 13, margin: 0 }}>
+                  Nothing scored negatively in the window.
+                </p>
+              )}
+              {topNeg.map((c) => (
+                <button
+                  key={c.topic}
+                  className="drill-row"
+                  onClick={() => c.dimensionKey && nav.openDimension(c.dimensionKey)}
+                >
+                  <div
+                    className="lead"
+                    style={{
+                      background: 'color-mix(in srgb, var(--coral) 15%, transparent)',
+                      color: 'var(--coral)',
+                      fontSize: 14,
+                    }}
+                  >
+                    {c.damage}
+                  </div>
+                  <div className="body">
+                    <div className="nm" style={{ fontSize: 13.5 }}>
+                      {c.title}
+                    </div>
+                    <div className="ds">
+                      {c.volume.toLocaleString()} signals · {c.sentiment.toFixed(2)}
+                    </div>
+                  </div>
+                  <span className="arr">→</span>
+                </button>
               ))}
             </div>
           </div>
-          <LineChart
-            data={PS_HISTORY}
-            width={680}
-            height={250}
-            yMin={50}
-            yMax={90}
-            play={play}
-            series={PS_DIMENSIONS.map((d) => ({
-              key: d.key,
-              color: scoreColor(d.score),
-              w: d.key === 'service' ? 2.6 : 1.6,
-            }))}
-            highlight="service"
-          />
-          <p className="mono" style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
-            Service (highlighted) dipped during the April support incident and is still recovering.
-          </p>
-        </div>
-        <div className="card" style={{ padding: '20px 22px' }}>
-          <div className="card-h" style={{ padding: 0, marginBottom: 14 }}>
-            <h3>Signal volume by source</h3>
-            <span className="sub">12 weeks</span>
-          </div>
-          <VolumeBars vol={PS_VOLUME} width={420} height={210} play={play} />
-          <div className="legend" style={{ marginTop: 10 }}>
-            {PS_VOLUME.sources.map((s) => (
-              <span className="it" key={s}>
-                <span className="sw" style={{ background: PS_SOURCES[s]?.tone }} />
-                {s}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 18 }}>
-        <div className="card" style={{ padding: '20px 22px' }}>
-          <div className="card-h" style={{ padding: 0, marginBottom: 14 }}>
-            <h3 style={{ color: 'var(--coral)' }}>Top negative clusters</h3>
-            <div className="spacer" />
-            <span className="drill-hint">by damage</span>
-          </div>
-          <div className="drill-list">
-            {topNeg.map((c) => (
-              <button
-                key={c.id}
-                className="drill-row"
-                onClick={() => {
-                  const cl = clusterById(c.id);
-                  if (cl) nav.openCluster(c.id, cl.dimKey);
-                }}
-              >
-                <div
-                  className="lead"
-                  style={{
-                    background: 'color-mix(in srgb, var(--coral) 15%, transparent)',
-                    color: 'var(--coral)',
-                    fontSize: 14,
-                  }}
+          <div className="card" style={{ padding: '20px 22px' }}>
+            <div className="card-h" style={{ padding: 0, marginBottom: 14 }}>
+              <h3 style={{ color: 'var(--mint)' }}>Top positive clusters</h3>
+              <div className="spacer" />
+              <span className="drill-hint">by strength</span>
+            </div>
+            <div className="drill-list">
+              {topPos.length === 0 && (
+                <p style={{ color: 'var(--t3)', fontSize: 13, margin: 0 }}>
+                  Nothing scored positively in the window.
+                </p>
+              )}
+              {topPos.map((c) => (
+                <button
+                  key={c.topic}
+                  className="drill-row"
+                  onClick={() => c.dimensionKey && nav.openDimension(c.dimensionKey)}
                 >
-                  {c.damage}
-                </div>
-                <div className="body">
-                  <div className="nm" style={{ fontSize: 13.5 }}>
-                    {c.title}
+                  <div
+                    className="lead"
+                    style={{
+                      background: 'color-mix(in srgb, var(--mint) 15%, transparent)',
+                      color: 'var(--mint)',
+                      fontSize: 18,
+                    }}
+                  >
+                    ＋
                   </div>
-                  <div className="ds">
-                    {c.volume.toLocaleString()} signals · {c.sentiment.toFixed(2)}
+                  <div className="body">
+                    <div className="nm" style={{ fontSize: 13.5 }}>
+                      {c.title}
+                    </div>
+                    <div className="ds">
+                      {c.volume.toLocaleString()} signals · +{c.sentiment.toFixed(2)}
+                    </div>
                   </div>
-                </div>
-                <span className="arr">→</span>
-              </button>
-            ))}
+                  <span className="arr">→</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-        <div className="card" style={{ padding: '20px 22px' }}>
-          <div className="card-h" style={{ padding: 0, marginBottom: 14 }}>
-            <h3 style={{ color: 'var(--mint)' }}>Top positive clusters</h3>
-            <div className="spacer" />
-            <span className="drill-hint">strengths</span>
-          </div>
-          <div className="drill-list">
-            {topPos.map((c) => (
-              <button
-                key={c.id}
-                className="drill-row"
-                onClick={() => {
-                  const cl = clusterById(c.id);
-                  if (cl) nav.openCluster(c.id, cl.dimKey);
-                }}
-              >
-                <div
-                  className="lead"
-                  style={{
-                    background: 'color-mix(in srgb, var(--mint) 15%, transparent)',
-                    color: 'var(--mint)',
-                    fontSize: 18,
-                  }}
-                >
-                  ＋
-                </div>
-                <div className="body">
-                  <div className="nm" style={{ fontSize: 13.5 }}>
-                    {c.title}
-                  </div>
-                  <div className="ds">
-                    {c.volume.toLocaleString()} signals · +{c.sentiment.toFixed(2)}
-                  </div>
-                </div>
-                <span className="arr">→</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      </ViewState>
     </div>
   );
 }

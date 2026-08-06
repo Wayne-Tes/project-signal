@@ -57,10 +57,20 @@ export interface TopicCluster {
   volume: number;
   /** Mean negativity, 0 (nothing negative) … 1 (uniformly maximally negative). */
   negativity: number;
+  /** Mean positivity, 0 (nothing positive) … 1 (uniformly maximally positive). */
+  positivity: number;
   /** Mean recency weight of the cluster's items, 0 … 1. */
   recency: number;
   /** volume × negativity × recency — the spec's damage score. */
   damage: number;
+  /**
+   * volume × positivity × recency — the mirror of damage.
+   *
+   * Not in the product spec, which only defines the Achilles Heel. Added deliberately as the
+   * symmetric counterpart so "what is working" is ranked by the same construction as "what is
+   * hurting", rather than by an ad-hoc rule invented in the view.
+   */
+  strength: number;
   /** Mean sentiment of the cluster, −1 … 1. */
   sentiment: number;
   /** Dimensions the cluster's items touch, most frequent first. */

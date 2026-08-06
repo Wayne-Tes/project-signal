@@ -6,12 +6,14 @@ import {
   compositeScore,
   HALF_LIFE_DAYS,
   parseWeights,
+  topStrengths,
   type DimensionRollup,
   type ScoredItem,
 } from '@project-signal/scoring';
 import type { Dimension, SentimentLabel } from '@project-signal/shared-types';
-import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, lt, lte, sql } from 'drizzle-orm';
 import { requireBrandAccess } from '../plugins/auth.js';
+import { sourceConfigs } from '@project-signal/db';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -39,6 +41,21 @@ const DIMENSION_ROW = {
     score: { type: 'number' },
     date: { type: 'string' },
     signalCount: { type: 'integer' },
+  },
+};
+
+const CLUSTER_SCHEMA = {
+  type: 'object',
+  properties: {
+    topic: { type: 'string' },
+    volume: { type: 'integer' },
+    negativity: { type: 'number' },
+    positivity: { type: 'number' },
+    recency: { type: 'number' },
+    damage: { type: 'number' },
+    strength: { type: 'number' },
+    sentiment: { type: 'number' },
+    dimensions: { type: 'array', items: { type: 'string' } },
   },
 };
 
@@ -197,20 +214,67 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
           type: 'object',
           properties: { limit: { type: 'integer', minimum: 1, maximum: 20, default: 3 } },
         },
+        response: { 200: { type: 'array', items: CLUSTER_SCHEMA } },
+      },
+    },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const { limit = 3 } = request.query as { limit?: number };
+      const asOf = new Date();
+      const items = await readScoredItems(request.user.tenantId, id, asOf);
+
+      return achillesHeels(clusterTopics(items, asOf), limit);
+    },
+  );
+
+  /** The mirror of /achilles: what is working, ranked by the same construction. */
+  fastify.get(
+    '/brands/:id/strengths',
+    {
+      preHandler: requireBrandAccess,
+      schema: {
+        security: [{ BearerAuth: [] }],
+        params: { type: 'object', properties: { id: { type: 'string' } } },
+        querystring: {
+          type: 'object',
+          properties: { limit: { type: 'integer', minimum: 1, maximum: 20, default: 3 } },
+        },
+        response: { 200: { type: 'array', items: CLUSTER_SCHEMA } },
+      },
+    },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const { limit = 3 } = request.query as { limit?: number };
+      const asOf = new Date();
+      const items = await readScoredItems(request.user.tenantId, id, asOf);
+      return topStrengths(clusterTopics(items, asOf), limit);
+    },
+  );
+
+  /**
+   * Headline counts for the dashboard stat row.
+   *
+   * One endpoint rather than four, because every figure comes from the same two tables and the
+   * row is rendered together. `scoredCount` against `totalCount` is the pipeline's coverage —
+   * the honest answer to "how much of what we ingested has actually been scored".
+   */
+  fastify.get(
+    '/brands/:id/stats',
+    {
+      preHandler: requireBrandAccess,
+      schema: {
+        security: [{ BearerAuth: [] }],
+        params: { type: 'object', properties: { id: { type: 'string' } } },
         response: {
           200: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                topic: { type: 'string' },
-                volume: { type: 'integer' },
-                negativity: { type: 'number' },
-                recency: { type: 'number' },
-                damage: { type: 'number' },
-                sentiment: { type: 'number' },
-                dimensions: { type: 'array', items: { type: 'string' } },
-              },
+            type: 'object',
+            properties: {
+              signalsThisWeek: { type: 'integer' },
+              signalsPreviousWeek: { type: 'integer' },
+              totalSignals: { type: 'integer' },
+              scoredSignals: { type: 'integer' },
+              activeSources: { type: 'integer' },
+              configuredSources: { type: 'integer' },
             },
           },
         },
@@ -218,44 +282,88 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { id } = request.params as { id: string };
-      const { limit = 3 } = request.query as { limit?: number };
-      const asOf = new Date();
-      const since = new Date(asOf.getTime() - ACHILLES_LOOKBACK_DAYS * MS_PER_DAY);
+      const database = db.get();
+      const now = Date.now();
+      const weekAgo = new Date(now - 7 * MS_PER_DAY);
+      const twoWeeksAgo = new Date(now - 14 * MS_PER_DAY);
 
-      const rows = await db
-        .get()
+      // Embed drizzle conditions rather than interpolating the Date values directly: a raw
+      // `sql` fragment bypasses the timestamptz serialiser and sends
+      // "Thu Jul 30 2026 … (British Summer Time)", which Postgres rejects. Same trap as the
+      // keyset predicate in routes/signals.ts — see test/routes/keyset.test.ts.
+      const [counts] = await database
         .select({
-          signalId: signals.id,
-          publishedAt: signals.publishedAt,
-          score: sentimentResults.score,
-          confidence: sentimentResults.confidence,
-          label: sentimentResults.label,
-          dimensions: sentimentResults.dimensions,
-          topics: sentimentResults.topics,
+          totalSignals: count(),
+          thisWeek: sql<number>`COUNT(*) FILTER (WHERE ${gte(signals.publishedAt, weekAgo)})`,
+          previousWeek: sql<number>`COUNT(*) FILTER (WHERE ${and(gte(signals.publishedAt, twoWeeksAgo), lt(signals.publishedAt, weekAgo))})`,
+          scored: sql<number>`COUNT(${sentimentResults.signalId})`,
         })
         .from(signals)
-        .innerJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
+        .leftJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
+        .where(and(eq(signals.tenantId, request.user.tenantId), eq(signals.brandEntityId, id)));
+
+      const [sources] = await database
+        .select({
+          configured: count(),
+          active: sql<number>`COUNT(*) FILTER (WHERE ${sourceConfigs.isEnabled})`,
+        })
+        .from(sourceConfigs)
         .where(
           and(
-            eq(signals.tenantId, request.user.tenantId),
-            eq(signals.brandEntityId, id),
-            gte(signals.publishedAt, since),
+            eq(sourceConfigs.tenantId, request.user.tenantId),
+            eq(sourceConfigs.brandEntityId, id),
           ),
         );
 
-      const items: ScoredItem[] = rows.map((r) => ({
-        signalId: r.signalId,
-        publishedAt: r.publishedAt,
-        score: r.score ?? 0,
-        confidence: r.confidence ?? 0,
-        label: (r.label ?? 'neutral') as SentimentLabel,
-        dimensions: (r.dimensions ?? []) as Dimension[],
-        topics: r.topics ?? [],
-      }));
-
-      return achillesHeels(clusterTopics(items, asOf), limit);
+      return {
+        signalsThisWeek: Number(counts?.thisWeek ?? 0),
+        signalsPreviousWeek: Number(counts?.previousWeek ?? 0),
+        totalSignals: Number(counts?.totalSignals ?? 0),
+        scoredSignals: Number(counts?.scored ?? 0),
+        activeSources: Number(sources?.active ?? 0),
+        configuredSources: Number(sources?.configured ?? 0),
+      };
     },
   );
 };
+
+/** Shared read for the cluster endpoints — same window the rollup uses. */
+async function readScoredItems(
+  tenantId: string,
+  brandEntityId: string,
+  asOf: Date,
+): Promise<ScoredItem[]> {
+  const since = new Date(asOf.getTime() - ACHILLES_LOOKBACK_DAYS * MS_PER_DAY);
+  const rows = await db
+    .get()
+    .select({
+      signalId: signals.id,
+      publishedAt: signals.publishedAt,
+      score: sentimentResults.score,
+      confidence: sentimentResults.confidence,
+      label: sentimentResults.label,
+      dimensions: sentimentResults.dimensions,
+      topics: sentimentResults.topics,
+    })
+    .from(signals)
+    .innerJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
+    .where(
+      and(
+        eq(signals.tenantId, tenantId),
+        eq(signals.brandEntityId, brandEntityId),
+        gte(signals.publishedAt, since),
+      ),
+    );
+
+  return rows.map((r) => ({
+    signalId: r.signalId,
+    publishedAt: r.publishedAt,
+    score: r.score ?? 0,
+    confidence: r.confidence ?? 0,
+    label: (r.label ?? 'neutral') as SentimentLabel,
+    dimensions: (r.dimensions ?? []) as Dimension[],
+    topics: r.topics ?? [],
+  }));
+}
 
 export default scoresRoutes;

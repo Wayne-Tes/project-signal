@@ -6,7 +6,7 @@ const _queue: unknown[][] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
-  ['select', 'from', 'where', 'innerJoin', 'orderBy', 'limit'].forEach((m) => {
+  ['select', 'from', 'where', 'innerJoin', 'leftJoin', 'orderBy', 'limit'].forEach((m) => {
     chain[m] = vi.fn(() => chain);
   });
   const next = () => (_queue.length ? _queue.shift()! : _rows);
@@ -17,6 +17,7 @@ vi.mock('@project-signal/db', () => {
     dimensionScores: {},
     signals: {},
     sentimentResults: {},
+    sourceConfigs: {},
   };
 });
 
@@ -203,6 +204,80 @@ describe('GET /brands/:id/achilles', () => {
   it('is brand-scoped', async () => {
     const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
     const res = await app.inject({ method: 'GET', url: '/brands/brand-2/achilles' });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('GET /brands/:id/strengths', () => {
+  const scored = (over: Record<string, unknown> = {}) => ({
+    signalId: 's1',
+    publishedAt: new Date(),
+    score: 1,
+    confidence: 1,
+    label: 'positive',
+    dimensions: ['quality'],
+    topics: ['app design'],
+    ...over,
+  });
+
+  it('returns the strongest clusters first', async () => {
+    _rows = [
+      scored({ signalId: 'a', topics: ['loved'], score: 1 }),
+      scored({ signalId: 'b', topics: ['loved'], score: 1 }),
+      scored({ signalId: 'c', topics: ['liked'], score: 0.3 }),
+    ];
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/strengths' });
+
+    const body = JSON.parse(res.body);
+    expect(body[0].topic).toBe('loved');
+    expect(body[0].strength).toBeGreaterThan(body[1].strength);
+  });
+
+  // Taking the least-damaging clusters would surface topics nobody praised.
+  it('omits clusters with no positive sentiment', async () => {
+    _rows = [scored({ score: -1, topics: ['bad'] })];
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/strengths' });
+    expect(JSON.parse(res.body)).toEqual([]);
+  });
+
+  it('is brand-scoped', async () => {
+    const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/strengths' });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('GET /brands/:id/stats', () => {
+  it('returns the headline counts', async () => {
+    _queue.push([{ totalSignals: 40, thisWeek: '9', previousWeek: '6', scored: '31' }]);
+    _queue.push([{ configured: 5, active: '3' }]);
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/stats' });
+
+    expect(JSON.parse(res.body)).toEqual({
+      signalsThisWeek: 9,
+      signalsPreviousWeek: 6,
+      totalSignals: 40,
+      scoredSignals: 31,
+      activeSources: 3,
+      configuredSources: 5,
+    });
+  });
+
+  it('reports zeroes for a brand with nothing ingested', async () => {
+    _queue.push([{ totalSignals: 0, thisWeek: '0', previousWeek: '0', scored: '0' }]);
+    _queue.push([{ configured: 0, active: '0' }]);
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/stats' });
+
+    expect(JSON.parse(res.body).totalSignals).toBe(0);
+  });
+
+  it('is brand-scoped', async () => {
+    const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/stats' });
     expect(res.statusCode).toBe(403);
   });
 });

@@ -345,45 +345,49 @@ before it is complete.
 
 ---
 
-## 13. 🟠 Dashboard views on mock data — **three of six wired**
+## 13. 🟠 Dashboard views on mock data — **four of six wired**
 
 **Where:** `apps/web/src/lib/data.ts` (~574 lines) and the views that consume it.
 
 **Wired to live data:**
 
-- **Trends** → `/brands/:id/score` and `/brands/:id/dimension-scores`
-- **Achilles** → `/brands/:id/achilles`
-- **Competitors** → `/brands` plus one `/brands/:id/score` per brand
+- **Dashboard** → `/score`, `/dimension-scores`, `/stats`, `/achilles`, `/strengths`
+- **Trends** → `/score`, `/dimension-scores`
+- **Achilles** → `/achilles`
+- **Competitors** → `/brands` plus one `/score` per brand
 
-Supporting work this needed:
+Supporting work:
 
-- `lib/brand-data.ts` — pure API→presentation mapping, covered by 23 tests. The views sit
-  behind `AuthGate` and cannot be driven until #16, so this is where correctness is actually
-  proven. `apps/web` had no test setup at all before this.
-- `lib/brand-context.tsx` — a real `BrandProvider`. The shell had no notion of a selected
-  brand; the switcher was hard-coded to the fictional "Cadence / Challenger bank".
-- `hooks/useApi.ts` and `components/ViewState.tsx` — loading, error and empty rendered as three
-  distinct states. Collapsing them is how a brand that has never been scored ends up looking
-  like a brand scoring zero.
-- `components/charts.tsx` — data prop is now a structural `ChartRow` rather than the mock's
-  fixed `HistoryRow`, so a day with a partial rollup plots the dimensions that ran instead of
-  zeroing the rest.
+- `lib/brand-data.ts` — pure API→presentation mapping, 23 tests. The views sit behind
+  `AuthGate` and cannot be driven until #16, so this is where correctness is proven. `apps/web`
+  had no test setup at all before this.
+- `lib/brand-context.tsx` — a real `BrandProvider`; the shell had hard-coded a fictional brand.
+- `hooks/useApi.ts`, `components/ViewState.tsx` — loading, error and empty as three distinct
+  states.
+- `components/charts.tsx` — structural `ChartRow` instead of the mock's fixed `HistoryRow`.
+- New API endpoints for the Dashboard: `/brands/:id/stats` (weekly signal counts, source
+  counts, scoring coverage) and `/brands/:id/strengths` (the mirror of `/achilles`, ranked by
+  `volume × positivity × recency`).
 
-**Still on mock data, with reasons:**
+**Removed from the Dashboard, by decision:**
 
-- **Dashboard** — depends on `PS_VOLUME` (per-source weekly counts) and `PS_ALERT`. Neither has
-  an endpoint; alerting is Epic 13. Wiring it means dropping or rebuilding those two panels,
-  which is a product decision rather than a mechanical one.
-- **Roadmap** — `PS_ROADMAP` needs prioritised recommendations with impact, effort and
-  evidence. **Nothing in Epics 11–13 produces these.** This is unspecified work, not deferred
-  work.
+- The **anomaly banner** — alerting is Epic 13 and nothing detects anomalies.
+- **Signal volume by source** — no endpoint aggregates weekly counts per source.
+- A hard-coded caption asserting Service "dipped during the April support incident" — narrative
+  about a fictional brand's history.
+- The **Competitive rank** and **Open critical actions** stat cards, replaced with **scoring
+  coverage** (`scoredSignals / totalSignals`) and **worst cluster damage**. Rank needs every
+  brand's composite, which is what the Competitors view is for; open actions need the roadmap,
+  which nothing produces.
+
+**Still on mock data:**
+
+- **Roadmap** — needs prioritised recommendations with impact, effort and evidence. **Nothing
+  in Epics 11–13 produces these.** Unspecified work, not deferred work.
 - **Report** — Epic 12.
 
-So `lib/data.ts` cannot be deleted yet, and Epic 6's exit criterion is not met.
-
-**Verified:** `lint` 13/13, `typecheck` 12/12, `test` 11/11, and the production image builds on
-node:20-alpine (3/3 static pages) — the check that matters after introducing a context
-provider, since a broken client/server boundary only shows up in the real build.
+`lib/data.ts` therefore survives, and Epic 6's exit criterion is not yet met. `App.tsx`,
+`DrillDown.tsx` and `primitives.tsx` still import from it too.
 
 ---
 

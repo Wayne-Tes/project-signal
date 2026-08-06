@@ -10,6 +10,7 @@ import {
   scoreAllDimensions,
   scoreDimension,
   toIndex,
+  topStrengths,
   type ScoredItem,
 } from '../src/index.js';
 
@@ -267,5 +268,59 @@ describe('achillesHeels', () => {
   it('returns nothing when there is no negativity at all', () => {
     const clusters = clusterTopics([item({ score: 0.5, topics: ['good'] })], ASOF);
     expect(achillesHeels(clusters)).toEqual([]);
+  });
+});
+
+describe('topStrengths', () => {
+  it('ranks by strength, not by least damage', () => {
+    const clusters = clusterTopics(
+      [
+        item({ score: 1, topics: ['loved'] }),
+        item({ score: 1, topics: ['loved'] }),
+        item({ score: 0.3, topics: ['liked'] }),
+      ],
+      ASOF,
+    );
+    expect(topStrengths(clusters).map((c) => c.topic)).toEqual(['loved', 'liked']);
+  });
+
+  // Taking the least-damaging clusters would surface topics nobody said anything good about.
+  it('excludes clusters with no positive sentiment', () => {
+    const clusters = clusterTopics(
+      [item({ score: -1, topics: ['bad'] }), item({ score: 0.5, topics: ['good'] })],
+      ASOF,
+    );
+    expect(topStrengths(clusters).map((c) => c.topic)).toEqual(['good']);
+  });
+
+  it('computes strength as volume x positivity x recency', () => {
+    const clusters = clusterTopics(
+      [item({ score: 1, topics: ['x'] }), item({ score: 1, topics: ['x'] })],
+      ASOF,
+    );
+    expect(clusters[0]!.strength).toBeCloseTo(2, 10);
+  });
+
+  it('discounts an old compliment below an equally strong recent one', () => {
+    const clusters = clusterTopics(
+      [
+        item({ score: 1, topics: ['now'], publishedAt: ASOF }),
+        item({ score: 1, topics: ['then'], publishedAt: daysBefore(2 * HALF_LIFE_DAYS) }),
+      ],
+      ASOF,
+    );
+    expect(topStrengths(clusters).map((c) => c.topic)).toEqual(['now', 'then']);
+  });
+
+  it('returns nothing when there is no positive sentiment at all', () => {
+    expect(topStrengths(clusterTopics([item({ score: -1, topics: ['bad'] })], ASOF))).toEqual([]);
+  });
+
+  it('honours the topN limit', () => {
+    const clusters = clusterTopics(
+      ['a', 'b', 'c', 'd'].map((t, i) => item({ score: 1 - i * 0.1, topics: [t] })),
+      ASOF,
+    );
+    expect(topStrengths(clusters, 2)).toHaveLength(2);
   });
 });

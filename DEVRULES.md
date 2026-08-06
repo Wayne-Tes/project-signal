@@ -66,6 +66,13 @@ These are Project Signal invariants. Breaking one produces a security hole or a 
 
 - **Tenant scoping is manual.** There is no Postgres RLS. Every query MUST filter on `tenant_id`. Brand-scoped routes MUST additionally check `request.user.brandEntityId`. Note that `apps/api/src/routes/signals.ts` currently does _not_ — that is KNOWN-GAPS #5, an open intra-tenant isolation hole. Do not copy that pattern.
 - **Authorisation reads identity-provider custom claims, not the `users` table.** Changing a row without also updating the claim leaves the token stale for up to an hour. Any role change must go through the claim-setting path.
+- **Never interpolate a JS `Date` into a raw drizzle `sql` fragment.** It bypasses the
+  timestamptz serialiser and Postgres receives `Thu Jul 30 2026 15:41:17 GMT+0100 (British
+Summer Time)`, which it rejects at runtime. Use the typed operators (`gte`, `lt`, …) and embed
+  _those_ into the fragment: ``sql`COUNT(*) FILTER (WHERE ${gte(signals.publishedAt, since)})` ``.
+  This has been shipped twice — once in the keyset predicate, once in the stats counts — and
+  both times every mocked test passed, because a mocked database never renders the SQL. See
+  `apps/api/test/routes/keyset.test.ts` for the shape of a test that does catch it.
 - **Style `apps/web` with CSS custom properties.** Literal hex values break the runtime palette switcher.
 - **`commitlint` enforces a closed scope list** in `commitlint.config.js`. A new scope must be added there in the same change, or the commit is rejected by the `commit-msg` hook.
 - **Terraform owns the container image.** `terraform apply` requires `-var="image_tag=..."` — there is no default, deliberately, so a local apply cannot silently roll images back.
