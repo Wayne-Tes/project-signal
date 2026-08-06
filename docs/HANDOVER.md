@@ -67,13 +67,9 @@ Phase 5 of 7. That is too late when nothing has ever run in a cloud.
 
 ## 3. Where the codebase actually stands
 
-**Verified 2026-08-06.** Full gate run from a clean tree at commit `d57ff54`:
-
-```
-corepack yarn lint        → NX Successfully ran target lint for 13 projects
-corepack yarn typecheck   → NX Successfully ran target typecheck for 12 projects
-corepack yarn test        → see §8 for how to re-run; 80% coverage gate per project
-```
+**Verified 2026-08-06.** Full gate green from a clean tree — 13 projects lint, 12 typecheck,
+**293 tests across 11 projects**. See §8 for the exact commands, the per-project counts, and a
+runner gotcha that makes `yarn test` look hung when it is not.
 
 `KNOWN-GAPS.md` was made the backlog by owner decision and burned down over the preceding days.
 **15 of 19 items are closed.** What remains:
@@ -319,6 +315,26 @@ corepack yarn lint && corepack yarn typecheck && corepack yarn test
 
 `yarn test` enforces 80% coverage per project. For Terraform: `terraform fmt -check -recursive`
 and `terraform validate` in the affected tree.
+
+**Baseline, verified 2026-08-06 at commit `b62d260`:** lint green across 13 projects, typecheck
+green across 12, and **293 tests green across 11 projects** — `api` 101, `source-adapters` 52,
+`scoring` 43, `web` 23, `ingestion` 22, `sentiment-worker` 17, `config` 10, `storage` 9,
+`messaging` 9, `gemini` 4, `report-worker` 3.
+
+> **`yarn test` as scripted will look like it has hung.** It is
+> `nx run-many -t test`, which defaults to running three vitest suites concurrently, each
+> spawning its own worker pool and coverage instrumentation. On a cold cache that did not
+> complete in **two separate 10-minute runs** here, producing no output at all — around 32 node
+> processes contending. The identical work finishes in roughly two minutes with:
+>
+> ```bash
+> corepack yarn nx run-many -t test --parallel=1 --output-style=stream
+> ```
+>
+> Use that when you need a cold-cache result or per-project output. Plain `yarn test` is fine
+> once the Nx cache is warm — it then returns in ~3s from cache. This is a local performance
+> characteristic, not a failure; every project passes when actually run. Do not spend a session
+> debugging it as though a test were deadlocked, and do not "fix" it by weakening the gate.
 
 > Note: bare `yarn` is not on `PATH` in this environment — it resolves through
 > `corepack yarn` (Yarn 4.9.2, confirmed). Node on `PATH` here is v24; use Node 20 for anything
