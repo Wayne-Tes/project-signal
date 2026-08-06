@@ -1,4 +1,4 @@
-import { index, pgTable, real, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core';
+import { index, pgTable, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core';
 import { brandEntities } from './brands';
 import { tenants } from './tenants';
 
@@ -15,10 +15,13 @@ export const signals = pgTable(
     source: varchar('source', { length: 50 }).notNull(),
     sourceUrl: text('source_url').notNull(),
     rawStorageRef: text('raw_storage_ref').notNull(),
-    sentimentLabel: varchar('sentiment_label', { length: 20 }),
-    sentimentScore: real('sentiment_score'),
-    confidence: real('confidence'),
-    modelVersion: varchar('model_version', { length: 50 }),
+    // Sentiment lives in `sentiment_results`, keyed one-to-one on signal_id, and is read by
+    // joining. `signals` previously carried sentiment_label / sentiment_score / confidence /
+    // model_version as well — a second home for the same data that nothing ever wrote
+    // (KNOWN-GAPS #11). They were dropped rather than adopted as a read cache: two plausible
+    // homes invite a future writer to pick the wrong one and split the truth. If a
+    // denormalised cache is ever wanted for list performance, reintroduce it deliberately,
+    // maintained by the sentiment worker in the same transaction as the results row.
     publishedAt: timestamp('published_at', { withTimezone: true }).notNull(),
     ingestedAt: timestamp('ingested_at', { withTimezone: true }).notNull().defaultNow(),
   },

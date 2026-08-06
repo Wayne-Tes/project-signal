@@ -254,36 +254,47 @@ can query them.
 
 ---
 
-## 11. 🟡 Unused denormalised sentiment columns on `signals`
+## 11. ✅ Unused denormalised sentiment columns on `signals` — **resolved**
 
-**Where:** `libs/db/src/schema/signals.ts`.
+**Where:** `libs/db/src/schema/signals.ts`, `apps/api/migrations/0005_demonic_mindworm.sql`.
 
-`signals` carries `sentiment_label`, `sentiment_score`, `confidence`, and `model_version`
-alongside the `sentiment_results` table that holds the same fields. Nothing writes the
-columns on `signals`; all reads join `sentiment_results`.
+`signals` carried `sentiment_label`, `sentiment_score`, `confidence` and `model_version`
+alongside the `sentiment_results` table holding the same fields. Nothing wrote them; every read
+joined `sentiment_results`.
 
-**Effect:** two plausible homes for the same data invites a future writer to pick the wrong
-one and split the truth.
+**Resolved by dropping the columns** rather than adopting them as a read cache. Two plausible
+homes for one fact invite a future writer to pick the wrong one and split the truth. Verified
+safe before dropping: all four columns were NULL across every row, and the only reference
+anywhere in the codebase was the schema definition itself.
 
-**Fix:** either drop the columns in a migration, or adopt them deliberately as a denormalised
-read cache maintained by the worker. Decide before anything starts writing them.
+If a denormalised cache is ever wanted for list performance, reintroduce it deliberately,
+maintained by the sentiment worker in the same transaction as the `sentiment_results` write.
 
 ---
 
-## 12. 🟡 `POST /admin/users` is owner-only, and there's no users UI
+## 12. 🟠 `POST /admin/users` role gating — **API resolved, UI blocked**
 
-**Where:** `apps/api/src/routes/users.ts` vs `PLAN.md` Epics 5 and 6.
+**Where:** `apps/api/src/routes/users.ts`, `apps/web/src/components/UserManager.tsx`.
 
-The plan says an `admin` can provision users in their tenant and an `owner` can provision
-admins. The route is gated `requireRole('owner')` only, so admins cannot create users
-(they _can_ PATCH existing ones). There is also no check preventing an admin from escalating
-someone — including themselves — to `owner` via PATCH.
+**Resolved on the API.** Three holes, one worse than this entry originally described:
 
-Separately, the Admin view implements tenant creation plus brand/source/alias management, but
-**not** the users list / provision / edit UI that Epic 6 specifies.
+1. `POST` was `requireRole('owner')`, so admins could not provision their own tenant's users.
+   Now `owner, admin`, with an admin constrained to their own `tenantId` and to the roles
+   `admin` / `user`.
+2. `PATCH` allowed an admin to set `role: 'owner'` on anyone, including themselves. Now
+   rejected, as is modifying an existing owner.
+3. **`PATCH` had no tenant filter at all** — it updated on `id` alone, so an admin in tenant A
+   could modify a user in tenant B. This was a cross-tenant isolation hole, not merely an
+   escalation one. It now reads the target first and returns 404 for a foreign tenant, so the
+   row's existence is not confirmed either.
 
-**Fix:** allow `admin` to POST users constrained to their own tenant and to non-`owner` roles;
-constrain PATCH the same way; then build the users panel in `apps/web/src/views/Admin.tsx`.
+Verified against a live API: escalation 403, modifying an owner 403, foreign tenant 404.
+
+**The UI is written but cannot be called done.** `UserManager.tsx` lists the tenant's users,
+allows role changes within the assignable set, and provisions new users. It lints and
+typechecks, and the endpoints behind it are verified — but it has never been rendered in a
+browser, because `apps/web` cannot build (#17). DEVRULES requires UI work to be exercised as a
+real user before it is complete; that is impossible until #17 is decided.
 
 ---
 
@@ -371,6 +382,84 @@ GCP account.
 
 ---
 
+## 17. 🔴 `apps/web` production build fails — upstream Next.js 16 bug
+
+**Where:** `apps/web`, Next.js 16.2.7 + React 19.2.7.
+
+`yarn nx run @project-signal/web:build` fails during static generation:
+
+```
+Error occurred prerendering page "/_global-error"
+TypeError: Cannot read properties of null (reading 'useContext')
+Export encountered an error on /_global-error/page, exiting the build.
+```
+
+**This is a known Next.js 16 framework bug, not application code.** Confirmed by building a
+clean tree with every local change stashed — identical failure. Upstream reports:
+[#86178](https://github.com/vercel/next.js/issues/86178),
+[#85668](https://github.com/vercel/next.js/issues/85668),
+[#84994](https://github.com/vercel/next.js/issues/84994),
+[discussion #94667](https://github.com/vercel/next.js/discussions/94667). Next synthesises the
+`/_global-error` page and prerenders it; its renderer misaligns with React 19's RSC path so
+`useContext` returns null. Reporters confirm it occurs with `global-error.tsx` deleted
+entirely, and that removing hooks, forcing dynamic rendering and disabling providers all fail
+to work around it.
+
+**Effect — this is the most severe open item.** The web image cannot be built, so
+`deploy-staging.yml` fails at the build-push step and **the dashboard cannot be deployed at
+all**. It also blocks browser verification of any UI work, which is what DEVRULES requires
+before UI work can be called done.
+
+**Tried and rejected here:** an explicit `app/global-error.tsx` (no effect), and removing the
+hand-rolled `<head>` from the root layout so React 19 hoists the font links (no effect — the
+"unique key prop" warnings come from Next's internals). Both were reverted rather than left in
+as unverified speculation.
+
+**Decision needed** — this is a dependency choice, not a code fix:
+
+- pin Next.js to a 15.x line, which contradicts `CLAUDE.md`'s Next 16 premise;
+- try a 16.x canary, per the discussion thread; or
+- wait for a patch release and accept that web cannot deploy until then.
+
+Local `next dev` is unaffected, so feature work can continue.
+
+---
+
+## 18. 🟠 User writes are not atomic with Firebase custom claims
+
+**Where:** `apps/api/src/routes/users.ts` — both `POST /admin/users` and `PATCH /admin/users/:id`.
+
+Both write the `users` row and then call `setCustomUserClaims`. If the claims call fails the
+row is already committed, the caller gets a 500, and the database and the token disagree —
+about authorisation, which per the house rules is read from claims and not from the table.
+
+Surfaced while verifying #12 against a live API: with no local GCP credentials
+`setCustomUserClaims` throws `FirebaseAppError: Could not load the default credentials`, and
+both allow-paths returned 500 **after** the row had been updated. The unit tests never see it
+because `firebase-admin` is mocked.
+
+**Fix:** on a claims failure, revert the row (or write it only after claims succeed) so the two
+cannot diverge. Not attempted here: the failure path cannot be exercised locally without
+credentials, and shipping an untested compensating write would be worse than recording it.
+
+---
+
+## 19. 🟡 Web components use literal hex instead of CSS custom properties
+
+**Where:** every component under `apps/web/src` except `UserManager.tsx`.
+
+`CLAUDE.md` and `DEVRULES.md` both require styling through the CSS custom properties defined in
+`app/globals.css`, because literal hex breaks the runtime palette switcher. In practice
+`BrandManager.tsx` alone carries 23 literal hex values and none of the others use `var(--…)`
+either. Several literals are also off-palette (`#8a8f99`, `#1e2128`, `#e8e8ea`), so a
+conversion is a visual change, not a mechanical substitution.
+
+`UserManager.tsx` was written compliant. The rest was left alone deliberately: a 10-file
+visual refactor inside a users-UI task would have been unreviewable, and it cannot currently be
+verified in a browser because of #17.
+
+---
+
 ## Burn-down order
 
 **This register is the backlog** (owner's decision, 2026-08-06 — see `DEVRULES.md` § Standing
@@ -391,13 +480,20 @@ Done:
 
 Remaining, in dependency order:
 
-6. **#11** — decide the denormalised sentiment columns before anything starts writing them.
-7. **#12** — admin role gating and the users UI.
-8. **#13** — wire the six mock-data views to the live API. The largest single item, and the
-   one that finally exercises the pipeline the group above just connected.
-9. **#16** — stand up the GCP environment. Everything above was developed and verified locally
-   against Docker Postgres and the Pub/Sub emulator; the environment is needed to verify the
-   pipeline against real Cloud Storage and Vertex AI, which local work cannot reach.
+6. ~~**#11** — decide the denormalised sentiment columns.~~ ✅ dropped.
+7. **#17** — `apps/web` cannot build (upstream Next.js 16 bug). **Now the top item.** It blocks
+   the web deploy entirely and blocks browser verification of all UI work, including #12's
+   panel and everything in #13. Needs a dependency decision, not a code fix.
+8. **#12 (UI half)** — `UserManager.tsx` is written and its API is verified, but it cannot be
+   rendered until #17 lifts.
+9. **#18** — make the user row and its Firebase claims atomic.
+10. **#13** — wire the six mock-data views to the live API. The largest single item, and also
+    gated on #17 for verification.
+11. **#19** — convert web components to CSS custom properties. Do it alongside #13, which
+    rewrites those components anyway.
+12. **#16** — stand up the GCP environment. Everything above is developed and verified locally
+    against Docker Postgres and the Pub/Sub emulator; the environment is needed to verify
+    against real Cloud Storage, Vertex AI and Identity Platform.
 
 Closed by architectural decision rather than by a fix:
 

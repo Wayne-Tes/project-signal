@@ -4,6 +4,7 @@ import { useState, type CSSProperties, type FormEvent } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { BrandManager } from '@/components/BrandManager';
+import { UserManager } from '@/components/UserManager';
 
 type CreatedTenant = {
   status: string;
@@ -110,6 +111,7 @@ export function AdminView() {
       )}
 
       <BrandManager />
+      <UserManager />
     </div>
   );
 }
@@ -129,7 +131,12 @@ const card: CSSProperties = {
   border: '1px solid #1e2128',
   borderRadius: 14,
 };
-const lbl: CSSProperties = { display: 'block', fontSize: 12, color: '#8a8f99', margin: '12px 0 4px' };
+const lbl: CSSProperties = {
+  display: 'block',
+  fontSize: 12,
+  color: '#8a8f99',
+  margin: '12px 0 4px',
+};
 const inp: CSSProperties = {
   width: '100%',
   padding: '10px 12px',
