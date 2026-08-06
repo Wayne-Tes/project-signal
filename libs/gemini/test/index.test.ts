@@ -4,8 +4,8 @@ vi.mock('@project-signal/config', () => ({
   getEnv: vi.fn(() => ({
     GOOGLE_CLOUD_PROJECT: 'test-project',
     VERTEX_AI_LOCATION: 'europe-west2',
-    SCORER_MODEL: 'gemini-2.0-flash-001',
-    REPORTER_MODEL: 'gemini-2.0-pro-001',
+    SCORER_MODEL: 'gemini-2.5-flash',
+    REPORTER_MODEL: 'gemini-2.5-flash',
   })),
 }));
 
@@ -42,7 +42,7 @@ describe('getScorerModel', () => {
 
   it('returns SCORER_MODEL from env', async () => {
     const { getScorerModel } = await import('../src/index.js');
-    expect(getScorerModel()).toBe('gemini-2.0-flash-001');
+    expect(getScorerModel()).toBe('gemini-2.5-flash');
   });
 });
 
@@ -53,6 +53,6 @@ describe('getReporterModel', () => {
 
   it('returns REPORTER_MODEL from env', async () => {
     const { getReporterModel } = await import('../src/index.js');
-    expect(getReporterModel()).toBe('gemini-2.0-pro-001');
+    expect(getReporterModel()).toBe('gemini-2.5-flash');
   });
 });

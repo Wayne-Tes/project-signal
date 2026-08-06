@@ -9,7 +9,7 @@ vi.mock('@project-signal/gemini', () => {
         generateContent: mockGenerateContent,
       })),
     })),
-    getScorerModel: vi.fn(() => 'gemini-2.0-flash-001'),
+    getScorerModel: vi.fn(() => 'gemini-2.5-flash'),
     _mockGenerateContent: mockGenerateContent,
   };
 });
@@ -83,7 +83,7 @@ describe('scoreSignal', () => {
     expect(result.confidence).toBe(0.92);
     expect(result.dimensions).toEqual(['quality', 'service']);
     expect(result.topics).toEqual(['staff', 'delivery']);
-    expect(result.modelVersion).toBe('gemini-2.0-flash-001');
+    expect(result.modelVersion).toBe('gemini-2.5-flash');
   });
 
   it('strips markdown code fences from model response', async () => {

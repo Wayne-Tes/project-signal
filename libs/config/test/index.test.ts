@@ -54,7 +54,8 @@ describe('getEnv', () => {
 
   it('accepts discrete socket config (DB_SOCKET_PATH) without DATABASE_URL', async () => {
     delete process.env['DATABASE_URL'];
-    process.env['DB_SOCKET_PATH'] = '/cloudsql/example-project:europe-west2:staging-project-signal-pg';
+    process.env['DB_SOCKET_PATH'] =
+      '/cloudsql/example-project:europe-west2:staging-project-signal-pg';
     const { getEnv } = await import('../src/index.js');
     const env = getEnv();
     expect(env.DB_SOCKET_PATH).toContain('/cloudsql/');
@@ -73,7 +74,7 @@ describe('getEnv', () => {
 
   it('applies SCORER_MODEL default', async () => {
     const { getEnv } = await import('../src/index.js');
-    expect(getEnv().SCORER_MODEL).toBe('gemini-2.0-flash-001');
+    expect(getEnv().SCORER_MODEL).toBe('gemini-2.5-flash');
   });
 
   it('accepts PUBSUB_EMULATOR_HOST override', async () => {
