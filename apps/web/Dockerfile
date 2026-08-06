@@ -11,6 +11,20 @@ COPY package.json yarn.lock .yarnrc.yml tsconfig.base.json ./
 COPY apps/ apps/
 COPY libs/ libs/
 RUN yarn install --immutable
+
+# NEXT_PUBLIC_* values are inlined into the client bundle by `next build`, so they must be
+# present HERE — setting them as Cloud Run runtime env vars has no effect. Declared after
+# `yarn install` so changing them doesn't invalidate the dependency layer.
+# The three Firebase values are required: lib/firebase.ts throws if any is empty.
+ARG NEXT_PUBLIC_FIREBASE_API_KEY
+ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_FIREBASE_API_KEY=$NEXT_PUBLIC_FIREBASE_API_KEY \
+    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN \
+    NEXT_PUBLIC_FIREBASE_PROJECT_ID=$NEXT_PUBLIC_FIREBASE_PROJECT_ID \
+    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 RUN yarn workspace @project-signal/web run build
 
 FROM node:20-alpine AS runner

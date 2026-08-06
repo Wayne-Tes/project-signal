@@ -40,12 +40,36 @@ jobs:
       - id: sha
         run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
+      # Only the web image consumes these. NEXT_PUBLIC_* is inlined by `next build`, so it
+      # must arrive as a build arg — a Cloud Run runtime env var has no effect.
+      # NEXT_PUBLIC_API_URL is a chicken-and-egg: the API's Cloud Run URL doesn't exist until
+      # the first apply. On the very first deploy leave the secret unset (the client falls
+      # back to localhost), then read `terraform output api_url`, set the secret, and re-run.
+      - name: Assemble web build args
+        id: buildargs
+        if: matrix.app == 'web'
+        env:
+          FB_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          FB_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          FB_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        run: |
+          {
+            echo 'args<<EOF'
+            echo "NEXT_PUBLIC_FIREBASE_API_KEY=$FB_API_KEY"
+            echo "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$FB_AUTH_DOMAIN"
+            echo "NEXT_PUBLIC_FIREBASE_PROJECT_ID=$FB_PROJECT_ID"
+            echo "NEXT_PUBLIC_API_URL=$API_URL"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile
           push: true
+          build-args: ${{ steps.buildargs.outputs.args }}
           tags: |
             europe-west2-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/project-signal/${{ matrix.app }}:staging-${{ steps.sha.outputs.short }}
             europe-west2-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/project-signal/${{ matrix.app }}:staging
