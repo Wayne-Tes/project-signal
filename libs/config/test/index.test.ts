@@ -18,8 +18,12 @@ describe('getEnv', () => {
   });
 
   it('parses a valid environment and applies defaults', async () => {
+    // Every variable whose DEFAULT is asserted must be deleted first: beforeEach spreads the
+    // real process.env, and vitest loads the repo-root .env, so an ambient value would
+    // silently satisfy the assertion instead of the default doing so.
     delete process.env['NODE_ENV'];
     delete process.env['PORT'];
+    delete process.env['VERTEX_AI_LOCATION'];
     const { getEnv } = await import('../src/index.js');
     const env = getEnv();
     expect(env.DATABASE_URL).toBe(BASE_ENV.DATABASE_URL);
@@ -73,8 +77,15 @@ describe('getEnv', () => {
   });
 
   it('applies SCORER_MODEL default', async () => {
+    delete process.env['SCORER_MODEL'];
     const { getEnv } = await import('../src/index.js');
     expect(getEnv().SCORER_MODEL).toBe('gemini-2.5-flash');
+  });
+
+  it('applies REPORTER_MODEL default', async () => {
+    delete process.env['REPORTER_MODEL'];
+    const { getEnv } = await import('../src/index.js');
+    expect(getEnv().REPORTER_MODEL).toBe('gemini-2.5-flash');
   });
 
   it('accepts PUBSUB_EMULATOR_HOST override', async () => {
