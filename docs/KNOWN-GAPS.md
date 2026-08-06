@@ -6,8 +6,8 @@
 > [`PLAN.md`](PLAN.md) intends, what [`ARCHITECTURE.md`](ARCHITECTURE.md) describes, and what
 > the code currently does.
 >
-> Findings come from a full read of the repo on **2026-08-05**. Nothing here has been fixed;
-> this document records the state, it does not change it.
+> Findings come from a full read of the repo on **2026-08-05**. Items struck through and
+> marked ✅ have since been fixed; everything else is still open.
 >
 > **Severity key:** 🔴 breaks a flow · 🟠 correctness/security risk · 🟡 incomplete or drift
 
@@ -15,24 +15,24 @@
 
 ## Summary
 
-| # | Gap | Severity | Area |
-|---|---|---|---|
-| 1 | Pub/Sub pushes to `/events`; workers serve `/pubsub/item` | 🔴 | infra ↔ worker |
-| 2 | Scheduler calls `/reconcile`, which does not exist | 🔴 | infra ↔ ingestion |
-| 3 | Cloud Tasks queue provisioned but never used | 🟠 | ingestion |
-| 4 | Raw payloads never written to Cloud Storage; scoring reads a URL | 🔴 | ingestion + sentiment |
-| 5 | Brand-scoped reads don't enforce `brandEntityId` | 🟠 | API authz |
-| 6 | Cursor pagination has no `ORDER BY` | 🟠 | API correctness |
-| 7 | Topic names differ between code and Terraform | 🔴 | messaging |
-| 8 | Web app can't be pointed at the API at deploy time | 🟠 | web ↔ infra |
-| 9 | Sentiment worker swallows errors — DLQ never receives anything | 🟠 | sentiment |
-| 10 | `dimension_scores` is never written | 🟡 | deferred (Epic 11) |
-| 11 | Unused denormalised sentiment columns on `signals` | 🟡 | schema |
-| 12 | `POST /admin/users` is owner-only; no users UI | 🟡 | API + web |
-| 13 | Six dashboard views still render mock data | 🟡 | deferred (Epic 6) |
-| 14 | ~~Hardcoded contractor fallbacks in the web client~~ | ✅ resolved | web config |
-| 15 | ~~Working directory is not a git repository~~ | ✅ resolved | repo |
-| 16 | No GCP environment provisioned (contractor's was abandoned) | 🔴 | infra |
+| #   | Gap                                                              | Severity    | Area                  |
+| --- | ---------------------------------------------------------------- | ----------- | --------------------- |
+| 1   | Pub/Sub pushes to `/events`; workers serve `/pubsub/item`        | 🔴          | infra ↔ worker        |
+| 2   | Scheduler calls `/reconcile`, which does not exist               | 🔴          | infra ↔ ingestion     |
+| 3   | Cloud Tasks queue provisioned but never used                     | 🟠          | ingestion             |
+| 4   | Raw payloads never written to Cloud Storage; scoring reads a URL | 🔴          | ingestion + sentiment |
+| 5   | Brand-scoped reads don't enforce `brandEntityId`                 | 🟠          | API authz             |
+| 6   | Cursor pagination has no `ORDER BY`                              | 🟠          | API correctness       |
+| 7   | Topic names differ between code and Terraform                    | 🔴          | messaging             |
+| 8   | ~~Web app can't be pointed at the API at deploy time~~           | ✅ resolved | web ↔ infra           |
+| 9   | Sentiment worker swallows errors — DLQ never receives anything   | 🟠          | sentiment             |
+| 10  | `dimension_scores` is never written                              | 🟡          | deferred (Epic 11)    |
+| 11  | Unused denormalised sentiment columns on `signals`               | 🟡          | schema                |
+| 12  | `POST /admin/users` is owner-only; no users UI                   | 🟡          | API + web             |
+| 13  | Six dashboard views still render mock data                       | 🟡          | deferred (Epic 6)     |
+| 14  | ~~Hardcoded contractor fallbacks in the web client~~             | ✅ resolved | web config            |
+| 15  | ~~Working directory is not a git repository~~                    | ✅ resolved | repo                  |
+| 16  | No GCP environment provisioned (contractor's was abandoned)      | 🔴          | infra                 |
 
 ---
 
@@ -83,6 +83,7 @@ Tasks client exists anywhere in the codebase (`@google-cloud/tasks` is not a dep
 nothing reads `TASKS_QUEUE`.
 
 **Effect:**
+
 - The rate limiting that justified the queue (5 dispatches/sec, 10 concurrent) is not in
   effect — all sources are hit concurrently.
 - A fan-out across many brands runs inside a single HTTP request and can exceed the Cloud Run
@@ -114,6 +115,7 @@ const text = signal.sourceUrl;
 ```
 
 **Effect:** two failures compounded —
+
 - The **audit trail is empty**. `raw_storage_ref` cannot be resolved to anything; the
   verbatim-evidence promise in the product spec is unbacked.
 - **Every sentiment score is meaningless.** Gemini is asked to judge the sentiment of a URL.
@@ -137,7 +139,7 @@ highest-value gap on the list.
 
 **Effect:** a user with role `user`, pinned to brand A, can read brand B's signals and
 sentiment by changing the URL — including competitor brands tracked by their tenant.
-Cross-tenant isolation holds; **intra-tenant brand isolation does not**. `GET /brands` *does*
+Cross-tenant isolation holds; **intra-tenant brand isolation does not**. `GET /brands` _does_
 enforce it, so the restriction is visibly intended.
 
 `PLAN.md`'s Epic 5 acceptance criterion — "a signed-in user with role `user` can only access
@@ -168,10 +170,10 @@ the cursor a composite of those columns.
 
 **Where:** `libs/messaging/src/index.ts` vs `infra/modules/pubsub/main.tf`.
 
-| | Item topic | Item DLQ |
-|---|---|---|
-| Code (`TOPICS`) | `project-signal-item-queue` | `project-signal-item-dlq` |
-| Terraform | `<env>-item` (e.g. `staging-item`) | `<env>-item-dlq` |
+|                 | Item topic                         | Item DLQ                  |
+| --------------- | ---------------------------------- | ------------------------- |
+| Code (`TOPICS`) | `project-signal-item-queue`        | `project-signal-item-dlq` |
+| Terraform       | `<env>-item` (e.g. `staging-item`) | `<env>-item-dlq`          |
 
 Terraform even injects the correct name as `ITEM_TOPIC`, but **no code reads `ITEM_TOPIC`** —
 ingestion publishes to the hardcoded `TOPICS.ITEM_QUEUE`.
@@ -186,24 +188,26 @@ the `TOPICS` constants as local-development defaults.
 
 ---
 
-## 8. 🟠 The web app can't be pointed at the API at deploy time
+## 8. ✅ The web app can't be pointed at the API at deploy time — **resolved**
 
-**Where:** `infra/stack/main.tf` (`module.run_web`) vs `apps/web/src/lib/api.ts`.
+**Where:** `apps/web/Dockerfile`, `.github/workflows/deploy-{staging,production}.yml`.
 
-Terraform sets `API_URL = module.run_api.uri` on the web Cloud Run service. The client reads
-`process.env.NEXT_PUBLIC_API_URL`, falling back to a hardcoded staging URL. Two problems
-compound: the names don't match, and `NEXT_PUBLIC_*` variables are **inlined at build time**,
-so setting one as a Cloud Run runtime env var has no effect regardless of naming.
+Terraform set `API_URL` on the web Cloud Run service while the client read
+`NEXT_PUBLIC_API_URL`, and `NEXT_PUBLIC_*` is **inlined at build time** — so a runtime env var
+could never have worked regardless of naming.
 
-**Effect:** the deployed dashboard always talks to whatever URL was baked into the image —
-currently the hardcoded staging fallback. A production deploy would call the staging API.
+**Resolved by taking the build-arg option.** `apps/web/Dockerfile` now declares
+`NEXT_PUBLIC_API_URL` and the three `NEXT_PUBLIC_FIREBASE_*` values as build args, and both
+deploy workflows pass them from the environment's GitHub secrets for the `web` matrix leg only.
 
-**Fix:** pass `NEXT_PUBLIC_API_URL` as a Docker **build arg** in the deploy workflow, or move
-API-base resolution to a runtime-read server route / `window` config object.
+One wrinkle remains by nature rather than by defect: the API's Cloud Run URL doesn't exist
+until the first apply, so the first deploy of a new environment builds web against the
+localhost fallback. Read `terraform output api_url`, set the `NEXT_PUBLIC_API_URL` secret, and
+re-run the deploy. `infra/README.md` § Build-time configuration for the web app documents it.
 
-Related: Terraform never sets `CORS_ORIGINS` on the API, so the API reflects any origin. That
-is documented as acceptable (Bearer-only auth, no cookies), but it means the allowlist code
-path is untested in a deployed environment.
+Related and still open: Terraform never sets `CORS_ORIGINS` on the API, so the API reflects any
+origin. That is documented as acceptable (Bearer-only auth, no cookies), but it means the
+allowlist code path is untested in a deployed environment.
 
 ---
 
@@ -259,7 +263,7 @@ read cache maintained by the worker. Decide before anything starts writing them.
 
 The plan says an `admin` can provision users in their tenant and an `owner` can provision
 admins. The route is gated `requireRole('owner')` only, so admins cannot create users
-(they *can* PATCH existing ones). There is also no check preventing an admin from escalating
+(they _can_ PATCH existing ones). There is also no check preventing an admin from escalating
 someone — including themselves — to `owner` via PATCH.
 
 Separately, the Admin view implements tenant creation plus brand/source/alias management, but
@@ -326,20 +330,28 @@ abandoned at handover and every reference to it removed from this repo, so there
 no project, no Cloud SQL instance, no buckets, no Identity Platform tenant and no Artifact
 Registry to deploy into.
 
-**Blocked on, in order:**
+**Blocked on, in order** — everything here needs a GCP account, so none of it can be done from
+the repo. `infra/README.md` § First-time setup is the executable version of this list.
 
 1. Create a GCP project with billing enabled; put its id and number into
-   `envs/staging.tfvars` (both are `REPLACE_ME`).
-2. Create the GitHub repo and set `github_repository` in `infra/bootstrap/variables.tf` to
-   match — the WIF provider's `attribute_condition` pins tokens to exactly that repo, so a
-   mismatch fails CI auth with an unhelpful error.
-3. Run `infra/bootstrap/` once, then set the `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`,
-   `GCP_PROJECT_ID` and `TF_STATE_BUCKET` secrets on the `staging` GitHub environment.
-4. Register the Entra multi-tenant app and export `TF_VAR_auth_social_idps`
-   (see `infra/modules/identity_platform/README.md`).
-5. Create a Firebase web app in the new project and supply
-   `NEXT_PUBLIC_FIREBASE_API_KEY` / `_AUTH_DOMAIN` / `_PROJECT_ID` as web build args —
-   these no longer have fallbacks (gap #14), so the web build fails loudly without them.
+   `envs/staging.tfvars` (both are still `REPLACE_ME`).
+2. ~~Set `github_repository` in `infra/bootstrap/variables.tf` to match the real repo.~~ ✅
+   done — it is `LokimotiveUK/project-signal`. Change it if the repo moves; the WIF provider's
+   `attribute_condition` pins tokens to exactly that string.
+3. Copy `infra/bootstrap/bootstrap.tfvars.example` → `bootstrap.tfvars`, fill it in, run
+   `infra/bootstrap/` once, then set `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`, `GCP_PROJECT_ID`
+   and `TF_STATE_BUCKET` on the `staging` GitHub environment.
+4. Create the `staging-youtube-api-key` and `staging-apify-api-key` secrets with `gcloud`
+   **before the first stack apply** — the IAM grants in `stack/main.tf` reference them by
+   resource name and the apply fails if they are absent.
+5. Register the Entra multi-tenant app and export `TF_VAR_auth_social_idps`
+   (see `infra/modules/identity_platform/README.md`). Optional — email/password sign-in works
+   without it.
+6. Create a Firebase web app in the new project and set `NEXT_PUBLIC_FIREBASE_API_KEY` /
+   `_AUTH_DOMAIN` / `_PROJECT_ID` as GitHub environment secrets — they are passed as web build
+   args (gap #8) and have no fallbacks (gap #14), so the app throws without them.
+7. After the first apply, set `NEXT_PUBLIC_API_URL` from `terraform output api_url`, add the
+   web URL to `auth_authorized_domains` in `envs/staging.tfvars`, and re-run the deploy.
 
 Local development is unaffected — Postgres and the Pub/Sub emulator run in Docker and need no
 GCP account.
@@ -361,5 +373,6 @@ If the goal is a working end-to-end MVP, the dependency order is:
 5. **#9** — make failures visible via the DLQ, so #4's rollout is debuggable.
 6. **#5 and #6** — close the authz gap and fix pagination before the dashboard starts reading
    real data through those endpoints.
-7. **#8** — make the deployed web app configurable, then **#13** wire the views to live data.
+7. ~~**#8** — make the deployed web app configurable~~ ✅ done, then **#13** wire the views to
+   live data.
 8. **#3, #11, #12** — hardening and cleanup once the vertical slice is proven.

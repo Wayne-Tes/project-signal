@@ -103,16 +103,16 @@ contexts, so HTTP-per-signal was rejected as wasteful. The API remains the sole 
 
 ## 3. Tooling and conventions
 
-| Concern | Choice | Notes |
-|---|---|---|
-| Monorepo | **Nx 20** | Plugins: `@nx/next`, `@nx/eslint`, `@nx/vite`. Caching on `build`, `lint`, `typecheck`, `test`. `defaultBase: main`. **Never enable Nx Cloud.** |
-| Packages | **Yarn 4.9.2** (Berry) | node-modules linker (`.yarnrc.yml`). Workspaces: `apps/*`, `libs/*`. There is no `pnpm-workspace.yaml` — ignore any doc that says pnpm. |
-| Language | **TypeScript 5.5**, ESM throughout | `strict` + `noUncheckedIndexedAccess`. Every backend `package.json` sets `"type": "module"`. |
-| Module resolution | `bundler`, `module: ESNext` | Path aliases `@project-signal/*` → `libs/*/src/index.ts` in `tsconfig.base.json`; `@/*` → `src/*` inside `apps/web`. |
-| Lint | ESLint 9 flat config | `no-explicit-any: error`, `consistent-type-imports: error`, `no-console: warn` (allows `warn`/`error`). Test files relax `any` and unused-vars. |
-| Format | Prettier 3 | Plus `prettier-plugin-tailwindcss` (installed; the web app currently uses plain CSS, not Tailwind). |
-| Commits | husky + commitlint | Conventional commits with a **fixed `scope-enum`** in `commitlint.config.js` — a new scope must be added there or the commit is rejected. `pre-commit` runs lint-staged. |
-| Node | ≥ 20 | Docker images are `node:20-alpine`. |
+| Concern           | Choice                             | Notes                                                                                                                                                                    |
+| ----------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Monorepo          | **Nx 20**                          | Plugins: `@nx/next`, `@nx/eslint`, `@nx/vite`. Caching on `build`, `lint`, `typecheck`, `test`. `defaultBase: main`. **Never enable Nx Cloud.**                          |
+| Packages          | **Yarn 4.9.2** (Berry)             | node-modules linker (`.yarnrc.yml`). Workspaces: `apps/*`, `libs/*`. There is no `pnpm-workspace.yaml` — ignore any doc that says pnpm.                                  |
+| Language          | **TypeScript 5.5**, ESM throughout | `strict` + `noUncheckedIndexedAccess`. Every backend `package.json` sets `"type": "module"`.                                                                             |
+| Module resolution | `bundler`, `module: ESNext`        | Path aliases `@project-signal/*` → `libs/*/src/index.ts` in `tsconfig.base.json`; `@/*` → `src/*` inside `apps/web`.                                                     |
+| Lint              | ESLint 9 flat config               | `no-explicit-any: error`, `consistent-type-imports: error`, `no-console: warn` (allows `warn`/`error`). Test files relax `any` and unused-vars.                          |
+| Format            | Prettier 3                         | Plus `prettier-plugin-tailwindcss` (installed; the web app currently uses plain CSS, not Tailwind).                                                                      |
+| Commits           | husky + commitlint                 | Conventional commits with a **fixed `scope-enum`** in `commitlint.config.js` — a new scope must be added there or the commit is rejected. `pre-commit` runs lint-staged. |
+| Node              | ≥ 20                               | Docker images are `node:20-alpine`.                                                                                                                                      |
 
 **Nx target names** are consistent across projects: `build`, `dev`, `lint`, `typecheck`,
 `test`, plus `docker-build` on the backend apps and `generate` / `seed` on `api`.
@@ -121,14 +121,14 @@ contexts, so HTTP-per-signal was rejected as wasteful. The API remains the sole 
 `project.json` whose `name` wins, so they are short; `web` and the libs have no `project.json`,
 so Nx uses the `package.json` name:
 
-| Project | Nx name |
-|---|---|
-| apps/api | `api` |
-| apps/ingestion | `ingestion` |
-| apps/sentiment-worker | `sentiment-worker` |
-| apps/report-worker | `report-worker` |
-| apps/web | `@project-signal/web` |
-| libs/* | `@project-signal/<lib>` |
+| Project               | Nx name                 |
+| --------------------- | ----------------------- |
+| apps/api              | `api`                   |
+| apps/ingestion        | `ingestion`             |
+| apps/sentiment-worker | `sentiment-worker`      |
+| apps/report-worker    | `report-worker`         |
+| apps/web              | `@project-signal/web`   |
+| libs/\*               | `@project-signal/<lib>` |
 
 ```bash
 nx run-many -t lint typecheck test    # what CI runs
@@ -152,13 +152,13 @@ All ids are `uuid` with `defaultRandom()`. All timestamps are `timestamptz`.
 **`tenants`** — multi-tenant root.
 `name`, `slug` (unique), timestamps.
 
-**`brand_entities`** — brands the tenant owns *and* competitors it tracks.
+**`brand_entities`** — brands the tenant owns _and_ competitors it tracks.
 `tenant_id` → tenants, `name`, `slug`, `is_owned` (default `true`), timestamps.
 
 **`users`** — mirrors Identity Platform users so the admin UI can list/manage them.
 `firebase_uid` (**unique**), `tenant_id` → tenants, `role` varchar(20), `brand_entity_id`
 (nullable) → brand_entities, timestamps.
-Role is *also* stored as a Firebase custom claim — the claim is what authorises requests; this
+Role is _also_ stored as a Firebase custom claim — the claim is what authorises requests; this
 table exists for management UI and audit.
 
 **`brand_aliases`** — alternative names/abbreviations so ingestion and scoring can match
@@ -167,8 +167,9 @@ mentions that don't use the canonical brand name (e.g. "Cadence", "Cadence Bank"
 
 **`signals`** — one row per ingested item. The spine of the system.
 `tenant_id`, `brand_entity_id`, `source` varchar(50), `source_url`, `raw_storage_ref`,
-`published_at`, `ingested_at`, plus four *currently unwritten* denormalised columns
+`published_at`, `ingested_at`, plus four _currently unwritten_ denormalised columns
 (`sentiment_label`, `sentiment_score`, `confidence`, `model_version`).
+
 - Index `signals_tenant_brand_idx` on `(tenant_id, brand_entity_id)`
 - Index `signals_published_at_idx` on `(published_at)`
 - **Unique `(source_url, brand_entity_id)`** ← this is the deduplication key. Ingestion relies
@@ -191,13 +192,13 @@ yet** — the rollup engine is Epic 11.
 
 The JSONB `config` shape varies by source (documented in `sourceConfigs.ts`):
 
-| source | config shape |
-|---|---|
-| `google_reviews` | `{ placeId, placeName? }` |
-| `youtube` | `{ channelId, maxResults? }` |
-| `app_store` | `{ appId, country? }` |
-| `play_store` | `{ appId }` |
-| `rss` | `{ feedUrl }` |
+| source           | config shape                 |
+| ---------------- | ---------------------------- |
+| `google_reviews` | `{ placeId, placeName? }`    |
+| `youtube`        | `{ channelId, maxResults? }` |
+| `app_store`      | `{ appId, country? }`        |
+| `play_store`     | `{ appId }`                  |
+| `rss`            | `{ feedUrl }`                |
 
 **Credentials are never stored in `source_configs`.** System-level API keys
 (`APIFY_API_KEY`, `YOUTUBE_API_KEY`) come from env/Secret Manager and are merged in at
@@ -207,13 +208,13 @@ runtime by the ingestion handler.
 
 Five migrations exist, tracked in `apps/api/migrations/meta/_journal.json`:
 
-| Tag | Contents |
-|---|---|
-| `0000_hot_loners` | `tenants`, `brand_entities`, `signals` + indexes |
-| `0001_fluffy_guardsmen` | `users`, `sentiment_results`, `dimension_scores` |
-| `0002_slippery_energizer` | `source_configs` |
-| `0003_amused_moondragon` | Unique `(source_url, brand_entity_id)` on `signals` |
-| `0004_chief_freak` | `brand_aliases` |
+| Tag                       | Contents                                            |
+| ------------------------- | --------------------------------------------------- |
+| `0000_hot_loners`         | `tenants`, `brand_entities`, `signals` + indexes    |
+| `0001_fluffy_guardsmen`   | `users`, `sentiment_results`, `dimension_scores`    |
+| `0002_slippery_energizer` | `source_configs`                                    |
+| `0003_amused_moondragon`  | Unique `(source_url, brand_entity_id)` on `signals` |
+| `0004_chief_freak`        | `brand_aliases`                                     |
 
 Authoring a new migration: edit the schema in `libs/db/src/schema/`, then run
 `yarn db:generate` (→ `nx run @project-signal/api:generate` → `drizzle-kit generate`). Never hand-write
@@ -258,9 +259,9 @@ Drizzle schema plus a lazily constructed postgres-js client.
 ```ts
 import { db, client, createSql } from '@project-signal/db';
 
-db.get()        // drizzle instance (schema-aware)
-client.get()    // raw postgres-js tag — used for `SELECT 1` health pings
-createSql(1)    // fresh pool with an explicit max; used for migrations
+db.get(); // drizzle instance (schema-aware)
+client.get(); // raw postgres-js tag — used for `SELECT 1` health pings
+createSql(1); // fresh pool with an explicit max; used for migrations
 ```
 
 Both `db` and `client` are lazy getters, not eagerly constructed clients — importing the lib
@@ -278,11 +279,11 @@ Memoised `getPubSub()` client — automatically targets the emulator when
 
 ```ts
 TOPICS = {
-  ITEM_QUEUE:   'project-signal-item-queue',
-  ITEM_DLQ:     'project-signal-item-dlq',
+  ITEM_QUEUE: 'project-signal-item-queue',
+  ITEM_DLQ: 'project-signal-item-dlq',
   REPORT_QUEUE: 'project-signal-report-queue',
-  REPORT_DLQ:   'project-signal-report-dlq',
-}
+  REPORT_DLQ: 'project-signal-report-dlq',
+};
 ```
 
 > ⚠️ These names do **not** match the topics Terraform creates (`<env>-item`, `<env>-item-dlq`,
@@ -295,13 +296,16 @@ The extension point for new data sources. The contract:
 ```ts
 interface SourceAdapter {
   readonly source: SignalSource;
-  fetch(config: AdapterConfig, since?: Date): Promise<FetchResult>;   // → RawItem[]
-  toSignal(item: RawItem, config: AdapterConfig): Omit<Signal, 'id'|'ingestedAt'|'rawStorageRef'>;
+  fetch(config: AdapterConfig, since?: Date): Promise<FetchResult>; // → RawItem[]
+  toSignal(
+    item: RawItem,
+    config: AdapterConfig,
+  ): Omit<Signal, 'id' | 'ingestedAt' | 'rawStorageRef'>;
 }
 ```
 
 `AdapterConfig` carries `brandEntityId`, `tenantId`, `source`, and a flat
-`credentials: Record<string, string>` map — into which the ingestion handler merges *both*
+`credentials: Record<string, string>` map — into which the ingestion handler merges _both_
 the system API keys and the per-brand `source_configs.config` JSONB. That is why an adapter
 reads `config.credentials['placeId']` even though a place ID is not a secret.
 
@@ -310,13 +314,13 @@ reads `config.credentials['placeId']` even though a place ID is not a secret.
 
 **Implementations:**
 
-| Adapter | Mechanism | Key config | Notes |
-|---|---|---|---|
-| `GoogleReviewsAdapter` | Apify actor `compass~google-maps-reviews-scraper` | `placeId` | `maxReviews: 100`; `since` → `cutoffDate` |
-| `AppStoreAdapter` | Apify `nikita-shakula~app-store-scraper` | `appId`, `country` (default `us`) | Joins title + body as text; drops empty |
-| `PlayStoreAdapter` | Apify `emastra~google-play-scraper` | `appId` | Sorted newest; drops empty content |
-| `RssAdapter` | Direct `fetch` + `fast-xml-parser` | `feedUrl` | Handles **both RSS and Atom**; filters by `since` client-side; no API key needed |
-| `YoutubeAdapter` | YouTube Data API v3 | `channelId` | Last 10 videos → up to 50 top-level comments each; **HTTP 403 = comments disabled → skipped, not an error** |
+| Adapter                | Mechanism                                         | Key config                        | Notes                                                                                                       |
+| ---------------------- | ------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `GoogleReviewsAdapter` | Apify actor `compass~google-maps-reviews-scraper` | `placeId`                         | `maxReviews: 100`; `since` → `cutoffDate`                                                                   |
+| `AppStoreAdapter`      | Apify `nikita-shakula~app-store-scraper`          | `appId`, `country` (default `us`) | Joins title + body as text; drops empty                                                                     |
+| `PlayStoreAdapter`     | Apify `emastra~google-play-scraper`               | `appId`                           | Sorted newest; drops empty content                                                                          |
+| `RssAdapter`           | Direct `fetch` + `fast-xml-parser`                | `feedUrl`                         | Handles **both RSS and Atom**; filters by `since` client-side; no API key needed                            |
+| `YoutubeAdapter`       | YouTube Data API v3                               | `channelId`                       | Last 10 videos → up to 50 top-level comments each; **HTTP 403 = comments disabled → skipped, not an error** |
 
 `apifyClient.ts` is the shared Apify runner used by the three Apify-backed adapters:
 `startApifyRun` → `waitForApifyRun` (poll every 5s, 5-minute deadline, throws on
@@ -367,12 +371,17 @@ A `fastify-plugin`-wrapped global `onRequest` hook:
   populate `request.user`:
 
   ```ts
-  type UserClaims = { uid: string; tenantId: string; role: 'owner'|'admin'|'user'; brandEntityId?: string }
+  type UserClaims = {
+    uid: string;
+    tenantId: string;
+    role: 'owner' | 'admin' | 'user';
+    brandEntityId?: string;
+  };
   ```
 
 - `request.user` is installed via `decorateRequest` with a symbol-keyed getter/setter (Fastify
   5 forbids sharing a mutable object across requests).
-- **Dev shortcut:** when `NODE_ENV === 'development'` *only*, a token of the form
+- **Dev shortcut:** when `NODE_ENV === 'development'` _only_, a token of the form
   `dev:<role>:<tenantId>[:<brandEntityId>]` is parsed directly, bypassing Firebase. Colon-delimited
   because tenant/brand ids are UUIDs, which contain hyphens. Useful for
   curl against a local API; inert in staging/production.
@@ -380,7 +389,7 @@ A `fastify-plugin`-wrapped global `onRequest` hook:
 `requireRole(...roles)` is a preHandler factory returning `reply.forbidden()` on mismatch:
 
 ```ts
-fastify.get('/admin/users', { preHandler: requireRole('owner', 'admin') }, handler)
+fastify.get('/admin/users', { preHandler: requireRole('owner', 'admin') }, handler);
 ```
 
 ### Routes
@@ -389,24 +398,24 @@ Two response conventions coexist — the newer route files wrap in `{ status, da
 older ones return bare rows. Both are documented below because the frontend depends on the
 difference.
 
-| Method & path | Role | Response shape | Behaviour |
-|---|---|---|---|
-| `POST /admin/tenants` | owner | `{status,data}` | **Transactional**: creates tenant + owned brand + admin user row in one `db.transaction`. Slugs are derived from names. |
-| `POST /admin/users` | owner | bare row | Inserts the `users` row **and** calls `setCustomUserClaims(role, tenantId, brandEntityId)`. |
-| `PATCH /admin/users/:id` | owner, admin | bare row | Updates role/brand, re-syncs custom claims from the updated row. 404 if absent. |
-| `GET /admin/users` | owner, admin | bare array | Users in the caller's tenant. |
-| `GET /brands` | any | bare array | Tenant-scoped. A `user` with a `brandEntityId` sees **only** that brand. |
-| `GET /brands/:id` | any | bare row | Tenant-scoped; 404 otherwise. |
-| `GET /brands/:id/signals` | any | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`; `limit` max 100, default 50. |
-| `GET /brands/:id/sentiment-summary` | any | object | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results. |
-| `GET /brands/:id/dimension-scores` | any | bare array | Reads `dimension_scores` (currently always empty). |
-| `GET /brands/:id/integrations` | admin, owner | `{status,data}` | List `source_configs` for the brand. |
-| `POST /brands/:id/integrations` | admin, owner | `{status,data}` | **Upsert** on `(brand_entity_id, source)`. |
-| `PATCH /brands/:id/integrations/:source` | admin, owner | `{status,data}` | Update `isEnabled` and/or `config`. 404 if absent. |
-| `DELETE /brands/:id/integrations/:source` | admin, owner | `{status,data}` | **Soft-disable** (`is_enabled = false`) — hard deletes are deliberately unsupported to preserve audit history. |
-| `GET /brands/:id/aliases` | admin, owner | `{status,data}` | List aliases. |
-| `POST /brands/:id/aliases` | admin, owner | `{status,data}` | `onConflictDoNothing` → **409** when the alias already exists. |
-| `DELETE /brands/:id/aliases/:aliasId` | admin, owner | `{status,data}` | Hard delete, tenant + brand scoped. |
+| Method & path                             | Role         | Response shape       | Behaviour                                                                                                               |
+| ----------------------------------------- | ------------ | -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `POST /admin/tenants`                     | owner        | `{status,data}`      | **Transactional**: creates tenant + owned brand + admin user row in one `db.transaction`. Slugs are derived from names. |
+| `POST /admin/users`                       | owner        | bare row             | Inserts the `users` row **and** calls `setCustomUserClaims(role, tenantId, brandEntityId)`.                             |
+| `PATCH /admin/users/:id`                  | owner, admin | bare row             | Updates role/brand, re-syncs custom claims from the updated row. 404 if absent.                                         |
+| `GET /admin/users`                        | owner, admin | bare array           | Users in the caller's tenant.                                                                                           |
+| `GET /brands`                             | any          | bare array           | Tenant-scoped. A `user` with a `brandEntityId` sees **only** that brand.                                                |
+| `GET /brands/:id`                         | any          | bare row             | Tenant-scoped; 404 otherwise.                                                                                           |
+| `GET /brands/:id/signals`                 | any          | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`; `limit` max 100, default 50.                            |
+| `GET /brands/:id/sentiment-summary`       | any          | object               | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results.    |
+| `GET /brands/:id/dimension-scores`        | any          | bare array           | Reads `dimension_scores` (currently always empty).                                                                      |
+| `GET /brands/:id/integrations`            | admin, owner | `{status,data}`      | List `source_configs` for the brand.                                                                                    |
+| `POST /brands/:id/integrations`           | admin, owner | `{status,data}`      | **Upsert** on `(brand_entity_id, source)`.                                                                              |
+| `PATCH /brands/:id/integrations/:source`  | admin, owner | `{status,data}`      | Update `isEnabled` and/or `config`. 404 if absent.                                                                      |
+| `DELETE /brands/:id/integrations/:source` | admin, owner | `{status,data}`      | **Soft-disable** (`is_enabled = false`) — hard deletes are deliberately unsupported to preserve audit history.          |
+| `GET /brands/:id/aliases`                 | admin, owner | `{status,data}`      | List aliases.                                                                                                           |
+| `POST /brands/:id/aliases`                | admin, owner | `{status,data}`      | `onConflictDoNothing` → **409** when the alias already exists.                                                          |
+| `DELETE /brands/:id/aliases/:aliasId`     | admin, owner | `{status,data}`      | Hard delete, tenant + brand scoped.                                                                                     |
 
 Every route declares JSON Schema (`body` / `params` / `querystring` / `response`) so Swagger
 output stays accurate and Fastify serialises responses fast.
@@ -434,11 +443,11 @@ Fastify, port **8081**. Private on Cloud Run (invokable only by the Scheduler SA
 
 ### Endpoints
 
-| Path | Purpose |
-|---|---|
-| `GET /health`, `GET /ready` | Liveness/readiness |
-| `POST /ingest` | Run one job. Body `{ sourceConfigId }`. 400 if missing. |
-| `POST /ingest/dispatch` | Fan-out: selects **all** `source_configs` where `is_enabled = true` and runs each via `Promise.allSettled`; returns `{ total, succeeded, failed }`. |
+| Path                        | Purpose                                                                                                                                             |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`, `GET /ready` | Liveness/readiness                                                                                                                                  |
+| `POST /ingest`              | Run one job. Body `{ sourceConfigId }`. 400 if missing.                                                                                             |
+| `POST /ingest/dispatch`     | Fan-out: selects **all** `source_configs` where `is_enabled = true` and runs each via `Promise.allSettled`; returns `{ total, succeeded, failed }`. |
 
 Startup pings the DB (`SELECT 1`) and initialises the Pub/Sub client before listening, so a
 broken connection fails fast rather than at first request.
@@ -503,7 +512,7 @@ Prompts the scorer model for **strict JSON only**:
   "topics": ["≤5 short strings"] }
 ```
 
-Response handling: pull `candidates[0].content.parts[0].text`, trim, strip ```` ```json ````
+Response handling: pull `candidates[0].content.parts[0].text`, trim, strip ` ```json `
 fences, `JSON.parse`, and stamp `modelVersion` from `getScorerModel()`. `PROMPT_TEMPLATE` is
 exported so tests can assert on it.
 
@@ -548,7 +557,7 @@ page.tsx → ClientApp → AuthProvider → AuthGate → App
   project. Set them in `apps/web/.env.local` locally and as Docker build args in CI.
 - **`lib/auth.tsx`** — `AuthProvider` subscribes to `onAuthStateChanged`, and on sign-in reads
   the **`role` custom claim** off `getIdTokenResult()`. Exposes `{ user, role, loading, signIn,
-  signOut }` via `useAuth()`. Currently email/password only (`signInWithEmailAndPassword`) —
+signOut }` via `useAuth()`. Currently email/password only (`signInWithEmailAndPassword`) —
   the Microsoft/Google social buttons described in `PLAN.md` are configured in Terraform but
   not yet surfaced in the UI.
 - **`AuthGate`** — renders a loading pane, then `SignIn`, then children.
@@ -557,8 +566,10 @@ page.tsx → ClientApp → AuthProvider → AuthGate → App
 ### API client — `lib/api.ts`
 
 `apiFetch<T>(path, init)` attaches `Authorization: Bearer <current ID token>` and JSON headers,
-throws `API <status>: <body>` on non-2xx, and parses JSON. Base URL is
-`NEXT_PUBLIC_API_URL`, falling back to the staging Cloud Run URL.
+throws `API <status>: <body>` on non-2xx, and parses JSON. Base URL is `NEXT_PUBLIC_API_URL`,
+falling back to `http://localhost:8080`. Like the Firebase config it is inlined at build time
+and passed as a Docker build arg by the deploy workflows — see
+[`../infra/README.md`](../infra/README.md) § Build-time configuration for the web app.
 
 ### Shell — `components/App.tsx`
 
@@ -577,15 +588,15 @@ throws `API <status>: <body>` on non-2xx, and parses JSON. Base URL is
 
 ### Views (`src/views/`)
 
-| View | Contents |
-|---|---|
-| `Dashboard` | Hero score (radial gauge or bars), dimension bars, sparklines, source volume, alert card |
-| `Trends` | 26-week multi-series line chart with legend hover-highlight |
-| `Achilles` | Top-3 weakness cards ranked by damage (volume × negative sentiment × recency) |
-| `Roadmap` | Prioritised actions with impact/effort/confidence and cited evidence |
-| `Competitors` | Animated benchmark bars, sorted, with "you" highlighted |
-| `Report` | Print-styled weekly report composed from all datasets |
-| `Admin` | **The only live-wired view** — see below |
+| View          | Contents                                                                                 |
+| ------------- | ---------------------------------------------------------------------------------------- |
+| `Dashboard`   | Hero score (radial gauge or bars), dimension bars, sparklines, source volume, alert card |
+| `Trends`      | 26-week multi-series line chart with legend hover-highlight                              |
+| `Achilles`    | Top-3 weakness cards ranked by damage (volume × negative sentiment × recency)            |
+| `Roadmap`     | Prioritised actions with impact/effort/confidence and cited evidence                     |
+| `Competitors` | Animated benchmark bars, sorted, with "you" highlighted                                  |
+| `Report`      | Print-styled weekly report composed from all datasets                                    |
+| `Admin`       | **The only live-wired view** — see below                                                 |
 
 ### Charts and motion
 
@@ -705,17 +716,17 @@ One shared `.tf` stack, per-environment `.tfvars`, and state isolated by GCS pre
 
 ### `infra/modules/` — eight modules
 
-| Module | What it creates | Notable decisions |
-|---|---|---|
-| `cloud_sql` | Postgres 16 instance, `project_signal` database, `project_signal_app` user, 32-char random password → Secret Manager | **ENTERPRISE edition** (required for shared-core tiers like `db-f1-micro`); backups enabled; **public IP with zero authorized networks** — unreachable from the internet, only via the Cloud SQL Auth Proxy. This avoids the ~$12–15/mo always-on Serverless VPC connector. |
-| `cloud_run` | Generic v2 service | Scales to zero (`min_instances = 0`, `max = 2`); dynamic `env` and `secret_env` blocks; conditional Cloud SQL socket volume + mount; either `allUsers` invoker or an explicit `invoker_members` list. |
-| `service_accounts` | One SA per runtime service + scheduler SA + pubsub-invoker SA | Least privilege: `cloudsql.client` only for the four DB users, `aiplatform.user` only for sentiment/report, log+metric writer for all; secret access scoped to the DB password secret. |
-| `storage` | `raw` and `reports` buckets | Both uniform bucket-level access + `public_access_prevention = enforced`. `raw` has a 30-day → NEARLINE lifecycle rule. Per-SA scoped IAM (ingestion writes raw, sentiment reads raw, report writes reports, API reads reports). |
-| `pubsub` | `item` + `report` topics, each with a DLQ; push subscriptions; 2 DLQ pull subscriptions | Push uses **OIDC tokens** minted as the push-invoker SA; `max_delivery_attempts = 5`; retry backoff 10s–600s. Includes the easily-missed service-agent IAM: DLQ publisher, source-subscription subscriber, and `serviceAccountTokenCreator` on the invoker SA. |
-| `cloud_tasks` | Rate-limited ingestion queue | 5 dispatches/sec, 10 concurrent, 5 attempts with 5s–300s backoff. **The rate limit is the entire point** — it protects Apify/YouTube quotas. |
-| `scheduler` | Three cron jobs | ingestion `0 6 * * 1` (Mon 06:00), report `0 7 * * 1`, pending-sweep `0 * * * *` (hourly), `Etc/UTC`. Ingestion + sweep are HTTP+OIDC; report publishes to the report topic. |
-| `artifact_registry` | Docker repository `project-signal` | Provides `registry_url` consumed by the image locals. |
-| `identity_platform` | Config + social IdP configs | Email/password toggle; `for_each` over `social_idps` (e.g. `microsoft.com`, `google.com`). Credentials passed via `TF_VAR_auth_social_idps` at apply time — **never committed**. See the module's own README for the one-time Entra multi-tenant app registration. |
+| Module              | What it creates                                                                                                      | Notable decisions                                                                                                                                                                                                                                                           |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cloud_sql`         | Postgres 16 instance, `project_signal` database, `project_signal_app` user, 32-char random password → Secret Manager | **ENTERPRISE edition** (required for shared-core tiers like `db-f1-micro`); backups enabled; **public IP with zero authorized networks** — unreachable from the internet, only via the Cloud SQL Auth Proxy. This avoids the ~$12–15/mo always-on Serverless VPC connector. |
+| `cloud_run`         | Generic v2 service                                                                                                   | Scales to zero (`min_instances = 0`, `max = 2`); dynamic `env` and `secret_env` blocks; conditional Cloud SQL socket volume + mount; either `allUsers` invoker or an explicit `invoker_members` list.                                                                       |
+| `service_accounts`  | One SA per runtime service + scheduler SA + pubsub-invoker SA                                                        | Least privilege: `cloudsql.client` only for the four DB users, `aiplatform.user` only for sentiment/report, log+metric writer for all; secret access scoped to the DB password secret.                                                                                      |
+| `storage`           | `raw` and `reports` buckets                                                                                          | Both uniform bucket-level access + `public_access_prevention = enforced`. `raw` has a 30-day → NEARLINE lifecycle rule. Per-SA scoped IAM (ingestion writes raw, sentiment reads raw, report writes reports, API reads reports).                                            |
+| `pubsub`            | `item` + `report` topics, each with a DLQ; push subscriptions; 2 DLQ pull subscriptions                              | Push uses **OIDC tokens** minted as the push-invoker SA; `max_delivery_attempts = 5`; retry backoff 10s–600s. Includes the easily-missed service-agent IAM: DLQ publisher, source-subscription subscriber, and `serviceAccountTokenCreator` on the invoker SA.              |
+| `cloud_tasks`       | Rate-limited ingestion queue                                                                                         | 5 dispatches/sec, 10 concurrent, 5 attempts with 5s–300s backoff. **The rate limit is the entire point** — it protects Apify/YouTube quotas.                                                                                                                                |
+| `scheduler`         | Three cron jobs                                                                                                      | ingestion `0 6 * * 1` (Mon 06:00), report `0 7 * * 1`, pending-sweep `0 * * * *` (hourly), `Etc/UTC`. Ingestion + sweep are HTTP+OIDC; report publishes to the report topic.                                                                                                |
+| `artifact_registry` | Docker repository `project-signal`                                                                                   | Provides `registry_url` consumed by the image locals.                                                                                                                                                                                                                       |
+| `identity_platform` | Config + social IdP configs                                                                                          | Email/password toggle; `for_each` over `social_idps` (e.g. `microsoft.com`, `google.com`). Credentials passed via `TF_VAR_auth_social_idps` at apply time — **never committed**. See the module's own README for the one-time Entra multi-tenant app registration.          |
 
 ### `infra/stack/main.tf` — composition
 
@@ -723,17 +734,19 @@ Five Cloud Run services are instantiated: `api` and `web` public; `ingestion` in
 Scheduler SA; `sentiment-worker` and `report-worker` invokable by the Pub/Sub invoker SA.
 
 **Terraform owns the container image.** `var.image_tag` (required, no default) is interpolated
-into every image reference, so a deploy applies image *and* environment atomically — there is
+into every image reference, so a deploy applies image _and_ environment atomically — there is
 no separate "update image" step and no `ignore_changes` on the image any more.
 
 Environment wiring lives in `locals`: `common_env` (project, NODE_ENV, Vertex location),
 `db_env` (`DB_SOCKET_PATH` pointing at the **socket file**
 `/cloudsql/<connection>/.s.PGSQL.5432`, not the directory — postgres-js requires the file),
 `db_secret` (DB_PASSWORD from Secret Manager), and `ingestion_secret` (adds
-`YOUTUBE_API_KEY`).
+`YOUTUBE_API_KEY` and `APIFY_API_KEY`).
 
 Source API keys are created **out of band via `gcloud`** so their values never enter Terraform
-state; the stack only references them by name and grants `secretAccessor`.
+state; the stack only references them by name and grants `secretAccessor`. Because the IAM
+grants address the secrets by full resource name, **both secrets must exist before the first
+apply** or it fails.
 
 The `ITEM_TOPIC` env var is set to the deterministic string `"${var.environment}-item"` rather
 than a module output, deliberately, to avoid a dependency cycle between the Cloud Run and
@@ -747,12 +760,12 @@ Four GitHub Actions workflows. All GCP auth is keyless via Workload Identity Fed
 
 ### `ci.yml` — PRs and pushes to `main`/`staging`
 
-| Job | Does |
-|---|---|
-| `changes` | `dorny/paths-filter` computes which apps changed (each app watches its own dir plus `libs/**`, `package.json`, `yarn.lock`, `tsconfig.base.json`) |
-| `code-quality` | `yarn install --immutable` → `nx run-many -t lint` → `nx run-many -t typecheck` |
-| `test` | `nx run-many -t test -- --coverage` |
-| `docker-check` | Matrix over changed apps: build each Dockerfile with GHA layer cache, **no push** |
+| Job            | Does                                                                                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `changes`      | `dorny/paths-filter` computes which apps changed (each app watches its own dir plus `libs/**`, `package.json`, `yarn.lock`, `tsconfig.base.json`) |
+| `code-quality` | `yarn install --immutable` → `nx run-many -t lint` → `nx run-many -t typecheck`                                                                   |
+| `test`         | `nx run-many -t test -- --coverage`                                                                                                               |
+| `docker-check` | Matrix over changed apps: build each Dockerfile with GHA layer cache, **no push**                                                                 |
 
 ### `deploy-staging.yml` — push to the `staging` branch (or manual)
 
@@ -795,7 +808,8 @@ The API image additionally copies `apps/api/migrations` into the runtime layer �
 startup migrations silently no-op.**
 
 **Web** builds with `next build` and ships the standalone output (`server.js` + `.next/static`
-+ `public`).
+
+- `public`).
 
 ---
 
@@ -811,14 +825,14 @@ has no thresholds by design.
 Each project's config uses `vite-tsconfig-paths` so `@project-signal/*` aliases resolve in tests
 without building the libs.
 
-| Area | Files | Approach |
-|---|---|---|
-| API routes | `admin`, `aliases`, `brands`, `integrations`, `signals`, `users` | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers `@fastify/sensible` and stubs `request.user` in an `onRequest` hook — **Firebase is never involved**. `DEFAULT_ADMIN` / `DEFAULT_OWNER` presets. |
-| API plugins | `plugins/auth.test.ts` | Token parsing, public-prefix bypass, `requireRole` behaviour |
-| API migrations | `migrate.test.ts` | Advisory-lock and no-op-when-absent behaviour |
-| Ingestion | `handler.test.ts` | `vi.hoisted` mock chain that impersonates the Drizzle fluent builder (`select/from/where/insert/values/returning`) with a queue of result sets; adapters and Pub/Sub mocked |
-| Sentiment | `handler`, `scorer` | Upsert-on-conflict behaviour; prompt shape, fence-stripping, JSON parsing |
-| Libs | `config`, `gemini`, `messaging`, plus all 5 adapters + `apifyClient` | `fetch` mocked; RSS tests cover both RSS and Atom shapes |
+| Area           | Files                                                                | Approach                                                                                                                                                                                                                         |
+| -------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API routes     | `admin`, `aliases`, `brands`, `integrations`, `signals`, `users`     | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers `@fastify/sensible` and stubs `request.user` in an `onRequest` hook — **Firebase is never involved**. `DEFAULT_ADMIN` / `DEFAULT_OWNER` presets. |
+| API plugins    | `plugins/auth.test.ts`                                               | Token parsing, public-prefix bypass, `requireRole` behaviour                                                                                                                                                                     |
+| API migrations | `migrate.test.ts`                                                    | Advisory-lock and no-op-when-absent behaviour                                                                                                                                                                                    |
+| Ingestion      | `handler.test.ts`                                                    | `vi.hoisted` mock chain that impersonates the Drizzle fluent builder (`select/from/where/insert/values/returning`) with a queue of result sets; adapters and Pub/Sub mocked                                                      |
+| Sentiment      | `handler`, `scorer`                                                  | Upsert-on-conflict behaviour; prompt shape, fence-stripping, JSON parsing                                                                                                                                                        |
+| Libs           | `config`, `gemini`, `messaging`, plus all 5 adapters + `apifyClient` | `fetch` mocked; RSS tests cover both RSS and Atom shapes                                                                                                                                                                         |
 
 There are **no tests for `apps/web`** and no end-to-end/integration tests against a real
 Postgres or emulator.
@@ -836,15 +850,15 @@ yarn dev                    # docker compose up -d && nx run-many -t dev --paral
 
 Migrations apply automatically when the API boots — there is no manual migrate step.
 
-| Service | URL |
-|---|---|
-| web | http://localhost:3000 |
-| api | http://localhost:8080 (Swagger UI at `/docs`) |
-| ingestion | http://localhost:8081 |
-| sentiment-worker | http://localhost:8082 |
-| report-worker | http://localhost:8083 |
-| Postgres | `postgresql://project_signal_app:password@localhost:5432/project_signal` |
-| Pub/Sub emulator | localhost:8085 |
+| Service          | URL                                                                      |
+| ---------------- | ------------------------------------------------------------------------ |
+| web              | http://localhost:3000                                                    |
+| api              | http://localhost:8080 (Swagger UI at `/docs`)                            |
+| ingestion        | http://localhost:8081                                                    |
+| sentiment-worker | http://localhost:8082                                                    |
+| report-worker    | http://localhost:8083                                                    |
+| Postgres         | `postgresql://project_signal_app:password@localhost:5432/project_signal` |
+| Pub/Sub emulator | localhost:8085                                                           |
 
 **Calling the API locally without Firebase** — with `NODE_ENV=development`:
 

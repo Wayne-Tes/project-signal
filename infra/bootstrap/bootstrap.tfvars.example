@@ -1,0 +1,15 @@
+# Copy to bootstrap.tfvars and fill in before the one-time bootstrap apply.
+#   cp bootstrap.tfvars.example bootstrap.tfvars
+#
+# bootstrap.tfvars is gitignored (infra/bootstrap/*.tfvars) — it is per-operator, not shared.
+# Billing must already be enabled on the project; bootstrap enables paid APIs.
+
+# The GCP project that hosts this environment. One project per environment.
+project_id = "REPLACE_ME" # e.g. project-signal-staging
+
+# Globally unique across all of GCS — prefix with the project id to stay unique.
+state_bucket_name = "REPLACE_ME" # e.g. project-signal-staging-tfstate
+
+# Optional overrides (defaults shown):
+# region            = "europe-west2"
+# github_repository = "LokimotiveUK/project-signal"

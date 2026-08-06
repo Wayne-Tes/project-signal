@@ -17,7 +17,7 @@ variable "state_bucket_name" {
 variable "github_repository" {
   description = "GitHub repo allowed to authenticate via Workload Identity Federation, as 'owner/name'."
   type        = string
-  default     = "wayne-strydom/project-signal"
+  default     = "LokimotiveUK/project-signal"
 }
 
 variable "enabled_apis" {
@@ -38,6 +38,11 @@ variable "enabled_apis" {
     "iamcredentials.googleapis.com",
     "sts.googleapis.com",
     "identitytoolkit.googleapis.com",
+    # Firebase Management API — needed to add Firebase to the project and create the web app
+    # that supplies the NEXT_PUBLIC_FIREBASE_* build args.
+    "firebase.googleapis.com",
+    # YouTube Data API — the ingestion adapter's API key is issued against this project.
+    "youtube.googleapis.com",
     "monitoring.googleapis.com",
     "logging.googleapis.com",
     "cloudbilling.googleapis.com",

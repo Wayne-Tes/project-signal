@@ -89,10 +89,18 @@ locals {
   }
   # Source-API credentials for ingestion adapters. The secrets are created out-of-band
   # (gcloud) so the key values never live in Terraform state; we reference them by name.
+  # Both must exist before the first apply — the IAM grants below reference them by full
+  # resource name and fail if the secret is absent.
   youtube_secret_id = "${var.environment}-youtube-api-key"
+  # Apify backs the App Store, Play Store and Google Reviews adapters (3 of 5 sources).
+  apify_secret_id = "${var.environment}-apify-api-key"
   ingestion_secret = merge(local.db_secret, {
     YOUTUBE_API_KEY = {
       secret  = local.youtube_secret_id
+      version = "latest"
+    }
+    APIFY_API_KEY = {
+      secret  = local.apify_secret_id
       version = "latest"
     }
   })
@@ -148,11 +156,18 @@ module "run_ingestion" {
   })
 }
 
-# Ingestion SA reads the YouTube Data API key. Secret is created via gcloud (value out of
-# state); we grant accessor here and reference it by full resource name.
+# Ingestion SA reads the source-API keys. Secrets are created via gcloud (values out of
+# state); we grant accessor here and reference them by full resource name.
 resource "google_secret_manager_secret_iam_member" "ingestion_youtube_reader" {
   project   = var.project_id
   secret_id = "projects/${var.project_id}/secrets/${local.youtube_secret_id}"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${module.service_accounts.emails["ingestion"]}"
+}
+
+resource "google_secret_manager_secret_iam_member" "ingestion_apify_reader" {
+  project   = var.project_id
+  secret_id = "projects/${var.project_id}/secrets/${local.apify_secret_id}"
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${module.service_accounts.emails["ingestion"]}"
 }
