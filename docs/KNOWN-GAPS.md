@@ -345,20 +345,45 @@ before it is complete.
 
 ---
 
-## 13. 🟡 Six dashboard views still render mock data
+## 13. 🟠 Dashboard views on mock data — **three of six wired**
 
-**Where:** `apps/web/src/lib/data.ts` (~590 lines) consumed by Dashboard, Trends, Achilles,
-Roadmap, Competitors and Report.
+**Where:** `apps/web/src/lib/data.ts` (~574 lines) and the views that consume it.
 
-Only the Admin view and `BrandManager` call the live API. Everything analytical renders
-deterministic generated data for a fictional bank, "Cadence".
+**Wired to live data:**
 
-This is **known and tracked** — Epic 6's exit criterion is "mock data file is deleted".
-Note that `lib/types.ts` defines presentation shapes that don't match `@project-signal/shared-types`
-or the API rows, so wiring will require a mapping layer or a reshape of those types.
+- **Trends** → `/brands/:id/score` and `/brands/:id/dimension-scores`
+- **Achilles** → `/brands/:id/achilles`
+- **Competitors** → `/brands` plus one `/brands/:id/score` per brand
 
-**Effect:** the dashboard looks complete and fully populated while being entirely
-disconnected. Demos will mislead unless this is stated.
+Supporting work this needed:
+
+- `lib/brand-data.ts` — pure API→presentation mapping, covered by 23 tests. The views sit
+  behind `AuthGate` and cannot be driven until #16, so this is where correctness is actually
+  proven. `apps/web` had no test setup at all before this.
+- `lib/brand-context.tsx` — a real `BrandProvider`. The shell had no notion of a selected
+  brand; the switcher was hard-coded to the fictional "Cadence / Challenger bank".
+- `hooks/useApi.ts` and `components/ViewState.tsx` — loading, error and empty rendered as three
+  distinct states. Collapsing them is how a brand that has never been scored ends up looking
+  like a brand scoring zero.
+- `components/charts.tsx` — data prop is now a structural `ChartRow` rather than the mock's
+  fixed `HistoryRow`, so a day with a partial rollup plots the dimensions that ran instead of
+  zeroing the rest.
+
+**Still on mock data, with reasons:**
+
+- **Dashboard** — depends on `PS_VOLUME` (per-source weekly counts) and `PS_ALERT`. Neither has
+  an endpoint; alerting is Epic 13. Wiring it means dropping or rebuilding those two panels,
+  which is a product decision rather than a mechanical one.
+- **Roadmap** — `PS_ROADMAP` needs prioritised recommendations with impact, effort and
+  evidence. **Nothing in Epics 11–13 produces these.** This is unspecified work, not deferred
+  work.
+- **Report** — Epic 12.
+
+So `lib/data.ts` cannot be deleted yet, and Epic 6's exit criterion is not met.
+
+**Verified:** `lint` 13/13, `typecheck` 12/12, `test` 11/11, and the production image builds on
+node:20-alpine (3/3 static pages) — the check that matters after introducing a context
+provider, since a broken client/server boundary only shows up in the real build.
 
 ---
 
@@ -523,17 +548,33 @@ PATCH that failed left the target's role unchanged at `owner`.
 
 ## 19. 🟡 Web components use literal hex instead of CSS custom properties
 
-**Where:** every component under `apps/web/src` except `UserManager.tsx`.
+**Where:** `App.tsx` (40 occurrences), `BrandManager.tsx` (25), `Admin.tsx` (14), `Report.tsx`
+(14), `SignIn.tsx` (12), `lib/data.ts` (6), `TweaksPanel.tsx` (3), `page.tsx` (2),
+`AuthGate.tsx` (2). **118 literals across 9 files.**
 
-`CLAUDE.md` and `DEVRULES.md` both require styling through the CSS custom properties defined in
-`app/globals.css`, because literal hex breaks the runtime palette switcher. In practice
-`BrandManager.tsx` alone carries 23 literal hex values and none of the others use `var(--…)`
-either. Several literals are also off-palette (`#8a8f99`, `#1e2128`, `#e8e8ea`), so a
-conversion is a visual change, not a mechanical substitution.
+`CLAUDE.md` and `DEVRULES.md` both require styling through the custom properties in
+`app/globals.css`, because literal hex does not respond to the runtime palette switcher.
 
-`UserManager.tsx` was written compliant. The rest was left alone deliberately: a 10-file
-visual refactor inside a users-UI task would have been unreviewable, and it cannot currently be
-verified in a browser because of #17.
+> **Correction.** This entry previously said "every component except `UserManager.tsx`", and the
+> plan was to fold the conversion into #13 on the grounds that wiring rewrites the same files.
+> Both were wrong, established by counting rather than assuming: `Dashboard.tsx`, `Trends.tsx`,
+> `Achilles.tsx` and `Competitors.tsx` contain **zero** literal hex — they already use `var()`
+> and CSS classes. The two tasks barely overlap.
+
+**This is a design task, not a find-and-replace.** Of 56 distinct values, roughly 45 occurrences
+map exactly onto existing tokens (`#0b0c0f` → `--bg`, `#5dcaa5` → `--mint`, `#e2725b` →
+`--coral`, and so on). The rest do not:
+
+- **Frequent near-misses** — `#8a8f99` (13×), `#1e2128` (9×), `#e8e8ea` (5×) sit between
+  existing tokens. Mapping them to the nearest is a deliberate visual change, which is arguably
+  the point: an off-palette literal is exactly the bug.
+- **A long tail of one-offs** — semantic status colours (`#34c759`, `#f56565`), chart series
+  accents, and tinted gradient backgrounds (`#1b273f`, `#0f1626`). These are not palette
+  colours at all; converting them needs **new tokens defined in `globals.css`**, which is a
+  design decision rather than a mechanical one.
+
+It also cannot be visually verified until #16, since every affected component sits behind
+`AuthGate`.
 
 ---
 
@@ -560,13 +601,17 @@ Remaining, in dependency order:
 6. ~~**#11** — denormalised sentiment columns.~~ ✅ dropped.
 7. ~~**#17** — `apps/web` build failure.~~ ✅ local Node 24; pinned to 20.
 8. ~~**#18** — user row and Firebase claims atomicity.~~ ✅ one transaction.
-9. **#13** — wire the six mock-data views to the live API. The largest remaining item and the
-   last of the original register.
-10. **#19** — convert web components to CSS custom properties. Do it alongside #13, which
-    rewrites those components anyway.
-11. **#16** — stand up the GCP environment. Also the gate on finishing **#12's UI half** and on
-    browser-verifying anything behind `AuthGate`, since sign-in needs a real Identity Platform
-    project.
+9. ~~**#10** — `dimension_scores` never written.~~ ✅ Epic 11 rollup + read endpoints.
+10. **#13 (remainder)** — Dashboard needs a product decision on its volume and alert panels;
+    Roadmap needs recommendations to be specified before anything can generate them; Report is
+    Epic 12. `lib/data.ts` survives until all three land.
+11. **#19** — convert the 118 literal hex values. A design task, not a substitution: ~45 map
+    cleanly, three frequent values sit between tokens, and the long tail needs new tokens
+    defined in `globals.css`.
+12. **#16** — stand up the GCP environment. Now the gate on almost everything left: it unblocks
+    #12's UI, browser verification of the three newly wired views, and any visual check of #19.
+    Everything to date is developed and verified locally against Docker Postgres and the
+    Pub/Sub emulator.
 
 Closed by architectural decision rather than by a fix:
 

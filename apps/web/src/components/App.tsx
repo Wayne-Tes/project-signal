@@ -5,6 +5,7 @@ import type { NavLevel, NavActions, TweakValues } from '@/lib/types';
 import { PS_BRAND } from '@/lib/data';
 import { DrillDown } from './DrillDown';
 import { TweaksPanel, TweakSection, TweakSelect, TweakRadio, TweakToggle } from './TweaksPanel';
+import { useBrand } from '@/lib/brand-context';
 import { Dashboard } from '@/views/Dashboard';
 import { TrendsView } from '@/views/Trends';
 import { AchillesView } from '@/views/Achilles';
@@ -139,6 +140,7 @@ const TWEAK_DEFAULTS: TweakValues = {
 
 export function App() {
   const { user, role, signOut } = useAuth();
+  const { selected: selectedBrand } = useBrand();
   const [tweaks, setTweaksState] = useState<TweakValues>(TWEAK_DEFAULTS);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [view, setView] = useState('dashboard');
@@ -193,9 +195,7 @@ export function App() {
     '--font-mono': fp['mono'],
   } as CSSProperties;
 
-  const navItems = isAdmin
-    ? [...NAV, { id: 'admin', label: 'Admin', group: 'Admin' }]
-    : NAV;
+  const navItems = isAdmin ? [...NAV, { id: 'admin', label: 'Admin', group: 'Admin' }] : NAV;
 
   const grouped = navItems.reduce<Record<string, typeof navItems>>((a, n) => {
     (a[n.group] = a[n.group] || []).push(n);
@@ -216,10 +216,15 @@ export function App() {
             </div>
           </div>
           <div className="brand-switch">
-            <div className="ava">C</div>
+            <div className="ava">{(selectedBrand?.name ?? '?').charAt(0).toUpperCase()}</div>
             <div className="meta">
-              <div className="nm">Cadence</div>
-              <div className="ct">Challenger bank</div>
+              {/* Was hard-coded to a fictional brand. There is no "category" on brand_entities,
+                  so the subtitle reports what the record actually says rather than inventing a
+                  sector label. */}
+              <div className="nm">{selectedBrand?.name ?? 'No brand'}</div>
+              <div className="ct">
+                {selectedBrand ? (selectedBrand.isOwned ? 'Owned brand' : 'Competitor') : '—'}
+              </div>
             </div>
             <svg
               className="chev"

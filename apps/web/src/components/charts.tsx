@@ -1,7 +1,24 @@
 'use client';
 import { useState, useEffect } from 'react';
-import type { HistoryRow, VolumeData } from '@/lib/types';
+import type { VolumeData } from '@/lib/types';
+
+/**
+ * A chart row: a display label plus any number of numeric series keyed by name.
+ *
+ * Deliberately structural rather than the old fixed `HistoryRow`, which hard-coded the five
+ * dimensions plus a composite. The rollup only writes dimensions that have data, so a day can
+ * legitimately carry a subset — an absent key is "no rollup", not zero.
+ */
+export interface ChartRow {
+  label: string;
+  [series: string]: number | string | Date | undefined;
+}
 import { PS_SOURCES } from '@/lib/data';
+
+/** Series values are numbers; anything else (the label) reads as absent. */
+function asNumber(value: number | string | Date | undefined): number {
+  return typeof value === 'number' ? value : 0;
+}
 
 interface SeriesDef {
   key: string;
@@ -21,7 +38,7 @@ export function LineChart({
   showDots = false,
   highlight,
 }: {
-  data: HistoryRow[];
+  data: ChartRow[];
   series: SeriesDef[];
   width?: number;
   height?: number;
@@ -38,10 +55,7 @@ export function LineChart({
   const y = (v: number) => pad.t + ih - ((v - yMin) / (yMax - yMin)) * ih;
   const path = (key: string) =>
     data
-      .map(
-        (d, i) =>
-          `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y((d as unknown as Record<string, number>)[key] ?? 0).toFixed(1)}`,
-      )
+      .map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(asNumber(d[key])).toFixed(1)}`)
       .join(' ');
   const area = (key: string) =>
     `${path(key)} L${x(data.length - 1)} ${pad.t + ih} L${pad.l} ${pad.t + ih} Z`;
@@ -141,14 +155,14 @@ export function Sparkline({
   height = 40,
   play = true,
 }: {
-  data: HistoryRow[];
+  data: ChartRow[];
   dkey?: string;
   color?: string;
   width?: number;
   height?: number;
   play?: boolean;
 }) {
-  const vals = data.map((d) => (d as unknown as Record<string, number>)[dkey] ?? 0);
+  const vals = data.map((d) => asNumber(d[dkey]));
   const mn = Math.min(...vals) - 2,
     mx = Math.max(...vals) + 2;
   const x = (i: number) => (i / (data.length - 1)) * width;

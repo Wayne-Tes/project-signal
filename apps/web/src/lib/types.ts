@@ -20,7 +20,10 @@ export interface Dimension {
   blurb: string;
 }
 
-export interface HistoryRow {
+// A type alias, not an interface: TypeScript gives aliases an implicit index signature, which
+// is what makes these rows assignable to the charts' structural `ChartRow`. Still consumed by
+// the views that remain on mock data (Dashboard, DrillDown).
+export type HistoryRow = {
   date: Date;
   label: string;
   trust: number;
@@ -29,7 +32,7 @@ export interface HistoryRow {
   value: number;
   experience: number;
   score: number;
-}
+};
 
 export interface VolumeData {
   sources: string[];
