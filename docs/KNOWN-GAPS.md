@@ -241,16 +241,51 @@ trigger. A Gemini outage silently dropped every signal in the window.
 
 ---
 
-## 10. 🟡 `dimension_scores` is never written
+## 10. ✅ `dimension_scores` was never written — **resolved (Epic 11, first slice)**
 
-**Where:** `libs/db/src/schema/dimensionScores.ts`, `GET /brands/:id/dimension-scores`.
+**Where:** `libs/scoring/` (new), `apps/ingestion/src/rollup.ts` (new),
+`infra/modules/scheduler/main.tf`.
 
-The table, its unique constraint, and the read endpoint exist; nothing populates it. This is
-**intended** — the scoring engine (5-dimension index with 90-day recency decay and daily
-rollups) is Epic 11, explicitly deferred. `PLAN.md` notes the columns exist so the dashboard
-can query them.
+The table, its unique constraint and `GET /brands/:id/dimension-scores` all existed; nothing
+populated them, so the endpoint always returned `[]`. That made it the hard dependency under
+#13 — five of the six dashboard views read dimension scores.
 
-**Effect:** the endpoint always returns `[]`. Not a bug, but don't debug it as one.
+**Resolved** by building the scoring engine's rollup, straight from the product spec rather
+than invented:
+
+- `recencyWeight` — exponential decay, `2^(-age/90d)`, per spec §Scoring: _"an exponential
+  decay function with a 90-day half-life"_. A half-life, not a window: old signals fade, they
+  do not drop.
+- `scoreDimension` — weighted average of sentiment for items tagged to a dimension, weighted by
+  `recency × confidence`, mapped onto the spec's 0–100 index. Returns `null` for a dimension
+  with no data, which is distinct from a score of 0.
+- `compositeScore` — the Brand Perception Index. Weights are configurable per brand (new
+  `brand_entities.dimension_weights` jsonb, migration `0006`), defaulting to equal. Weights are
+  **renormalised over dimensions that actually have data**, so a brand with no `value` signals
+  is not penalised as though its value score were zero.
+- `clusterTopics` / `achillesHeels` — the spec's `volume × negative sentiment × recency` damage
+  score, top three, zero-damage clusters excluded rather than padding the list with topics
+  nobody complained about.
+
+`POST /rollup` on the ingestion service upserts one row per brand × dimension per day, driven
+by a new daily Cloud Scheduler job. It is hosted on ingestion because that app is already the
+private, scheduler-invoked home for batch work (`/reconcile`), which avoids standing up a sixth
+Cloud Run service for a nightly aggregation.
+
+**Verified against real Postgres**, not only in unit tests:
+
+| Check                              | Result                                                                                                                                     |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /rollup`                     | `{"brands":6,"rows":2}`                                                                                                                    |
+| `dimension_scores`                 | trust 10.00 (5 signals), quality 95.00 (5 signals) — exactly `toIndex(-0.8)` and `toIndex(0.9)`                                            |
+| `GET /brands/:id/dimension-scores` | returns real rows; it had never returned anything but `[]`                                                                                 |
+| Recency decay                      | recent −1 vs 180-day-old +1 in one dimension → **20.00**, matching `(1×−1 + 0.25×1)/1.25 = −0.6`. An unweighted mean would have scored 50. |
+| Idempotency                        | 3 rows before a second run, 3 after — upsert, not duplicate                                                                                |
+
+**Still outstanding in Epic 11.** `compositeScore`, `clusterTopics` and `achillesHeels` are
+implemented and unit-tested but have no API endpoint yet, so the BPI headline number and the
+Achilles Heel ranking are not readable by the dashboard. #13 needs those before Dashboard,
+Achilles and Competitors can be wired.
 
 ---
 

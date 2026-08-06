@@ -16,6 +16,7 @@ export default {
         "gemini",
         "messaging",
         "storage",
+        "scoring",
         "source-adapters",
         "infra",
         "ci",

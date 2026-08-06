@@ -21,6 +21,7 @@
       "@project-signal/gemini": ["libs/gemini/src/index.ts"],
       "@project-signal/messaging": ["libs/messaging/src/index.ts"],
       "@project-signal/storage": ["libs/storage/src/index.ts"],
+      "@project-signal/scoring": ["libs/scoring/src/index.ts"],
       "@project-signal/source-adapters": ["libs/source-adapters/src/index.ts"]
     }
   },

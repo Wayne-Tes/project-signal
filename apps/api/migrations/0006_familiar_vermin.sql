@@ -1,0 +1,1 @@
+ALTER TABLE "brand_entities" ADD COLUMN "dimension_weights" jsonb;

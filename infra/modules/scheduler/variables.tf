@@ -46,6 +46,12 @@ variable "sweep_schedule" {
   default     = "0 * * * *" # hourly
 }
 
+variable "rollup_schedule" {
+  description = "Cron for the daily Brand Perception Index dimension rollup."
+  type        = string
+  default     = "30 6 * * *" # daily 06:30, after the Monday ingestion window opens
+}
+
 variable "time_zone" {
   description = "Time zone for the cron schedules."
   type        = string

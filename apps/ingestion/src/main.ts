@@ -4,6 +4,7 @@ import { getEnv } from '@project-signal/config';
 import { eq } from 'drizzle-orm';
 import Fastify from 'fastify';
 import { handleIngestionJob, reconcilePendingSignals } from './handler.js';
+import { rollupDimensionScores } from './rollup.js';
 
 const app = Fastify({ logger: true });
 
@@ -39,6 +40,13 @@ app.post('/ingest/dispatch', async (_request, reply) => {
 // scored — the safety net for a failed dual-write.
 app.post('/reconcile', async (_request, reply) => {
   const result = await reconcilePendingSignals();
+  return reply.status(200).send({ status: 'ok', data: result });
+});
+
+// Daily dimension rollups (Cloud Scheduler). Hosted here rather than in a new service because
+// this app is already the private, scheduler-invoked home for batch work — see /reconcile.
+app.post('/rollup', async (_request, reply) => {
+  const result = await rollupDimensionScores();
   return reply.status(200).send({ status: 'ok', data: result });
 });
 

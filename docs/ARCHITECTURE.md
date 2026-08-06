@@ -78,6 +78,7 @@ project-signal/
 │   ├── gemini/               Vertex AI client wrapper
 │   ├── messaging/            Pub/Sub client + env-resolved topic names
 │   ├── storage/              ObjectStore interface + GCS implementation
+│   ├── scoring/              Brand Perception Index: decay, dimensions, topic clusters
 │   └── source-adapters/      Adapter interface + 5 implementations
 ├── infra/
 │   ├── bootstrap/            One-shot: APIs, TF state bucket, Workload Identity Federation
@@ -93,7 +94,7 @@ project-signal/
 order (which `scripts/build-libs.sh` hard-codes):
 
 ```
-config → shared-types → db → storage → gemini → messaging → source-adapters
+config → shared-types → db → storage → scoring → gemini → messaging → source-adapters
 ```
 
 No app imports another app. Workers talk to Postgres **directly** via `libs/db` rather than
@@ -308,6 +309,28 @@ reference back to a key and accepts both `gs://` and `s3://`.
 
 Two methods is the whole surface, so the AWS migration's `S3ObjectStore` drops in behind
 `getObjectStore()` without touching a caller.
+
+### `libs/scoring`
+
+The Brand Perception Index, implemented straight from the product spec. Pure functions with no
+I/O, so the whole engine is unit-testable without a database:
+
+```ts
+recencyWeight(publishedAt, asOf); // 2^(-age/90d) — spec's 90-day half-life
+scoreDimension(items, dimension, asOf); // weighted by recency × confidence → 0–100
+compositeScore(rollups, weights); // the BPI; per-brand weights, renormalised
+clusterTopics(items, asOf); // damage = volume × negativity × recency
+achillesHeels(clusters); // top 3 by damage, zero-damage excluded
+```
+
+Two decisions worth knowing before you change them. A dimension with no items scores `null`,
+not 0 — absence of data is not the same as uniformly negative sentiment. And `compositeScore`
+renormalises weights across the dimensions that _do_ have data, so a brand with no `value`
+coverage is not silently penalised.
+
+`brand_entities.dimension_weights` (jsonb, nullable) holds the per-brand weighting; null means
+the equal default. It is operator-supplied, so `parseWeights` in the rollup validates it and
+discards anything non-numeric, negative or unrecognised.
 
 ### `libs/source-adapters`
 

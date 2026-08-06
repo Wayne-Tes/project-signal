@@ -26,23 +26,23 @@ is scaffolded but deliberately not provisioned yet.
 > [`KNOWN-GAPS.md`](KNOWN-GAPS.md). The epic descriptions below are preserved as written —
 > this table is the reality check over them.
 
-| Epic | State | Notes |
-| --- | --- | --- |
-| 0 — Repo & tooling | ✅ Done | Nx 20, Yarn 4, strict TS, ESLint 9, husky + commitlint |
-| 1 — Infrastructure (Terraform) | 🟡 Code done, unprovisioned | All 8 modules written and previously applied in the contractor's test project. That environment was abandoned at handover; `staging.tfvars` / `production.tfvars` now hold `REPLACE_ME` and `bootstrap/` must be re-run against a new GCP project |
-| 2 — CI/CD | ✅ Done | 4 workflows, WIF keyless auth, 80% coverage gate. **Deploy triggers on the `staging` branch, not `main`** — the plan text below predates that change |
-| 3 — Database & migrations | ✅ Done | 8 tables, 5 migrations, advisory-locked startup migration |
-| 4 — Shared libs & skeletons | ✅ Done | All 6 libs; all 4 backend services build and serve health checks |
-| 5 — Auth & RBAC | 🟡 Mostly | Token verification, `requireRole`, admin routes and Swagger all exist. **Brand-level scoping is not enforced on `/brands/:id/*` reads** (`KNOWN-GAPS.md` #5), and `POST /admin/users` is owner-only rather than admin+ (#12) |
-| 6 — Web deploy + live data | 🟡 Partial | App is deployed, auth-gated, and the Admin area (tenant creation, source configs, aliases) is wired to the live API. The six analytical views still render `lib/data.ts` mock data; the users-management UI is not built (#13, #12) |
-| 7 — Ingestion: Google Reviews | 🟡 Mostly | Adapter, dispatcher, dedup and Pub/Sub publish all implemented — and **four more sources shipped early** (see Epic 10). Not wired: Cloud Tasks dispatch (#3), raw payload → Cloud Storage (#4), topic naming (#7) |
-| 8 — Sentiment scoring | 🟡 Mostly | Worker, Gemini Flash prompt and idempotent upsert are implemented. Not working end-to-end: the push subscription targets a path the worker doesn't serve (#1), scoring reads a URL instead of review text (#4), and errors are swallowed so the DLQ never fires (#9) |
-| 9 — Observability & cost guardrails | ❌ Not started | Log/metric writer IAM is granted, but no uptime checks, dashboards or budget alert exist |
-| 10 — Additional sources | ✅ Done early | App Store, Play Store, RSS/Atom and YouTube adapters are all implemented alongside Google Reviews — this epic is no longer deferred |
-| 11 — Full scoring engine | ❌ Deferred | `dimension_scores` table and read endpoint exist; nothing writes them (#10) |
-| 12 — Reporting | ❌ Deferred | `report-worker` is a health-check skeleton |
-| 13 — Alerts & anomaly detection | ❌ Deferred | — |
-| 14 — Enterprise SSO | ❌ Deferred | Customer-driven |
+| Epic                                | State                       | Notes                                                                                                                                                                                                                                                                |
+| ----------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 — Repo & tooling                  | ✅ Done                     | Nx 20, Yarn 4, strict TS, ESLint 9, husky + commitlint                                                                                                                                                                                                               |
+| 1 — Infrastructure (Terraform)      | 🟡 Code done, unprovisioned | All 8 modules written and previously applied in the contractor's test project. That environment was abandoned at handover; `staging.tfvars` / `production.tfvars` now hold `REPLACE_ME` and `bootstrap/` must be re-run against a new GCP project                    |
+| 2 — CI/CD                           | ✅ Done                     | 4 workflows, WIF keyless auth, 80% coverage gate. **Deploy triggers on the `staging` branch, not `main`** — the plan text below predates that change                                                                                                                 |
+| 3 — Database & migrations           | ✅ Done                     | 8 tables, 5 migrations, advisory-locked startup migration                                                                                                                                                                                                            |
+| 4 — Shared libs & skeletons         | ✅ Done                     | All 6 libs; all 4 backend services build and serve health checks                                                                                                                                                                                                     |
+| 5 — Auth & RBAC                     | 🟡 Mostly                   | Token verification, `requireRole`, admin routes and Swagger all exist. **Brand-level scoping is not enforced on `/brands/:id/*` reads** (`KNOWN-GAPS.md` #5), and `POST /admin/users` is owner-only rather than admin+ (#12)                                         |
+| 6 — Web deploy + live data          | 🟡 Partial                  | App is deployed, auth-gated, and the Admin area (tenant creation, source configs, aliases) is wired to the live API. The six analytical views still render `lib/data.ts` mock data; the users-management UI is not built (#13, #12)                                  |
+| 7 — Ingestion: Google Reviews       | 🟡 Mostly                   | Adapter, dispatcher, dedup and Pub/Sub publish all implemented — and **four more sources shipped early** (see Epic 10). Not wired: Cloud Tasks dispatch (#3), raw payload → Cloud Storage (#4), topic naming (#7)                                                    |
+| 8 — Sentiment scoring               | 🟡 Mostly                   | Worker, Gemini Flash prompt and idempotent upsert are implemented. Not working end-to-end: the push subscription targets a path the worker doesn't serve (#1), scoring reads a URL instead of review text (#4), and errors are swallowed so the DLQ never fires (#9) |
+| 9 — Observability & cost guardrails | ❌ Not started              | Log/metric writer IAM is granted, but no uptime checks, dashboards or budget alert exist                                                                                                                                                                             |
+| 10 — Additional sources             | ✅ Done early               | App Store, Play Store, RSS/Atom and YouTube adapters are all implemented alongside Google Reviews — this epic is no longer deferred                                                                                                                                  |
+| 11 — Full scoring engine            | ❌ Deferred                 | `dimension_scores` table and read endpoint exist; nothing writes them (#10)                                                                                                                                                                                          |
+| 12 — Reporting                      | ❌ Deferred                 | `report-worker` is a health-check skeleton                                                                                                                                                                                                                           |
+| 13 — Alerts & anomaly detection     | ❌ Deferred                 | —                                                                                                                                                                                                                                                                    |
+| 14 — Enterprise SSO                 | ❌ Deferred                 | Customer-driven                                                                                                                                                                                                                                                      |
 
 **Net position.** The vertical slice is built but **not yet connected end to end.** A user can
 sign in, an admin can provision a tenant and configure sources, and ingestion can pull and
@@ -309,15 +309,25 @@ interface. Deferred sources: NewsAPI (commercial tier ~$449/mo — use free RSS 
 X (no affordable tier), Trustpilot (ToS risk).
 
 **Shipped:** `AppStoreAdapter` and `PlayStoreAdapter` (both via Apify), `RssAdapter`
-(handles RSS *and* Atom, no API key required) and `YoutubeAdapter` (YouTube Data API v3,
+(handles RSS _and_ Atom, no API key required) and `YoutubeAdapter` (YouTube Data API v3,
 channel videos → top-level comments) all exist alongside `GoogleReviewsAdapter`, are
 registered in the ingestion `ADAPTERS` map, and are configurable from the Admin UI. NewsAPI,
 X and Trustpilot remain deferred as planned.
 
-### Epic 11 — Full scoring engine
+### Epic 11 — Full scoring engine — **partially delivered**
 
 5-dimension Brand Perception Index with 90-day recency decay, topic clustering → Achilles
 Heel identification, daily dimension rollups written to `dimension_scores`.
+
+**Delivered:** `libs/scoring` implements decay, per-dimension scoring, the weighted composite
+and topic-cluster damage scoring. `POST /rollup` on ingestion writes daily rollups to
+`dimension_scores`, driven by a daily Cloud Scheduler job, and
+`GET /brands/:id/dimension-scores` now returns real data. Per-brand weights live in
+`brand_entities.dimension_weights`.
+
+**Outstanding:** the composite (BPI) and the Achilles Heel ranking are implemented and tested
+in the library but have no API endpoint, so the dashboard cannot read them yet. That is the
+remaining blocker on Epic 6 / KNOWN-GAPS #13.
 
 ### Epic 12 — Reporting
 

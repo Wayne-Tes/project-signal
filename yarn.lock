@@ -5244,6 +5244,7 @@ __metadata:
     "@project-signal/config": "workspace:*"
     "@project-signal/db": "workspace:*"
     "@project-signal/messaging": "workspace:*"
+    "@project-signal/scoring": "workspace:*"
     "@project-signal/shared-types": "workspace:*"
     "@project-signal/source-adapters": "workspace:*"
     "@project-signal/storage": "workspace:*"
@@ -5276,6 +5277,17 @@ __metadata:
     "@project-signal/shared-types": "workspace:*"
     fastify: "npm:^5.0.0"
     tsx: "npm:^4.0.0"
+    typescript: "npm:^5.5.0"
+    vitest: "npm:^2.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@project-signal/scoring@workspace:*, @project-signal/scoring@workspace:libs/scoring":
+  version: 0.0.0-use.local
+  resolution: "@project-signal/scoring@workspace:libs/scoring"
+  dependencies:
+    "@project-signal/shared-types": "workspace:*"
+    esbuild: "npm:^0.21.5"
     typescript: "npm:^5.5.0"
     vitest: "npm:^2.0.0"
   languageName: unknown

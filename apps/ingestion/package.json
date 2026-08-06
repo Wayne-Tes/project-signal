@@ -14,6 +14,7 @@
     "@project-signal/config": "workspace:*",
     "@project-signal/db": "workspace:*",
     "@project-signal/messaging": "workspace:*",
+    "@project-signal/scoring": "workspace:*",
     "@project-signal/shared-types": "workspace:*",
     "@project-signal/source-adapters": "workspace:*",
     "@project-signal/storage": "workspace:*",
