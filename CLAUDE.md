@@ -2,11 +2,13 @@
 
 ## Read these first
 
-| Document | Why |
-| --- | --- |
+Follow all development rules in @DEVRULES.md
+
+| Document                                       | Why                                                                                                                                                                                                       |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete code-accurate reference — every app, lib, table, route and infra module, plus end-to-end flows and a "gotchas before you edit" section. **Read this before making changes anywhere unfamiliar.** |
-| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md) | Pipeline links that are provisioned but not connected. **Read before debugging any end-to-end flow** — several things that look broken were never wired. |
-| [`docs/PLAN.md`](docs/PLAN.md) | Design rationale, key decisions and epic status. |
+| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)     | Pipeline links that are provisioned but not connected. **Read before debugging any end-to-end flow** — several things that look broken were never wired.                                                  |
+| [`docs/PLAN.md`](docs/PLAN.md)                 | Design rationale, key decisions and epic status.                                                                                                                                                          |
 
 Keep all three current when you change structure, and update `ARCHITECTURE.md` in the same
 change as the code it describes.
@@ -85,18 +87,19 @@ Lib dependency order (hard-coded in `scripts/build-libs.sh`):
 
 All top-level scripts delegate to NX. **This project uses yarn, not pnpm.**
 
-| Script              | What it does                                        |
-| ------------------- | --------------------------------------------------- |
-| `yarn dev`          | Starts Docker services + all apps in dev mode       |
-| `yarn build`        | Builds all projects                                 |
-| `yarn lint`         | Lints all projects                                  |
-| `yarn typecheck`    | Type-checks all projects                            |
-| `yarn test`         | Runs all tests (80% coverage gate, per project)     |
-| `yarn db:up`        | Starts just the Postgres container                  |
-| `yarn db:generate`  | Generates migration SQL from the schema (drizzle-kit) |
+| Script             | What it does                                          |
+| ------------------ | ----------------------------------------------------- |
+| `yarn dev`         | Starts Docker services + all apps in dev mode         |
+| `yarn build`       | Builds all projects                                   |
+| `yarn lint`        | Lints all projects                                    |
+| `yarn typecheck`   | Type-checks all projects                              |
+| `yarn test`        | Runs all tests (80% coverage gate, per project)       |
+| `yarn db:up`       | Starts just the Postgres container                    |
+| `yarn db:generate` | Generates migration SQL from the schema (drizzle-kit) |
+| `yarn db:seed`     | Seeds the local database (`nx run api:seed`)          |
 
-There is no `db:migrate` or `db:seed` script — **the API applies migrations on startup**,
-guarded by a Postgres advisory lock. Never add migration calls to a worker.
+There is no `db:migrate` script — **the API applies migrations on startup**, guarded by a
+Postgres advisory lock. Never add migration calls to a worker.
 
 ## House rules that bite
 
