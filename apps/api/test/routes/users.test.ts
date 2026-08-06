@@ -40,12 +40,14 @@ vi.mock('@project-signal/db', () => {
   };
 });
 
+const mockSetCustomUserClaims = vi.hoisted(() => vi.fn());
+
 vi.mock('firebase-admin', () => ({
   default: {
     apps: ['app'],
     initializeApp: vi.fn(),
     auth: vi.fn(() => ({
-      setCustomUserClaims: vi.fn().mockResolvedValue(undefined),
+      setCustomUserClaims: mockSetCustomUserClaims,
       verifyIdToken: vi.fn(),
     })),
   },
@@ -69,6 +71,7 @@ beforeEach(() => {
   _dbRows = [];
   _dbRowQueue.length = 0;
   vi.clearAllMocks();
+  mockSetCustomUserClaims.mockResolvedValue(undefined);
 });
 
 describe('POST /admin/users', () => {
@@ -257,5 +260,83 @@ describe('GET /admin/users', () => {
     const app = await buildTestApp(usersRoutes, { uid: 'u', role: 'user', tenantId: 'tenant-1' });
     const res = await app.inject({ method: 'GET', url: '/admin/users' });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+// KNOWN-GAPS #18 — the row was written and THEN claims were set. A claims failure left the
+// table ahead of the token, and authorisation reads the token. Both writes now happen inside
+// one transaction, so a Firebase failure rolls the row back.
+describe('user row and Firebase claims are written together', () => {
+  it('sets claims with the shape plugins/auth.ts reads', async () => {
+    _dbRows = [user1];
+    const app = await buildTestApp(usersRoutes, DEFAULT_OWNER);
+    await app.inject({
+      method: 'POST',
+      url: '/admin/users',
+      payload: {
+        firebaseUid: 'fb-1',
+        email: 'user@example.com',
+        role: 'user',
+        tenantId: 'tenant-1',
+        brandEntityId: 'brand-1',
+      },
+    });
+
+    expect(mockSetCustomUserClaims).toHaveBeenCalledWith('fb-1', {
+      role: 'user',
+      tenantId: 'tenant-1',
+      brandEntityId: 'brand-1',
+    });
+  });
+
+  it('sets claims inside the transaction on create, so a failure rolls the row back', async () => {
+    _dbRows = [user1];
+    mockSetCustomUserClaims.mockRejectedValueOnce(
+      new Error('Could not load the default credentials'),
+    );
+    const app = await buildTestApp(usersRoutes, DEFAULT_OWNER);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/users',
+      payload: { firebaseUid: 'fb-1', email: 'u@e.com', role: 'user', tenantId: 'tenant-1' },
+    });
+
+    expect(res.statusCode).toBe(500);
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as unknown as { transaction: ReturnType<typeof vi.fn> };
+    expect(chain.transaction).toHaveBeenCalledOnce();
+  });
+
+  it('sets claims inside the transaction on update, so a failure rolls the row back', async () => {
+    _dbRowQueue.push([user1]);
+    _dbRowQueue.push([{ ...user1, role: 'admin' }]);
+    mockSetCustomUserClaims.mockRejectedValueOnce(new Error('firebase unavailable'));
+    const app = await buildTestApp(usersRoutes, DEFAULT_OWNER);
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/admin/users/user-1',
+      payload: { role: 'admin' },
+    });
+
+    expect(res.statusCode).toBe(500);
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as unknown as { transaction: ReturnType<typeof vi.fn> };
+    expect(chain.transaction).toHaveBeenCalledOnce();
+  });
+
+  it('omits brandEntityId from claims when the user is not pinned', async () => {
+    _dbRows = [{ ...user1, brandEntityId: null }];
+    const app = await buildTestApp(usersRoutes, DEFAULT_OWNER);
+    await app.inject({
+      method: 'POST',
+      url: '/admin/users',
+      payload: { firebaseUid: 'fb-1', email: 'u@e.com', role: 'admin', tenantId: 'tenant-1' },
+    });
+
+    expect(mockSetCustomUserClaims).toHaveBeenCalledWith('fb-1', {
+      role: 'admin',
+      tenantId: 'tenant-1',
+      brandEntityId: undefined,
+    });
   });
 });

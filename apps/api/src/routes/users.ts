@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { db, users } from '@project-signal/db';
 import { and, eq } from 'drizzle-orm';
-import admin from 'firebase-admin';
 import { requireRole, type UserRole } from '../plugins/auth.js';
+import { setUserClaims } from '../lib/claims.js';
 
 /**
  * Roles an `admin` may assign. An admin provisions their own tenant's users but cannot mint
@@ -65,21 +65,27 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      const [user] = await db
-        .get()
-        .insert(users)
-        .values({
-          firebaseUid: body.firebaseUid,
-          tenantId: body.tenantId,
-          role: body.role,
-          brandEntityId: body.brandEntityId,
-        })
-        .returning();
+      // Row and claims are written together: the claims call sits inside the transaction, so
+      // a Firebase failure rolls the row back rather than leaving an orphan the user cannot
+      // authenticate as (KNOWN-GAPS #18).
+      const user = await db.get().transaction(async (tx) => {
+        const [created] = await tx
+          .insert(users)
+          .values({
+            firebaseUid: body.firebaseUid,
+            tenantId: body.tenantId,
+            role: body.role,
+            brandEntityId: body.brandEntityId,
+          })
+          .returning();
 
-      await admin.auth().setCustomUserClaims(body.firebaseUid, {
-        role: body.role,
-        tenantId: body.tenantId,
-        brandEntityId: body.brandEntityId,
+        await setUserClaims(body.firebaseUid, {
+          role: body.role,
+          tenantId: body.tenantId,
+          brandEntityId: body.brandEntityId,
+        });
+
+        return created;
       });
 
       return reply.status(201).send(user);
@@ -127,20 +133,31 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      const [updated] = await db
-        .get()
-        .update(users)
-        .set({ ...body, updatedAt: new Date() })
-        .where(and(eq(users.id, id), eq(users.tenantId, target.tenantId)))
-        .returning();
+      const updated = await db.get().transaction(async (tx) => {
+        const [row] = await tx
+          .update(users)
+          .set({ ...body, updatedAt: new Date() })
+          .where(and(eq(users.id, id), eq(users.tenantId, target.tenantId)))
+          .returning();
+
+        if (!row) return undefined;
+
+        // Inside the transaction: a claims failure must undo the row change, or a failed
+        // demotion would leave the user holding their previous access while the table
+        // records the new role.
+        await setUserClaims(row.firebaseUid, {
+          // `users.role` is a plain varchar in the schema; the app narrows at the boundary,
+          // as it does for `source_configs.source` → SignalSource. The value is constrained
+          // by the route's body schema enum and by ADMIN_ASSIGNABLE_ROLES above.
+          role: row.role as UserRole,
+          tenantId: row.tenantId,
+          brandEntityId: row.brandEntityId,
+        });
+
+        return row;
+      });
 
       if (!updated) return reply.notFound('User not found');
-
-      await admin.auth().setCustomUserClaims(updated.firebaseUid, {
-        role: updated.role,
-        tenantId: updated.tenantId,
-        brandEntityId: updated.brandEntityId,
-      });
 
       return updated;
     },

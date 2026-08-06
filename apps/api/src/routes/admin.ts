@@ -7,6 +7,7 @@
 import { db, tenants, brandEntities, users } from '@project-signal/db';
 import type { FastifyInstance } from 'fastify';
 import { requireRole } from '../plugins/auth.js';
+import { setUserClaims } from '../lib/claims.js';
 
 interface CreateTenantBody {
   tenantName: string;
@@ -57,6 +58,12 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
           .insert(users)
           .values({ firebaseUid: adminFirebaseUid, tenantId: tenant!.id, role: 'admin' })
           .returning();
+
+        // This flow created the row but never set claims, so the new tenant admin could not
+        // authorise a single request — authz reads claims, not this table (KNOWN-GAPS #18).
+        // Inside the transaction, so a Firebase failure rolls back the whole tenant rather
+        // than leaving a tenant whose only admin cannot sign in to it.
+        await setUserClaims(adminFirebaseUid, { role: 'admin', tenantId: tenant!.id });
 
         return { tenant, brand, user };
       });

@@ -434,22 +434,44 @@ install instead of surfacing as a null React dispatcher three layers down.
 
 ---
 
-## 18. 🟠 User writes are not atomic with Firebase custom claims
+## 18. ✅ User writes were not atomic with Firebase custom claims — **resolved**
 
-**Where:** `apps/api/src/routes/users.ts` — both `POST /admin/users` and `PATCH /admin/users/:id`.
+**Where:** `apps/api/src/lib/claims.ts` (new), `apps/api/src/routes/users.ts`,
+`apps/api/src/routes/admin.ts`.
 
-Both write the `users` row and then call `setCustomUserClaims`. If the claims call fails the
-row is already committed, the caller gets a 500, and the database and the token disagree —
-about authorisation, which per the house rules is read from claims and not from the table.
+Authorisation reads custom claims, not the `users` table, so the two diverging is a security
+problem rather than an untidiness. Three paths were affected — the third found while fixing the
+first two:
 
-Surfaced while verifying #12 against a live API: with no local GCP credentials
-`setCustomUserClaims` throws `FirebaseAppError: Could not load the default credentials`, and
-both allow-paths returned 500 **after** the row had been updated. The unit tests never see it
-because `firebase-admin` is mocked.
+1. `POST /admin/users` wrote the row, then set claims. A claims failure left an orphan row for
+   a user who could not authenticate.
+2. `PATCH /admin/users/:id` did the same. A failed **demotion** was the dangerous case: the
+   table recorded the new lower role while the user kept their old claim, and therefore their
+   old access.
+3. **`POST /admin/tenants` never set claims at all.** It created the tenant, its brand and its
+   admin `users` row, and stopped. Because authz reads claims, that admin had no `role` or
+   `tenantId` and could not authorise a single request — the primary onboarding path produced
+   a tenant nobody could administer.
 
-**Fix:** on a claims failure, revert the row (or write it only after claims succeed) so the two
-cannot diverge. Not attempted here: the failure path cannot be exercised locally without
-credentials, and shipping an untested compensating write would be worse than recording it.
+**Resolved** by writing the row and the claims inside one database transaction, via a shared
+`setUserClaims()` helper that also pins the claim shape to what `plugins/auth.ts` reads. A
+Firebase failure now rolls the row back and neither system moves.
+
+The residual window is a commit failure _after_ the claims call succeeded, leaving claims ahead
+of the table. That cannot be closed without a distributed transaction, and it is the safer of
+the two directions since the claim is the value actually enforced. It is documented in
+`claims.ts`.
+
+**Verified against real Postgres with no GCP credentials**, so `setUserClaims` genuinely fails.
+Same request, A/B across the fix:
+
+|                                               | HTTP | orphan row persisted |
+| --------------------------------------------- | ---- | -------------------- |
+| Pre-fix ordering (row committed, then claims) | 500  | **1**                |
+| Fixed (claims inside the transaction)         | 500  | **0**                |
+
+All three paths confirmed: users 3 → 3, tenants 3 → 3, no orphan user, no orphan tenant, and a
+PATCH that failed left the target's role unchanged at `owner`.
 
 ---
 
@@ -489,17 +511,16 @@ Done:
 
 Remaining, in dependency order:
 
-6. ~~**#11** — decide the denormalised sentiment columns.~~ ✅ dropped.
+6. ~~**#11** — denormalised sentiment columns.~~ ✅ dropped.
 7. ~~**#17** — `apps/web` build failure.~~ ✅ local Node 24; pinned to 20.
-8. **#18** — make the user row and its Firebase claims atomic. Small, self-contained, and the
-   only remaining correctness defect.
-9. **#13** — wire the six mock-data views to the live API. The largest single item.
+8. ~~**#18** — user row and Firebase claims atomicity.~~ ✅ one transaction.
+9. **#13** — wire the six mock-data views to the live API. The largest remaining item and the
+   last of the original register.
 10. **#19** — convert web components to CSS custom properties. Do it alongside #13, which
     rewrites those components anyway.
-11. **#16** — stand up the GCP environment. Now also the gate on finishing **#12's UI half**
-    and on browser-verifying anything behind `AuthGate`, since sign-in needs a real Identity
-    Platform project. Everything else is developed and verified locally against Docker
-    Postgres and the Pub/Sub emulator.
+11. **#16** — stand up the GCP environment. Also the gate on finishing **#12's UI half** and on
+    browser-verifying anything behind `AuthGate`, since sign-in needs a real Identity Platform
+    project.
 
 Closed by architectural decision rather than by a fix:
 
