@@ -1122,14 +1122,19 @@ twice would be waste:
   push endpoint to mismatch
 - **#3** (Cloud Tasks provisioned but unused) — dissolved: SQS covers both roles
 
-**Explicitly out of scope**, because they are application defects unrelated to the cloud and
-should be fixed independently on whichever platform is live:
+**Prerequisites, not out of scope.** The owner ruled on 2026-08-06 that `KNOWN-GAPS.md` is the
+backlog and is burned down _before_ new work — which includes this migration. These are
+application defects unrelated to the cloud, and they must be closed before Phase 1 starts:
 
-- **#5** — brand-scoped reads don't enforce `brandEntityId` (intra-tenant isolation hole)
-- **#6** — cursor pagination has no `ORDER BY`
-- **#13** — six dashboard views still render mock data
+- ~~**#5** — brand-scoped reads don't enforce `brandEntityId`~~ ✅ resolved 2026-08-06
+- ~~**#6** — cursor pagination has no `ORDER BY`~~ ✅ resolved 2026-08-06
+- **#11** — unused denormalised sentiment columns on `signals`
+- **#12** — `POST /admin/users` role gating and the missing users UI
+- **#13** — six dashboard views still render mock data (the largest item)
 
-#5 is a security defect. Do not let the migration become a reason to defer it.
+See `docs/KNOWN-GAPS.md` § Burn-down order for the full sequence. Gaps #2, #4, #7 and #9 remain
+inside this plan rather than ahead of it, because the phases below implement them once, on the
+interfaces, instead of twice.
 
 ## Open items requiring a decision before Phase 3
 
