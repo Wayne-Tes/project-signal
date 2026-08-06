@@ -166,6 +166,21 @@ neither is a stable sort key alone — `published_at` is not unique and `id` car
 
 A malformed cursor now returns **400** rather than silently serving page one.
 
+**Two further defects were found while verifying this against a live Postgres**, neither of
+which any mocked test could reach. Both are fixed:
+
+- The first implementation used the textbook raw-SQL row-value predicate
+  `(published_at, id) < ($1, $2)`. Valid Postgres, but interpolating a JS `Date` into a raw
+  `sql` fragment bypasses drizzle's timestamptz serialiser — the parameter arrived as
+  `Thu Jan 01 2026 04:00:00 GMT+0000 (Greenwich Mean Time)` and page 2 returned **500**. The
+  predicate now uses drizzle's typed operators, which emit ISO-8601. `test/routes/keyset.test.ts`
+  renders the condition through the real `PgDialect` to cover the serialisation directly.
+- **`GET /brands/:id/signals` had never returned any signal data.** Its response schema
+  declared `items: { type: 'object' }` with no `properties`, and fast-json-stringify strips
+  everything undeclared, so every row serialised to `{}`. The endpoint returned
+  `items: [{}, {}]`. This predates the pagination work and was invisible because the six
+  dashboard views render mock data (#13). The schema now declares the columns.
+
 ---
 
 ## 7. 🔴 Topic names differ between code and Terraform

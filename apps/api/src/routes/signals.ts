@@ -1,11 +1,37 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { db, signals, sentimentResults, dimensionScores } from '@project-signal/db';
-import { and, desc, eq, gt, count, avg, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, lt, or, count, avg, sql, type SQL } from 'drizzle-orm';
 import { requireBrandAccess } from '../plugins/auth.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const SENTIMENT_PERIOD_DAYS = 30;
+
+/**
+ * Response shape for a signal row.
+ *
+ * Fastify serialises through fast-json-stringify, which strips every property the schema does
+ * not declare. This was previously `{ type: 'object' }` with no properties, so the endpoint
+ * returned `items: [{}, {}]` — every field silently removed. Declaring the columns is what
+ * makes the payload non-empty, so keep this in sync with `libs/db/src/schema/signals.ts`.
+ *
+ * The denormalised `sentiment_*` / `model_version` columns are deliberately omitted: nothing
+ * writes them (KNOWN-GAPS #11) and exposing them here would tacitly adopt them before that
+ * decision is made. Sentiment is read from `sentiment_results` via the summary endpoint.
+ */
+const SIGNAL_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    tenantId: { type: 'string' },
+    brandEntityId: { type: 'string' },
+    source: { type: 'string' },
+    sourceUrl: { type: 'string' },
+    rawStorageRef: { type: 'string' },
+    publishedAt: { type: 'string' },
+    ingestedAt: { type: 'string' },
+  },
+};
 
 /**
  * Keyset cursor over the `(published_at, id)` ordering.
@@ -31,6 +57,22 @@ function decodeCursor(cursor: string): { publishedAt: Date; id: string } {
   return { publishedAt, id };
 }
 
+/**
+ * Keyset predicate for `ORDER BY published_at DESC, id DESC`.
+ *
+ * Expressed with drizzle's typed operators rather than a raw `sql` row-value comparison
+ * (`(published_at, id) < ($1, $2)`). That form is the textbook keyset idiom and is valid
+ * Postgres, but interpolating a JS `Date` into a raw `sql` fragment bypasses drizzle's
+ * timestamptz serialiser: the Date arrives as `Thu Jan 01 2026 04:00:00 GMT+0000 (Greenwich
+ * Mean Time)` and the query fails at runtime. Typed column operators serialise correctly.
+ */
+export function keysetBefore(publishedAt: Date, id: string): SQL | undefined {
+  return or(
+    lt(signals.publishedAt, publishedAt),
+    and(eq(signals.publishedAt, publishedAt), lt(signals.id, id)),
+  );
+}
+
 const signalsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     '/brands/:id/signals',
@@ -51,7 +93,7 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
           200: {
             type: 'object',
             properties: {
-              items: { type: 'array', items: { type: 'object' } },
+              items: { type: 'array', items: SIGNAL_SCHEMA },
               nextCursor: { type: 'string', nullable: true },
             },
           },
@@ -78,10 +120,8 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
         } catch {
           return reply.badRequest('Malformed cursor');
         }
-        // Row-value comparison matching the DESC ordering below — the standard keyset predicate.
-        filters.push(
-          sql`(${signals.publishedAt}, ${signals.id}) < (${decoded.publishedAt}, ${decoded.id})`,
-        );
+        const keyset = keysetBefore(decoded.publishedAt, decoded.id);
+        if (keyset) filters.push(keyset);
       }
       if (source) filters.push(eq(signals.source, source));
 

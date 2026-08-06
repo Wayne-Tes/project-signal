@@ -72,6 +72,26 @@ describe('GET /brands/:id/signals', () => {
     expect(body.nextCursor).toBeNull();
   });
 
+  // The response schema declared `items: { type: 'object' }` with no properties, and
+  // fast-json-stringify strips everything undeclared — so this endpoint returned
+  // `items: [{}, {}]` for its entire life. Assert the payload actually carries fields.
+  it('serialises signal fields rather than empty objects', async () => {
+    _dbRows = [signal('s1')];
+    const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+
+    const [item] = JSON.parse(res.body).items;
+    expect(item).toMatchObject({
+      id: 's1',
+      tenantId: 'tenant-1',
+      brandEntityId: 'brand-1',
+      source: 'google_reviews',
+      sourceUrl: 'https://maps.google.com/review/1',
+      rawStorageRef: 'gs://bucket/1',
+    });
+    expect(item.publishedAt).toBe(now.toISOString());
+  });
+
   it('paginates: returns nextCursor when more items exist than limit', async () => {
     // Return limit+1 items to trigger pagination
     const items = Array.from({ length: 51 }, (_, i) => signal(`s${i}`));
