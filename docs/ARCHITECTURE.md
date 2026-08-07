@@ -694,6 +694,22 @@ A dark, "instrument-grade" system driven entirely by CSS custom properties: surf
 variables — so **new UI must use the tokens, not literal hex**, or it won't respond to palette
 switching.
 
+Three groups sit outside the switchable palette, deliberately:
+
+- **`--ok`** — semantic status. Separate from the five accents because "this toggle is on"
+  must not change meaning when a different palette is selected.
+- **`--ink-accent`** — text sitting on an accent fill, e.g. a mint submit button.
+- **The paper ramp** (`--paper*`, `--ink*`, `--panel`) — the printable report and the floating
+  Tweaks panel are light surfaces the dark system never covered. The palette switcher does not
+  reassign them.
+
+> **`PALETTES` in `components/App.tsx` is the one place literal hex belongs.** Those four
+> palettes are the *values the tokens take*: `App.tsx:182` writes them into `--mint`, `--bg`,
+> `--surface` and the rest via `rootStyle`. They are the runtime analogue of the `:root` block.
+> Rewriting them as `var(…)` would be circular and would break palette switching entirely —
+> `KNOWN-GAPS.md` #19 originally listed all 40 as defects for exactly this reason, and was
+> wrong. Everywhere else in `apps/web`, a literal hex is a bug.
+
 ### Live data vs mock data
 
 **Live:** the four analytical views above, plus `views/Admin.tsx` (POST `/admin/tenants`),

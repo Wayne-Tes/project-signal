@@ -37,7 +37,7 @@
 | 16  | No environment provisioned anywhere — now targets AWS         | 🔴          | infra                 |
 | 17  | ~~`apps/web` build failure~~ — was local Node 24              | ✅ resolved | tooling               |
 | 18  | ~~User writes not atomic with Firebase custom claims~~        | ✅ resolved | API                   |
-| 19  | Web components use literal hex, not CSS custom properties     | 🟡          | web style             |
+| 19  | ~~Web components use literal hex, not CSS custom properties~~ | ✅ resolved | web style             |
 
 ---
 
@@ -610,36 +610,63 @@ PATCH that failed left the target's role unchanged at `owner`.
 
 ---
 
-## 19. 🟡 Web components use literal hex instead of CSS custom properties
+## 19. ✅ Web components use literal hex instead of CSS custom properties — **resolved**
 
-**Where:** `App.tsx` (40 occurrences), `BrandManager.tsx` (25), `Admin.tsx` (14), `Report.tsx`
-(14), `SignIn.tsx` (12), `lib/data.ts` (6), `TweaksPanel.tsx` (3), `page.tsx` (2),
-`AuthGate.tsx` (2). **119 literals across 9 files** (recounted 2026-08-07; `TweaksPanel.tsx` is
-4, not 3).
+**Where:** `BrandManager.tsx` (25), `Admin.tsx` (14), `Report.tsx` (14), `SignIn.tsx` (12),
+`lib/data.ts` (6), `TweaksPanel.tsx` (4), `page.tsx` (2), `AuthGate.tsx` (2) — plus 25 more
+inside `app/globals.css` itself, which this entry never counted.
 
 `CLAUDE.md` and `DEVRULES.md` both require styling through the custom properties in
 `app/globals.css`, because literal hex does not respond to the runtime palette switcher.
 
-> **Correction.** This entry previously said "every component except `UserManager.tsx`", and the
-> plan was to fold the conversion into #13 on the grounds that wiring rewrites the same files.
-> Both were wrong, established by counting rather than assuming: `Dashboard.tsx`, `Trends.tsx`,
-> `Achilles.tsx` and `Competitors.tsx` contain **zero** literal hex — they already use `var()`
-> and CSS classes. The two tasks barely overlap.
+> **Correction (2026-08-07): `App.tsx`'s 40 occurrences were never defects.** This entry
+> listed them as the single largest cluster. They are the four **palette definitions** —
+> `PALETTES` at `App.tsx:46`, whose values `App.tsx:182` writes *into* `--mint`, `--bg`,
+> `--surface` and the rest via `rootStyle`. They are the analogue of the `:root` block: the
+> values the tokens take. Converting them to `var(--mint)` would be circular and would break
+> the palette switcher outright — the exact feature this gap exists to protect.
+>
+> **The real scope was 79 literals, not 119.** A second correction on top of the one below;
+> both came from counting rather than assuming.
 
-**This is a design task, not a find-and-replace.** Of 56 distinct values, roughly 45 occurrences
-map exactly onto existing tokens (`#0b0c0f` → `--bg`, `#5dcaa5` → `--mint`, `#e2725b` →
-`--coral`, and so on). The rest do not:
+**Resolved.** All 79 converted, and the 25 literals inside `globals.css`'s report rules with
+them — leaving those would have half-tokenised one surface, the same "two homes for one fact"
+problem that #11 was closed to avoid.
 
-- **Frequent near-misses** — `#8a8f99` (13×), `#1e2128` (9×), `#e8e8ea` (5×) sit between
-  existing tokens. Mapping them to the nearest is a deliberate visual change, which is arguably
-  the point: an off-palette literal is exactly the bug.
-- **A long tail of one-offs** — semantic status colours (`#34c759`, `#f56565`), chart series
-  accents, and tinted gradient backgrounds (`#1b273f`, `#0f1626`). These are not palette
-  colours at all; converting them needs **new tokens defined in `globals.css`**, which is a
-  design decision rather than a mechanical one.
+This was a design task, not a substitution, and it needed the design system extended:
 
-It also cannot be visually verified until #16, since every affected component sits behind
-`AuthGate`.
+- **Clean mappings** onto existing tokens (`#0b0c0f` → `--bg`, `#5dcaa5` → `--mint`, and so on).
+- **Three frequent near-misses mapped to their nearest token**, a deliberate visual change:
+  `#8a8f99` (13×) → `--t2`, `#e8e8ea` (5×) → `--t1`, and `#1e2128` (9×) → `--line`. The last is
+  semantic rather than nearest-by-distance: every occurrence was a `1px solid` border, and
+  borders in this system are `--line` / `--line2`.
+- **`#2c5e4f`** (a success border) became `color-mix(in srgb, var(--mint) 40%, transparent)`,
+  matching the idiom `globals.css` already uses for `.heel:hover`.
+- **New tokens.** `--ink-accent` for text on an accent fill; `--ok` for semantic status,
+  deliberately separate from the five accents because "this toggle is on" must not change
+  meaning when someone selects a different palette; and a **paper ramp** (`--paper*`, `--ink*`,
+  `--panel`) for the two light surfaces — the printable report and the floating Tweaks panel —
+  which the dark-only token set never covered.
+
+**The paper tokens are named 1:1, not consolidated.** Several are near-identical warm greys and
+could reasonably collapse, but every one of them renders behind `AuthGate`, so collapsing them
+unseen would be a visual change nobody can currently check. Consolidate once the report can
+actually be looked at.
+
+**Four `#fff` remain in `globals.css` and are deliberate:** two in the `@media print` block and
+one pure-white button hover, all of which must stay white whichever palette is selected, plus
+the report logo's, which became `--paper-on-accent`.
+
+**Verification.** `apps/web` lints, typechecks and passes its 23 tests; the production image
+builds on `node:20-alpine`. Every one of the 47 `var(--…)` references in `apps/web` resolves to
+a definition — checked mechanically, because an undefined custom property renders as *nothing*
+rather than failing, which is this refactor's real failure mode. The sign-in and loading panes
+were confirmed serving `background:var(--bg);color:var(--t2)`.
+
+**Not visually verified, and that is the honest limit:** 63 of the 79 sit behind `AuthGate`
+(#16), and the Chrome MCP was not connected in this session, so no pixel-level check was
+possible on any of it. The near-miss mappings and the paper ramp need a browser pass once
+sign-in works — that pass is a checkpoint in the AWS auth phase, not an optional follow-up.
 
 ---
 
@@ -672,9 +699,10 @@ Remaining, in dependency order:
 11. **#13 (remainder)** — Roadmap needs prioritised recommendations to be **specified** before
     anything can generate them, and nothing in Epics 11–13 produces them; Report is Epic 12.
     `lib/data.ts` survives until both land.
-12. **#19** — convert the 119 literal hex values. A design task, not a substitution: ~45 map
-    cleanly, three frequent values sit between tokens, and the long tail needs new tokens
-    defined in `globals.css`.
+12. ~~**#19** — convert the literal hex values.~~ ✅ 2026-08-07. 79 real occurrences, not 119:
+    `App.tsx`'s 40 were palette definitions and had to stay literal. Needed the design system
+    extended with `--ink-accent`, `--ok` and a paper ramp for the two light surfaces. Awaits a
+    browser pass on the 63 that sit behind `AuthGate`.
 13. **#12 (remainder)** — the users UI. Blocked on #16; the API half is done and tested.
 14. **#16** — stand up a real environment. **Target changed to AWS on 2026-08-06**; GCP will not
     be provisioned. Still the gate on almost everything left: it unblocks #12's UI, browser

@@ -82,9 +82,15 @@ nothing at all.
 - **#13 (remainder)** — Roadmap and Report views still on `apps/web/src/lib/data.ts` mock data.
   Roadmap is **unspecified work, not deferred work**: nothing in Epics 11–13 produces prioritised
   recommendations. Report is Epic 12.
-- **#19** — 119 literal hex values in `apps/web` that should be CSS custom properties.
+- ~~**#19** — literal hex values in `apps/web`.~~ ✅ **closed 2026-08-07.** 79 real occurrences,
+  not the 119 recorded: `App.tsx`'s 40 were the palette *definitions* and had to stay literal.
+  Closing it extended the design system with `--ink-accent`, `--ok` and a paper ramp for the
+  report and Tweaks panel. **63 of the 79 render behind `AuthGate` and have never been seen** —
+  a browser pass over them is a required checkpoint once sign-in works, not an optional
+  follow-up.
 
-None of these four block the AWS work, and the AWS work does not close any of them except #16.
+The remaining three do not block the AWS work, and the AWS work does not close any of them
+except #16 — though it is what finally makes #12's UI and #19's visual check reachable.
 
 **Two further defects were found and fixed on 2026-08-07**, both by re-verifying this document
 against the code rather than by testing:
