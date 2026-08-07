@@ -1,0 +1,119 @@
+# `infra-aws/` — Project Signal on AWS
+
+**Region:** `eu-west-2` (London) · **Account:** `290304998906` (`tesai-dev-sandbox`, shared)
+**Phase:** 1 of 7 — guardrails. See [`../docs/AWS-SETUP.md`](../docs/AWS-SETUP.md) for the runbook
+and [`../docs/HANDOVER.md`](../docs/HANDOVER.md) §6 for the phase plan.
+
+> This is the real target. [`../infra/`](../infra/) is the superseded GCP tree, kept only as the
+> clearest available specification of what each service needs. It will never be applied.
+
+> ## ⛔ Sandbox account `290304998906` only
+>
+> This account is inside a **TES enterprise organisation under active scrutiny**. Nothing in this
+> tree may run against any other account — **including read-only calls**, which are still
+> unauthorised access. Never widen `allowed_account_ids`; never add a provider alias or
+> `assume_role` reaching elsewhere; never touch Organizations, SCPs, root IAM or billing.
+> `monthly_tesai-dev-sandbox` is read-only to us.
+>
+> Enforced by [`scripts/_guard.sh`](scripts/_guard.sh), which aborts before the first API call
+> and is sourced by every script here. **Any new script must source it.** Full rule:
+> [`CONVENTIONS.md`](CONVENTIONS.md) §0 and [`../DEVRULES.md`](../DEVRULES.md).
+
+## What exists today
+
+| Path | What |
+| ---- | ---- |
+| `bootstrap/` | The S3 remote-state bucket. Local state, run once, creates nothing else |
+| `stack/` | The tag-filtered budget and cost allocation tag activation. Remote state |
+| `envs/dev.tfvars` | Tag values shared by **both** root modules, so they cannot drift |
+| `envs/dev.stack.tfvars` | Budget-only values |
+| `scripts/00-discover.sh` | Phase 0 discovery, read-only. Already run — findings in HANDOVER §3 |
+| `scripts/10-preflight.sh` | Run before any apply. Checks account, cost allocation tags, collisions |
+| `scripts/99-teardown.sh` | Reverses everything and proves the account is clean. Dry run by default |
+| `CONVENTIONS.md` | The proposed cross-repo standard for this shared account |
+
+**No VPC, RDS, ECR, Secrets Manager, ECS or Cognito yet** — those are Phases 2–5.
+
+## Order of operations
+
+Cost controls precede spend, so the budget is created before anything billable exists.
+
+```bash
+# 0. Authenticate. SSO enrolment is interactive and must be done by a human.
+aws configure sso --profile psignal-dev
+export AWS_PROFILE=psignal-dev
+
+# 1. Preflight — read-only, proves the account and surfaces silent-failure conditions.
+bash infra-aws/scripts/10-preflight.sh
+
+# 2. State backend. Local state, one resource, run once.
+terraform -chdir=infra-aws/bootstrap init
+terraform -chdir=infra-aws/bootstrap apply -var-file=../envs/dev.tfvars
+
+# 3. Wire the stack to that bucket. The bootstrap prints this command with the name filled in:
+terraform -chdir=infra-aws/bootstrap output -raw backend_config
+
+# 4. The budget.
+terraform -chdir=infra-aws/stack init -backend-config=... # from step 3
+terraform -chdir=infra-aws/stack apply \
+  -var-file=../envs/dev.tfvars -var-file=../envs/dev.stack.tfvars
+
+# 5. Confirm the guardrail actually guards something.
+bash infra-aws/scripts/10-preflight.sh
+```
+
+Teardown, in reverse, dry run first:
+
+```bash
+bash infra-aws/scripts/99-teardown.sh              # shows what would go
+bash infra-aws/scripts/99-teardown.sh --execute
+bash infra-aws/scripts/99-teardown.sh              # re-run: step 3 must report nothing
+```
+
+## Things that will cost you time if you don't know them
+
+**A budget on an inactive cost allocation tag reports $0 forever.** This is the single most
+likely way Phase 1 can appear to succeed while doing nothing. Until a tag key is `Active`, Cost
+Explorer and Budgets cannot see it, so the filter matches no resources and the budget reports a
+perfectly healthy zero. `scripts/10-preflight.sh` §3 checks this explicitly. Activation also
+**does not backfill** — it applies forward only, which is why it happens before the first
+billable resource rather than after.
+
+**Cost allocation tag activation may be denied.** In an AWS Organization it is usually reserved
+to the management account. If `terraform apply` fails on
+`ce:UpdateCostAllocationTagsStatus`, set `manage_cost_allocation_tags = false` in
+`envs/dev.stack.tfvars` and ask the platform team to activate the six keys. The budget still
+deploys; it just cannot attribute anything until they do.
+
+**Tag key casing is load-bearing.** PascalCase — `Project`, not `project`. AWS tag keys are
+case-sensitive and cost allocation tags are activated by exact key.
+[`../docs/HANDOVER.md`](../docs/HANDOVER.md) §3.2 is authoritative; `AWS-SETUP.md` previously
+carried a lower-case list and has been corrected.
+
+**`$` in a Terraform tag filter needs `format()`, not interpolation.** AWS Budgets writes a tag
+filter as `user:<Key>$<Value>`. In HCL, `$${` is the escape sequence for a literal `${`, so
+`"user:Project$${var.project}"` silently produces the string `user:Project${var.project}` and
+the budget filters on a value nothing carries. `stack/locals.tf` uses `format()` for exactly
+this reason.
+
+**The account-wide budget is not ours.** `monthly_tesai-dev-sandbox` belongs to whoever runs the
+sandbox. We add alongside it and never modify it.
+
+**Prefer VPC endpoints to a NAT gateway in Phase 2.** A NAT gateway is roughly $33/month before
+a byte crosses it — on a stack budgeted at $150 that is over a fifth of the ceiling for
+something the workload may not need.
+
+**ECS Fargate does not scale to zero.** The GCP costing this replaces (~$13–15/month) rested
+entirely on Cloud Run doing so. Five idle services bill continuously. The `FORECASTED`
+notification on the budget is the one that catches this, and it is not ceremony.
+
+## State
+
+`bootstrap/` uses **local state** because it creates the remote backend — the usual
+chicken-and-egg, and the same shape as [`../infra/bootstrap/`](../infra/bootstrap/) on the GCP
+side. Its state is deliberately disposable: it manages one bucket, identifiable by name, so a
+lost `.tfstate` is a `terraform import` rather than a stranded resource.
+
+`stack/` uses **S3 remote state with native locking** (`use_lockfile = true`). There is no
+DynamoDB lock table anywhere in this tree — DynamoDB-based locking is deprecated upstream and
+slated for removal.

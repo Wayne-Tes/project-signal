@@ -64,6 +64,22 @@ Only once the feature demonstrably works as expected — through real interactio
 
 These are Project Signal invariants. Breaking one produces a security hole or a silent data fault, not a test failure.
 
+- **⛔ AWS: sandbox account `290304998906` ONLY.** This repository sits inside a **TES enterprise
+  AWS organisation under active scrutiny**. `tesai-dev-sandbox` / `eu-west-2` is the only account
+  and region any agent, script or human may touch. **This ranks with the inviolable rule above
+  and is not subject to the autonomy rule** — an agent that finds itself pointed elsewhere stops
+  and reports rather than proceeding.
+  - Confirm `aws sts get-caller-identity` before every session and after any credential, profile
+    or role change. **Read-only counts**: a `describe`/`list` against another account in this
+    organisation is still unauthorised access to it.
+  - Never add a provider alias, `assume_role`, or profile reaching another account. Never remove
+    or widen `allowed_account_ids` in `infra-aws/*/versions.tf`.
+  - Never touch Organizations, SCPs, root-level IAM or billing. The account-wide budget
+    `monthly_tesai-dev-sandbox` is **read-only to us**.
+  - Enforced by `infra-aws/scripts/_guard.sh`, sourced by every script that calls AWS; its
+    wrong-account and no-credential aborts are both tested. **Any new script must source it.**
+  - If credentials resolve anywhere else: **stop, change nothing, tell the owner.**
+
 - **Tenant scoping is manual.** There is no Postgres RLS. Every query MUST filter on `tenant_id`. Brand-scoped routes MUST additionally check `request.user.brandEntityId`. Note that `apps/api/src/routes/signals.ts` currently does _not_ — that is KNOWN-GAPS #5, an open intra-tenant isolation hole. Do not copy that pattern.
 - **Authorisation reads identity-provider custom claims, not the `users` table.** Changing a row without also updating the claim leaves the token stale for up to an hour. Any role change must go through the claim-setting path.
 - **Never interpolate a JS `Date` into a raw drizzle `sql` fragment.** It bypasses the

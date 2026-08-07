@@ -99,6 +99,22 @@ cannot be reused for CI** — GitHub Actions needs its own IAM role.
 
 ### 3.2 The account is shared — this shapes the design
 
+> #### ⛔ `290304998906` is the ONLY account anything here may touch
+>
+> This sandbox sits inside a **TES enterprise AWS organisation under active scrutiny**. A stray
+> command in a sibling or production account is not a recoverable mistake; it is an incident
+> attributed to the owner. **Read-only counts** — a `describe`/`list` elsewhere in the
+> organisation is still unauthorised access to that account.
+>
+> Never widen `allowed_account_ids`, add a provider alias or `assume_role` reaching another
+> account, or touch Organizations, SCPs, root-level IAM or billing. If credentials resolve
+> anywhere else: **stop, change nothing, tell the owner.**
+>
+> Enforced by [`../infra-aws/scripts/_guard.sh`](../infra-aws/scripts/_guard.sh), sourced by
+> every script that calls AWS; wrong-account and no-credential aborts are both tested. Full
+> rule in [`../DEVRULES.md`](../DEVRULES.md) and
+> [`../infra-aws/CONVENTIONS.md`](../infra-aws/CONVENTIONS.md) §0.
+
 `tesai-dev-sandbox` hosts several projects. The owner has full control inside it but **cannot
 create accounts outside it.** So the design goal is not "make it work", it is **"make it
 separable later"**. Concretely:
@@ -304,7 +320,7 @@ Postgres single instance**, **`eu-west-2`**, **GitHub** CI.
 | ----- | ---- | ------------------ |
 | ~~0~~ | ~~Discovery~~ | ✅ **done** — §3 |
 | ~~B~~ | ~~Port libraries behind interfaces~~ | ✅ **done** — §4.1 |
-| **1** | **Guardrails: tag defaults, name prefix, tag-filtered budget, teardown script** | Yes — **do this first, before anything billable** |
+| ~~1~~ | ~~Guardrails: tag defaults, name prefix, tag-filtered budget, teardown script~~ | ✅ **written 2026-08-07** in `infra-aws/`; `fmt` and `validate` green. **Apply pending SSO credentials** — see `infra-aws/README.md` |
 | 2 | Foundation: VPC, RDS, S3, ECR, Secrets Manager | Yes |
 | 3 | **Thin vertical slice** — one brand, one RSS feed, one signal, ingest → score → read | Yes |
 | 4 | Full stack: Fargate services, SQS + DLQs, EventBridge Scheduler, **the SQS consumer** | Yes |
@@ -441,22 +457,34 @@ the same way the real one will.
 
 ---
 
-## 10. Open questions for the owner
+## 10. Open questions for the owner — ANSWERED 2026-08-07
 
-Not blocking Phase 1, but needed before the resources they govern are created:
+All five were put to the owner at the start of Phase 1. Recorded here with their answers, since
+the reasoning matters more than the choice.
 
-1. **Cost centre code** to tag with, and whether `Environment` should be `dev` or `sandbox`.
-   These go into Terraform defaults so no resource can be created without them.
-2. **Is the enterprise AWS account the same as `290304998906`?** If not, re-run discovery (§3.5)
-   before designing anything.
-3. **EU-wide inference acceptable?** §3.4 — the `eu.` profile routes across seven EU regions,
-   not London alone. The data crossing a border is public review text.
-4. **`report-worker`:** it is a health-check skeleton and Epic 12 is unbuilt. On Fargate it
-   would be a permanently-running task doing nothing. **Recommend omitting it from the AWS stack**
-   until Epic 12, adding it back as a one-file change.
-5. **Postgres RLS.** A greenfield database is the moment to decide. Manual `tenant_id` scoping
-   has already produced one live intra-tenant hole and one near-miss — two defects of the same
-   class in one register.
+| # | Question | Answer |
+| - | -------- | ------ |
+| 1 | Cost centre code, and `Environment` = `dev` or `sandbox`? | **`CostCentre = tesai-dev-sandbox`** as a placeholder — no formal code exists yet. **`Environment = dev`**, giving `psignal-dev-*`. The tag names *our* environment, not the account, so the stack lifts into a dedicated account later as an account-id change rather than a rename — the property §3.2 calls the highest-value one to protect |
+| 2 | Same account as `290304998906`? | **Yes, confirmed.** Every fact in §3 stands. Model ids are still re-verified at the moment of use |
+| 3 | EU-wide inference acceptable? | **Yes.** What crosses a border is public review text; storage, database and queues stay in `eu-west-2` |
+| 4 | `report-worker` on Fargate? | **Omit it** until Epic 12. A health-check skeleton as a permanently-running task is pure cost. Adding it back is a one-file change |
+| 5 | Postgres RLS? | **Add it in Phase 2 as defence-in-depth, keeping every existing `tenant_id` filter in place.** Belt and braces — no query is deleted, so a wrong policy cannot silently widen access, and the greenfield database is the only cheap moment to do it. Two defects of this class are already in the register (#5, #5b) plus the cross-tenant `PATCH` in #12 |
+
+**The cost centre placeholder is a live debt, not a decision.** Cost allocation tags do **not**
+backfill — they attribute from activation forward only. Every day spent on the placeholder is a
+day of spend attributed to a value that is not a real charge code. Replace it in
+`infra-aws/envs/dev.tfvars` the moment one is issued.
+
+### New question, raised by Phase 1
+
+**No cross-repo convention existed for the shared account**, and the owner has confirmed several
+repositories will be hosted in it. One is now proposed in
+[`../infra-aws/CONVENTIONS.md`](../infra-aws/CONVENTIONS.md): prefix and CIDR registry, the six
+PascalCase tags, one budget and one VPC per project, and the two risks tagging does not solve.
+
+**The sharpest constraint it surfaces: the default VPC quota is 5 per region.** §3.3 records
+this as a footnote to "we create our own"; with several projects each taking a VPC it is a real
+ceiling, and reaching it is a quota-increase request rather than a config change.
 
 ---
 

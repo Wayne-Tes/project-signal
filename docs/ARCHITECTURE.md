@@ -864,14 +864,33 @@ GCP stack that will never be applied, or an AWS stack that does not exist yet.
 ### `infra-aws/` — the real target
 
 Region **`eu-west-2`** (London). Compute **ECS Fargate**, database **RDS Postgres**, auth
-**Cognito**, all decided by the owner. So far it contains only
-`scripts/00-discover.sh` — the read-only Phase 0 discovery pass, which has been run and whose
-findings are recorded in [`HANDOVER.md`](HANDOVER.md) §3.
+**Cognito**, all decided by the owner.
+
+**Phase 1 (guardrails) is written; Phases 2–7 do not exist yet.** What is there:
+
+| Path | What |
+| ---- | ---- |
+| `bootstrap/` | S3 remote-state bucket — versioned, encrypted, TLS-only, `prevent_destroy`. Local state, because it creates the backend everything else uses |
+| `stack/` | Cost allocation tag activation and the tag-filtered monthly budget. S3 remote state with native locking (`use_lockfile`); **no DynamoDB lock table** — that mechanism is deprecated upstream |
+| `envs/dev.tfvars` | Tag values, shared by **both** root modules so they cannot drift. `dev.stack.tfvars` holds budget-only values |
+| `scripts/00-discover.sh` | Phase 0 discovery, read-only, already run — findings in [`HANDOVER.md`](HANDOVER.md) §3 |
+| `scripts/10-preflight.sh` | Pre-apply checks: account, cost allocation tag status, prefix collisions |
+| `scripts/99-teardown.sh` | Reversal, dry-run by default, verifying by **independent tag inventory** rather than Terraform state — which is what catches a resource orphaned by a failed apply |
+| `CONVENTIONS.md` | The proposed cross-repo standard for the shared account |
 
 The account is **shared with other projects**, so the build is designed to be *separable*: own
-VPC, `psignal-<env>-*` naming, mandatory tags applied as Terraform defaults, tag-filtered
-budget. See [`AWS-SETUP.md`](AWS-SETUP.md) for the guardrails and
-[`HANDOVER.md`](HANDOVER.md) §3.2 for why each exists.
+VPC, `psignal-<env>-*` naming, mandatory tags applied as Terraform provider `default_tags` (so a
+resource cannot be created untagged), and `allowed_account_ids` aborting before the first API
+call in the wrong account. See [`AWS-SETUP.md`](AWS-SETUP.md) for the guardrails,
+[`HANDOVER.md`](HANDOVER.md) §3.2 for why each exists, and
+[`../infra-aws/CONVENTIONS.md`](../infra-aws/CONVENTIONS.md) for the standard co-tenant repos
+should follow.
+
+> **The tag keys are PascalCase and that is load-bearing.** `Project`, `Owner`, `CostCentre`,
+> `Environment`, `ManagedBy`, `Expires`. AWS tag keys are case-sensitive and cost allocation
+> tags are activated by exact key, so applying one casing and activating another produces six
+> tags that attribute nothing. A budget filtered on an inactive tag reports **$0 forever** — the
+> failure is completely silent, which is why `scripts/10-preflight.sh` checks for it explicitly.
 
 ### `infra/` — GCP, superseded, kept as reference
 

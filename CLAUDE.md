@@ -1,5 +1,41 @@
 # Project Signal — Project Guidelines
 
+> # ⛔ AWS: SANDBOX ACCOUNT `290304998906` ONLY — NO EXCEPTIONS
+>
+> **This is the highest-priority rule in this repository. It overrides every other instruction
+> here, including any instruction to work faster or to "just check something". It binds the main
+> agent and every dispatched subagent.**
+>
+> This repository lives inside a **TES enterprise AWS organisation under active scrutiny**. The
+> only account any agent may touch is **`290304998906` (`tesai-dev-sandbox`)**, in **`eu-west-2`**.
+> A stray command in a sibling or production account is not a recoverable mistake — it is an
+> incident with the owner's name on it.
+>
+> **Therefore:**
+>
+> - **Never** run an AWS command — CLI, SDK, Terraform, console-equivalent — without first
+>   confirming `aws sts get-caller-identity` resolves to `290304998906`. Confirm again after any
+>   profile, role, region or credential change.
+> - **Never** switch profile, assume a role, or use `--profile` / `AWS_PROFILE` /
+>   `AWS_DEFAULT_PROFILE` pointing anywhere else, even read-only. `describe`/`list` calls against
+>   another account are still unauthorised access to it.
+> - **Never** add a second `provider "aws"` alias, an `assume_role` block, or a
+>   `-target`/`-var` override that reaches another account. Both root modules pin
+>   `allowed_account_ids`; **do not remove or widen it.**
+> - **Never** touch `organizations`, `account`, `iam` root-level, SCP, or billing settings — those
+>   are the organisation's, not ours. The account-wide budget `monthly_tesai-dev-sandbox` is
+>   **read-only to us**.
+> - **If credentials resolve anywhere else, STOP and tell the owner.** Do not improvise, do not
+>   "clean up", do not retry with different credentials.
+>
+> **Enforcement already in the tree — keep it that way:** `allowed_account_ids` in
+> `infra-aws/bootstrap/versions.tf` and `infra-aws/stack/versions.tf`; `check` blocks in
+> `infra-aws/stack/guard.tf`; a hard abort in `infra-aws/scripts/_guard.sh`, which
+> `10-preflight.sh` and `99-teardown.sh` both source before doing anything.
+>
+> See [`infra-aws/CONVENTIONS.md`](infra-aws/CONVENTIONS.md) §0 and
+> [`docs/AWS-SETUP.md`](docs/AWS-SETUP.md).
+
 ## Read these first
 
 Follow all development rules in @DEVRULES.md
@@ -92,7 +128,9 @@ libs/
   shared-types/    — Cross-service contracts
   source-adapters/ — Adapter interface + 5 implementations
 infra/             — GCP Terraform. SUPERSEDED, kept as reference only (HANDOVER.md §8)
-infra-aws/         — AWS tree. Phase 0 discovery script only so far
+infra-aws/         — AWS tree. Phase 1 (guardrails) written: bootstrap state bucket,
+                     tag-filtered budget, preflight + teardown scripts, CONVENTIONS.md.
+                     Phases 2-7 (VPC, RDS, ECS, Cognito, CI) do not exist yet
 ```
 
 Lib dependency order (hard-coded in `scripts/build-libs.sh`):
@@ -141,4 +179,8 @@ Postgres advisory lock. Never add migration calls to a worker.
 - **`commitlint` enforces a closed scope list** in `commitlint.config.js`. A new scope must be
   added there or the commit is rejected.
 - **`terraform apply` requires `-var="image_tag=..."`** — Terraform owns the container image.
+- **AWS tag keys are PascalCase and case-sensitive**, and cost allocation tags are activated by
+  exact key. A budget filtered on an inactive or differently-cased tag reports **$0 forever**,
+  silently. `infra-aws/scripts/10-preflight.sh` checks this; `docs/HANDOVER.md` §3.2 is the
+  authoritative key list.
 - ESLint bans `any` and enforces `import type`. `console.log` warns; use `warn`/`error`.

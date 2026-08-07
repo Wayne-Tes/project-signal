@@ -23,9 +23,16 @@ So every phase obeys the same five rules, and they are not negotiable:
    mistyped profile away from provisioning into a colleague's tenant.
 2. **One prefix, everywhere.** Every resource is named `psignal-<env>-…`. Nothing is created
    with a name that could collide with, or be mistaken for, another workload.
-3. **Tags are mandatory, not decorative.** Every resource carries `project`, `owner`,
-   `cost-centre`, `environment` and `expires`. This is what lets you answer "what is this and
-   who owns it" without opening a ticket, and what makes the teardown script safe.
+3. **Tags are mandatory, not decorative.** Every resource carries `Project`, `Owner`,
+   `CostCentre`, `Environment`, `ManagedBy` and `Expires`. This is what lets you answer "what is
+   this and who owns it" without opening a ticket, and what makes the teardown script safe.
+
+   > **Corrected 2026-08-07.** This list previously read `project, owner, cost-centre,
+   > environment, expires` — lower-case, kebab-cased, and missing `ManagedBy`. It disagreed with
+   > [`HANDOVER.md`](HANDOVER.md) §3.2, which is authoritative (HANDOVER.md:5) and is what
+   > `infra-aws/` implements. **AWS tag keys are case-sensitive and cost allocation tags are
+   > activated by exact key**, so this was not a cosmetic discrepancy: applying one list and
+   > activating the other yields six tags that attribute nothing.
 4. **Cost controls precede spend.** The budget alarm is created before the first billable
    resource. **ECS Fargate does not scale to zero** — five idle services bill continuously.
    That is a real change from the Cloud Run design this replaces, where idle cost was ~nil.
@@ -133,7 +140,53 @@ Two results in particular will change the shape of the build:
 
 ---
 
-## Phases 1+ — not yet written
+---
+
+## Phase 1 — guardrails
+
+**Status: written and validated; awaiting credentials to apply.**
+
+Created before anything billable exists, per rule 4. Everything lives in
+[`../infra-aws/`](../infra-aws/) — see its [`README.md`](../infra-aws/README.md) for the
+executable order of operations and [`CONVENTIONS.md`](../infra-aws/CONVENTIONS.md) for the
+cross-repo standard this account now follows.
+
+| Deliverable | Where |
+| ----------- | ----- |
+| Mandatory tags as provider defaults — a resource *cannot* be created untagged | `infra-aws/*/versions.tf`, `default_tags` |
+| Account guard — aborts before the first API call on the wrong account | `allowed_account_ids`, plus `stack/guard.tf` for a readable message |
+| Name prefix `psignal-dev-*`, single-sourced | `stack/locals.tf` |
+| Cost allocation tag activation | `stack/budget.tf` |
+| Tag-filtered monthly budget, `ACTUAL` at 50/90/100% and `FORECASTED` at 100% | `stack/budget.tf` |
+| Remote state, S3 native locking, no DynamoDB table | `bootstrap/`, `stack/backend.tf` |
+| Preflight and teardown scripts | `scripts/10-preflight.sh`, `scripts/99-teardown.sh` |
+
+### The failure this phase is really guarding against
+
+**A budget filtered on an inactive cost allocation tag reports $0 forever.** Until a tag key is
+`Active`, Cost Explorer and Budgets cannot see it, so the filter matches nothing and the alarm
+is decoration. Activation also **does not backfill** — it applies forward only, which is the
+reason it happens before the first billable resource rather than after.
+
+`scripts/10-preflight.sh` §3 checks this explicitly, because it is invisible from the budget.
+
+**Activation may be denied.** In an AWS Organization it is normally reserved to the management
+account. If the apply fails on `ce:UpdateCostAllocationTagsStatus`, set
+`manage_cost_allocation_tags = false` in `infra-aws/envs/dev.stack.tfvars` and ask the platform
+team to activate the six keys centrally — once, benefiting every project in the account.
+
+### Decisions taken at Phase 1 (owner, 2026-08-07)
+
+| Question (was HANDOVER §10) | Answer |
+| --------------------------- | ------ |
+| Account | Confirmed still `290304998906` |
+| `Environment` tag | `dev`, not `sandbox` — it names *our* environment, so the stack lifts into a dedicated account later as an account-id change rather than a rename |
+| `CostCentre` | `tesai-dev-sandbox` as a placeholder; no formal code exists yet. **Replace it as soon as one is issued — cost allocation tags do not backfill** |
+| Cross-repo standard | None existed. One is now proposed in [`../infra-aws/CONVENTIONS.md`](../infra-aws/CONVENTIONS.md) |
+
+---
+
+## Phases 2+ — not yet written
 
 They land as the code does, and deliberately not before: a runbook written ahead of the code it
 provisions is a runbook that drifts. The intended order, for context:
@@ -142,7 +195,7 @@ provisions is a runbook that drifts. The intended order, for context:
 | ----- | ---- | ------------------- |
 | 0 | Discovery | ✅ **done 2026-08-07** |
 | B | Port the libraries — S3, SQS, Bedrock, config | ✅ **done 2026-08-07**, no account needed |
-| 1 | Guardrails: budget alarm, tagging, prefix, teardown script | Yes |
+| 1 | Guardrails: budget alarm, tagging, prefix, teardown script | ✅ **written 2026-08-07**, apply pending credentials |
 | 2 | Foundation: VPC, RDS Postgres, S3, ECR, Secrets Manager | Yes |
 | 3 | **Thin vertical slice** — one brand, one RSS feed, one signal, end to end | Yes |
 | 4 | Full stack: ECS Fargate services, SQS + DLQs, EventBridge Scheduler | Yes |

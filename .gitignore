@@ -18,8 +18,15 @@ coverage/
 *.tfstate
 *.tfstate.backup
 *.tfplan
-.terraform.lock.hcl
 infra/bootstrap/*.tfvars
+
+# .terraform.lock.hcl is deliberately NOT ignored. It is the provider dependency lock — the
+# Terraform equivalent of yarn.lock — and Terraform itself prints "Include this file in your
+# version control repository" when it writes one. Ignoring it means two people, or CI and a
+# laptop, can silently resolve different provider versions from the same `~> 6.0` constraint.
+# infra-aws/envs/*.tfvars ARE committed: they hold an account id, a region and tag values,
+# which are identifiers rather than secrets. infra/bootstrap/*.tfvars above stays ignored
+# because that one carried GCP credentials.
 
 # Editor
 .DS_Store
