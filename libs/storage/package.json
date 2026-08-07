@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "dependencies": {
-    "@google-cloud/storage": "^7.0.0",
+    "@aws-sdk/client-s3": "^3.1105.0",
     "@project-signal/config": "workspace:*"
   },
   "types": "dist/index.d.ts",

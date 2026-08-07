@@ -50,7 +50,7 @@ const signal = (id: string) => ({
   brandEntityId: 'brand-1',
   source: 'google_reviews',
   sourceUrl: 'https://maps.google.com/review/1',
-  rawStorageRef: 'gs://bucket/1',
+  rawStorageRef: 's3://bucket/1',
   publishedAt: now,
   ingestedAt: now,
 });
@@ -87,7 +87,7 @@ describe('GET /brands/:id/signals', () => {
       brandEntityId: 'brand-1',
       source: 'google_reviews',
       sourceUrl: 'https://maps.google.com/review/1',
-      rawStorageRef: 'gs://bucket/1',
+      rawStorageRef: 's3://bucket/1',
     });
     expect(item.publishedAt).toBe(now.toISOString());
   });

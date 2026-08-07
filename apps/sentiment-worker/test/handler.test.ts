@@ -42,7 +42,7 @@ const now = new Date();
 const mockSignal = {
   id: 'signal-1',
   sourceUrl: 'https://example.com/review',
-  rawStorageRef: 'gs://raw-bucket/tenant-1/brand-1/rss/ext-1.json',
+  rawStorageRef: 's3://raw-bucket/tenant-1/brand-1/rss/ext-1.json',
   brandEntityId: 'brand-1',
   publishedAt: now,
 };

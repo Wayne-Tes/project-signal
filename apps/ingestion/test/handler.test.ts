@@ -94,7 +94,7 @@ const brand = {
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  mockPut.mockResolvedValue('gs://raw/t/b/s/x.json');
+  mockPut.mockResolvedValue('s3://raw/t/b/s/x.json');
   mockTopic.mockReturnValue({ publishMessage: mockPublishMessage });
   const { db } = await import('@project-signal/db');
   const chain = db.get() as any;
@@ -155,7 +155,7 @@ describe('handleIngestionJob', () => {
     chain.returning.mockResolvedValueOnce([{ id: 'signal-new-1' }]);
     chain.returning.mockResolvedValue([]);
 
-    mockPut.mockResolvedValue('gs://raw/tenant-1/brand-1/google_reviews/ext-1.json');
+    mockPut.mockResolvedValue('s3://raw/tenant-1/brand-1/google_reviews/ext-1.json');
     mockFetch.mockResolvedValue({
       items: [
         {
@@ -187,7 +187,7 @@ describe('handleIngestionJob', () => {
 
     expect(chain.values).toHaveBeenCalledWith(
       expect.objectContaining({
-        rawStorageRef: 'gs://raw/tenant-1/brand-1/google_reviews/ext-1.json',
+        rawStorageRef: 's3://raw/tenant-1/brand-1/google_reviews/ext-1.json',
       }),
     );
   });

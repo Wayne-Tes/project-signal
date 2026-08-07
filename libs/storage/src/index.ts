@@ -1,19 +1,21 @@
 import { getEnv } from '@project-signal/config';
-import { GcsObjectStore } from './gcs.js';
+import { S3ObjectStore } from './s3.js';
 import type { ObjectStore } from './types.js';
 
 export type { ObjectStore } from './types.js';
 export { rawKey, keyFromRef } from './types.js';
-export { GcsObjectStore } from './gcs.js';
+export { S3ObjectStore } from './s3.js';
 
 let _store: ObjectStore | undefined;
 
 /**
  * Returns the process-wide object store, memoised.
  *
- * Only GCS exists today. The AWS migration adds an S3 branch selected by `CLOUD_PROVIDER`
- * (see docs/superpowers/plans/2026-08-06-aws-migration.md); the interface exists now so that
- * change touches this file alone.
+ * There is deliberately no `CLOUD_PROVIDER` switch. GCP was never provisioned and has been
+ * abandoned (see docs/HANDOVER.md), so a factory with one live branch would be dead code that
+ * still had to clear the 80% coverage gate. The `ObjectStore` interface is kept — it has real
+ * design value and it is what made swapping the implementation a single-file change — but the
+ * GCS implementation is gone rather than parked.
  */
 export function getObjectStore(): ObjectStore {
   if (!_store) {
@@ -24,7 +26,7 @@ export function getObjectStore(): ObjectStore {
           'ingestion and sentiment-worker services; set it in .env for local development.',
       );
     }
-    _store = new GcsObjectStore(RAW_BUCKET);
+    _store = new S3ObjectStore(RAW_BUCKET);
   }
   return _store;
 }
