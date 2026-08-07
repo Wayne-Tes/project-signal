@@ -1,87 +1,113 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockEnv: Record<string, string | undefined> = {
-  GOOGLE_CLOUD_PROJECT: 'test-project',
-  PUBSUB_EMULATOR_HOST: undefined,
-};
+const mockEnv: Record<string, string | undefined> = {};
+const mockSend = vi.fn();
 
 vi.mock('@project-signal/config', () => ({
   getEnv: vi.fn(() => mockEnv),
 }));
 
-const mockPubSubInstance = { projectId: 'test-project' };
-vi.mock('@google-cloud/pubsub', () => ({
-  PubSub: vi.fn().mockImplementation((opts: unknown) => ({ ...mockPubSubInstance, _opts: opts })),
+vi.mock('@aws-sdk/client-sqs', () => ({
+  SQSClient: vi.fn(() => ({ send: mockSend })),
+  SendMessageCommand: vi.fn((input) => ({ input })),
 }));
 
-describe('TOPICS', () => {
-  it('exposes all expected topic names', async () => {
-    const { TOPICS } = await import('../src/index.js');
-    expect(TOPICS.ITEM_QUEUE).toBe('project-signal-item-queue');
-    expect(TOPICS.ITEM_DLQ).toBe('project-signal-item-dlq');
-    expect(TOPICS.REPORT_QUEUE).toBe('project-signal-report-queue');
-    expect(TOPICS.REPORT_DLQ).toBe('project-signal-report-dlq');
+const ITEM_URL = 'https://sqs.eu-west-2.amazonaws.com/290304998906/psignal-dev-item';
+const REPORT_URL = 'https://sqs.eu-west-2.amazonaws.com/290304998906/psignal-dev-report';
+
+beforeEach(() => {
+  vi.resetModules();
+  mockSend.mockReset().mockResolvedValue({ MessageId: 'msg-1' });
+  for (const k of Object.keys(mockEnv)) delete mockEnv[k];
+  delete process.env['AWS_ENDPOINT_URL'];
+});
+
+// KNOWN-GAPS #7, in its AWS form. The old code published to a hardcoded topic constant that
+// existed in no deployed environment, and nothing failed — messages simply went nowhere. An
+// SQS URL embeds the account id and region, so there is no constant that could stand in for
+// it, and an unset variable must be a hard error rather than a silent default.
+describe('queueUrl', () => {
+  it('resolves the item queue from the environment', async () => {
+    mockEnv['ITEM_QUEUE_URL'] = ITEM_URL;
+    const { queueUrl } = await import('../src/index.js');
+    expect(queueUrl('item')).toBe(ITEM_URL);
   });
 
-  it('has exactly 4 topics', async () => {
-    const { TOPICS } = await import('../src/index.js');
-    expect(Object.keys(TOPICS)).toHaveLength(4);
+  it('resolves the report queue from the environment', async () => {
+    mockEnv['REPORT_QUEUE_URL'] = REPORT_URL;
+    const { queueUrl } = await import('../src/index.js');
+    expect(queueUrl('report')).toBe(REPORT_URL);
+  });
+
+  it('throws a named error when the item queue is unset', async () => {
+    const { queueUrl } = await import('../src/index.js');
+    expect(() => queueUrl('item')).toThrow(/ITEM_QUEUE_URL/);
+  });
+
+  it('throws a named error when the report queue is unset', async () => {
+    const { queueUrl } = await import('../src/index.js');
+    expect(() => queueUrl('report')).toThrow(/REPORT_QUEUE_URL/);
+  });
+
+  it('treats an empty string as unset rather than publishing to ""', async () => {
+    mockEnv['ITEM_QUEUE_URL'] = '';
+    const { queueUrl } = await import('../src/index.js');
+    expect(() => queueUrl('item')).toThrow(/ITEM_QUEUE_URL/);
   });
 });
 
-// KNOWN-GAPS #7 — Terraform creates `<env>-item` and injects it as ITEM_TOPIC, but the code
-// published to the hardcoded TOPICS.ITEM_QUEUE, a topic that does not exist in any deployed
-// environment. Names must come from the environment, with the constants as local-dev defaults.
-describe('topicName', () => {
-  beforeEach(() => {
-    vi.resetModules();
-    delete mockEnv['ITEM_TOPIC'];
-    delete mockEnv['REPORT_TOPIC'];
+describe('SqsPublisher', () => {
+  it('sends the body to the resolved queue and returns the message id', async () => {
+    mockEnv['ITEM_QUEUE_URL'] = ITEM_URL;
+    const { getPublisher } = await import('../src/index.js');
+
+    await expect(getPublisher().publish('item', 'signal-uuid-1')).resolves.toBe('msg-1');
+    expect(mockSend.mock.calls[0]![0].input).toEqual({
+      QueueUrl: ITEM_URL,
+      MessageBody: 'signal-uuid-1',
+    });
   });
 
-  it('prefers ITEM_TOPIC from the environment', async () => {
-    mockEnv['ITEM_TOPIC'] = 'staging-item';
-    const { topicName } = await import('../src/index.js');
-    expect(topicName('item')).toBe('staging-item');
+  it('throws when SQS returns no MessageId, rather than reporting a publish that may not have happened', async () => {
+    mockEnv['ITEM_QUEUE_URL'] = ITEM_URL;
+    mockSend.mockResolvedValue({});
+    const { getPublisher } = await import('../src/index.js');
+    await expect(getPublisher().publish('item', 'x')).rejects.toThrow(/no MessageId/);
   });
 
-  it('prefers REPORT_TOPIC from the environment', async () => {
-    mockEnv['REPORT_TOPIC'] = 'staging-report';
-    const { topicName } = await import('../src/index.js');
-    expect(topicName('report')).toBe('staging-report');
+  it('propagates a send failure so the caller can nack rather than silently dropping', async () => {
+    mockEnv['ITEM_QUEUE_URL'] = ITEM_URL;
+    mockSend.mockRejectedValue(new Error('ThrottlingException'));
+    const { getPublisher } = await import('../src/index.js');
+    await expect(getPublisher().publish('item', 'x')).rejects.toThrow(/ThrottlingException/);
   });
 
-  it('falls back to the local-dev constant when ITEM_TOPIC is unset', async () => {
-    const { topicName, TOPICS } = await import('../src/index.js');
-    expect(topicName('item')).toBe(TOPICS.ITEM_QUEUE);
+  it('points at LocalStack when AWS_ENDPOINT_URL is set', async () => {
+    process.env['AWS_ENDPOINT_URL'] = 'http://localhost:4566';
+    const { SQSClient } = await import('@aws-sdk/client-sqs');
+    const { getPublisher } = await import('../src/index.js');
+    getPublisher();
+    expect(SQSClient).toHaveBeenCalledWith({ endpoint: 'http://localhost:4566' });
   });
 
-  it('falls back to the local-dev constant when REPORT_TOPIC is unset', async () => {
-    const { topicName, TOPICS } = await import('../src/index.js');
-    expect(topicName('report')).toBe(TOPICS.REPORT_QUEUE);
-  });
-
-  it('ignores an empty-string override rather than publishing to ""', async () => {
-    mockEnv['ITEM_TOPIC'] = '';
-    const { topicName, TOPICS } = await import('../src/index.js');
-    expect(topicName('item')).toBe(TOPICS.ITEM_QUEUE);
+  it('passes no explicit config in a deployed environment, so the default chain resolves it', async () => {
+    const { SQSClient } = await import('@aws-sdk/client-sqs');
+    const { getPublisher } = await import('../src/index.js');
+    getPublisher();
+    expect(SQSClient).toHaveBeenCalledWith({});
   });
 });
 
-describe('getPubSub', () => {
-  beforeEach(() => {
-    vi.resetModules();
+describe('getPublisher', () => {
+  it('memoises the publisher', async () => {
+    const { getPublisher } = await import('../src/index.js');
+    expect(getPublisher()).toBe(getPublisher());
   });
 
-  it('creates a PubSub client with the project from config', async () => {
-    const { getPubSub } = await import('../src/index.js');
-    const { PubSub } = await import('@google-cloud/pubsub');
-    getPubSub();
-    expect(PubSub).toHaveBeenCalledWith({ projectId: 'test-project' });
-  });
-
-  it('returns the same instance on repeated calls (memoisation)', async () => {
-    const { getPubSub } = await import('../src/index.js');
-    expect(getPubSub()).toBe(getPubSub());
+  it('resetPublisher drops the memoised instance so the environment is re-read', async () => {
+    const { getPublisher, resetPublisher } = await import('../src/index.js');
+    const first = getPublisher();
+    resetPublisher();
+    expect(getPublisher()).not.toBe(first);
   });
 });

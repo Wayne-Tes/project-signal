@@ -88,9 +88,21 @@ describe('getEnv', () => {
     expect(getEnv().REPORTER_MODEL).toBe('gemini-2.5-flash');
   });
 
-  it('accepts PUBSUB_EMULATOR_HOST override', async () => {
-    process.env['PUBSUB_EMULATOR_HOST'] = 'localhost:8085';
+  it('accepts the SQS queue URLs', async () => {
+    process.env['ITEM_QUEUE_URL'] = 'https://sqs.eu-west-2.amazonaws.com/1/psignal-dev-item';
+    process.env['REPORT_QUEUE_URL'] = 'https://sqs.eu-west-2.amazonaws.com/1/psignal-dev-report';
     const { getEnv } = await import('../src/index.js');
-    expect(getEnv().PUBSUB_EMULATOR_HOST).toBe('localhost:8085');
+    expect(getEnv().ITEM_QUEUE_URL).toBe('https://sqs.eu-west-2.amazonaws.com/1/psignal-dev-item');
+    expect(getEnv().REPORT_QUEUE_URL).toBe(
+      'https://sqs.eu-west-2.amazonaws.com/1/psignal-dev-report',
+    );
+  });
+
+  it('leaves the queue URLs undefined when unset, so queueUrl() can fail loudly', async () => {
+    delete process.env['ITEM_QUEUE_URL'];
+    delete process.env['REPORT_QUEUE_URL'];
+    const { getEnv } = await import('../src/index.js');
+    expect(getEnv().ITEM_QUEUE_URL).toBeUndefined();
+    expect(getEnv().REPORT_QUEUE_URL).toBeUndefined();
   });
 });

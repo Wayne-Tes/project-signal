@@ -1,6 +1,5 @@
 import { db, client, sourceConfigs } from '@project-signal/db';
-import { getPubSub } from '@project-signal/messaging';
-import { getEnv } from '@project-signal/config';
+import { queueUrl } from '@project-signal/messaging';
 import { eq } from 'drizzle-orm';
 import Fastify from 'fastify';
 import { handleIngestionJob, reconcilePendingSignals } from './handler.js';
@@ -55,9 +54,10 @@ const start = async () => {
     await client.get()`SELECT 1 AS ping`;
     app.log.info('DB ping OK');
 
-    const pubsub = getPubSub();
-    app.log.info({ projectId: getEnv().GOOGLE_CLOUD_PROJECT }, 'PubSub client initialized');
-    void pubsub;
+    // Resolve the queue URL at boot rather than at first publish. A missing ITEM_QUEUE_URL is a
+    // misconfiguration, and this service exists to publish — better to refuse to start than to
+    // accept a scheduler trigger and fail halfway through a fan-out.
+    app.log.info({ itemQueue: queueUrl('item') }, 'SQS item queue resolved');
 
     await app.listen({ port: Number(process.env['PORT'] ?? 8081), host: '0.0.0.0' });
   } catch (err) {

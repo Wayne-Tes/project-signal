@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "dependencies": {
-    "@google-cloud/pubsub": "^4.0.0",
+    "@aws-sdk/client-sqs": "^3.1105.0",
     "@project-signal/config": "workspace:*",
     "@project-signal/shared-types": "workspace:*"
   },

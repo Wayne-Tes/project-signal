@@ -1,6 +1,4 @@
 import { client } from '@project-signal/db';
-import { getPubSub } from '@project-signal/messaging';
-import { getEnv } from '@project-signal/config';
 import Fastify from 'fastify';
 import { handlePubSubMessage, PermanentScoringError } from './handler.js';
 
@@ -57,10 +55,6 @@ const start = async () => {
   try {
     await client.get()`SELECT 1 AS ping`;
     app.log.info('DB ping OK');
-
-    const pubsub = getPubSub();
-    app.log.info({ projectId: getEnv().GOOGLE_CLOUD_PROJECT }, 'PubSub client initialized');
-    void pubsub;
 
     await app.listen({ port: Number(process.env['PORT'] ?? 8082), host: '0.0.0.0' });
   } catch (err) {

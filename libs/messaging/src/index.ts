@@ -1,42 +1,26 @@
-import { PubSub } from '@google-cloud/pubsub';
-import { getEnv } from '@project-signal/config';
+import { SqsPublisher } from './sqs.js';
+import type { MessagePublisher } from './types.js';
 
-let _pubsub: PubSub;
+export type { LogicalQueue, MessagePublisher } from './types.js';
+export { SqsPublisher, queueUrl } from './sqs.js';
 
-export function getPubSub(): PubSub {
-  if (!_pubsub) {
-    const env = getEnv();
-    // When PUBSUB_EMULATOR_HOST is set, the client connects to the local emulator.
-    _pubsub = new PubSub({ projectId: env.GOOGLE_CLOUD_PROJECT });
+let _publisher: MessagePublisher | undefined;
+
+/**
+ * Returns the process-wide publisher, memoised.
+ *
+ * As with `getObjectStore()`, there is no `CLOUD_PROVIDER` switch: GCP was abandoned before it
+ * was ever provisioned, so the Pub/Sub implementation was deleted rather than parked behind a
+ * branch nobody would exercise. The interface is what carries the design value.
+ */
+export function getPublisher(): MessagePublisher {
+  if (!_publisher) {
+    _publisher = new SqsPublisher();
   }
-  return _pubsub;
+  return _publisher;
 }
 
-/**
- * Local-development topic names, used by the Pub/Sub emulator.
- *
- * These are NOT the deployed names. Terraform creates `<environment>-item` / `<environment>-report`
- * and injects them as `ITEM_TOPIC` / `REPORT_TOPIC`. Always resolve through `topicName()` —
- * publishing to these constants in a deployed environment targets a topic that does not exist.
- */
-export const TOPICS = {
-  ITEM_QUEUE: 'project-signal-item-queue',
-  ITEM_DLQ: 'project-signal-item-dlq',
-  REPORT_QUEUE: 'project-signal-report-queue',
-  REPORT_DLQ: 'project-signal-report-dlq',
-} as const;
-
-export type LogicalTopic = 'item' | 'report';
-
-/**
- * Resolves a logical topic to its concrete name for the current environment.
- *
- * Reads `ITEM_TOPIC` / `REPORT_TOPIC` — set by Terraform per environment — and falls back to
- * the local-dev constants when unset. An empty string is treated as unset: an env var that is
- * present but blank must not become the topic name.
- */
-export function topicName(logical: LogicalTopic): string {
-  const env = getEnv();
-  if (logical === 'item') return env.ITEM_TOPIC || TOPICS.ITEM_QUEUE;
-  return env.REPORT_TOPIC || TOPICS.REPORT_QUEUE;
+/** Test seam: drops the memoised instance so a later call re-reads the environment. */
+export function resetPublisher(): void {
+  _publisher = undefined;
 }

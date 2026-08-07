@@ -1,5 +1,5 @@
 import { db, brandEntities, signals, sentimentResults, sourceConfigs } from '@project-signal/db';
-import { getPubSub, topicName } from '@project-signal/messaging';
+import { getPublisher } from '@project-signal/messaging';
 import { getObjectStore, rawKey } from '@project-signal/storage';
 import { getEnv } from '@project-signal/config';
 import {
@@ -67,12 +67,11 @@ export async function reconcilePendingSignals(
     .where(isNull(sentimentResults.signalId))
     .limit(limit);
 
-  const pubsub = getPubSub();
-  const topic = pubsub.topic(topicName('item'));
+  const publisher = getPublisher();
 
   let published = 0;
   for (const { id } of pending) {
-    await topic.publishMessage({ data: Buffer.from(id) });
+    await publisher.publish('item', id);
     published++;
   }
 
@@ -146,10 +145,9 @@ export async function handleIngestionJob(
     }
   }
 
-  const pubsub = getPubSub();
-  const topic = pubsub.topic(topicName('item'));
+  const publisher = getPublisher();
   for (const id of createdIds) {
-    await topic.publishMessage({ data: Buffer.from(id) });
+    await publisher.publish('item', id);
   }
 
   await db

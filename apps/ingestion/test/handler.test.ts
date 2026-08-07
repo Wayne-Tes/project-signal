@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockPublishMessage, mockTopic, mockFetch, mockToSignal, mockPut } = vi.hoisted(() => ({
-  mockPublishMessage: vi.fn().mockResolvedValue('msg-id'),
-  mockTopic: vi.fn(),
+const { mockPublish, mockFetch, mockToSignal, mockPut } = vi.hoisted(() => ({
+  mockPublish: vi.fn().mockResolvedValue('msg-id'),
   mockFetch: vi.fn(),
   mockToSignal: vi.fn(),
   mockPut: vi.fn(),
@@ -37,9 +36,8 @@ vi.mock('@project-signal/db', () => {
 });
 
 vi.mock('@project-signal/messaging', () => ({
-  getPubSub: vi.fn(() => ({ topic: mockTopic })),
-  topicName: vi.fn(() => 'staging-item'),
-  TOPICS: { ITEM_QUEUE: 'project-signal-item-queue' },
+  getPublisher: vi.fn(() => ({ publish: mockPublish })),
+  queueUrl: vi.fn(() => 'https://sqs.eu-west-2.amazonaws.com/1/psignal-dev-item'),
 }));
 
 vi.mock('@project-signal/storage', () => ({
@@ -95,7 +93,7 @@ const brand = {
 beforeEach(async () => {
   vi.clearAllMocks();
   mockPut.mockResolvedValue('s3://raw/t/b/s/x.json');
-  mockTopic.mockReturnValue({ publishMessage: mockPublishMessage });
+  mockPublish.mockResolvedValue('msg-id');
   const { db } = await import('@project-signal/db');
   const chain = db.get() as any;
   chain._setRows([]);
@@ -103,7 +101,7 @@ beforeEach(async () => {
 });
 
 describe('handleIngestionJob', () => {
-  it('fetches, inserts signals, and publishes to PubSub', async () => {
+  it('fetches, inserts signals, and publishes to the item queue', async () => {
     const { db } = await import('@project-signal/db');
     const chain = db.get() as any;
     chain._queue.push([cfg], [brand], [{ latest: null }]);
@@ -121,12 +119,14 @@ describe('handleIngestionJob', () => {
 
     expect(result.signalsCreated).toBe(1);
     expect(result.signalsPublished).toBe(1);
-    expect(mockPublishMessage).toHaveBeenCalledWith({ data: Buffer.from('signal-new-1') });
+    expect(mockPublish).toHaveBeenCalledWith('item', 'signal-new-1');
   });
 
-  // KNOWN-GAPS #7 — publishing to the hardcoded constant targeted a topic Terraform never
-  // created. The name must come from topicName(), which reads ITEM_TOPIC.
-  it('publishes to the topic resolved from the environment, not the local constant', async () => {
+  // KNOWN-GAPS #7 — the handler used to name the concrete topic itself, and published to a
+  // hardcoded constant that existed in no deployed environment. It now names only the logical
+  // queue; resolving that to a concrete URL is the publisher's job, and the failure mode of an
+  // unset URL is covered in libs/messaging rather than duplicated here.
+  it('publishes by logical queue name, leaving URL resolution to the publisher', async () => {
     const { db } = await import('@project-signal/db');
     const chain = db.get() as any;
     chain._queue.push([cfg], [brand], [{ latest: null }]);
@@ -142,8 +142,8 @@ describe('handleIngestionJob', () => {
 
     await handleIngestionJob('cfg-1');
 
-    expect(mockTopic).toHaveBeenCalledWith('staging-item');
-    expect(mockTopic).not.toHaveBeenCalledWith('project-signal-item-queue');
+    expect(mockPublish).toHaveBeenCalledWith('item', 'signal-new-1');
+    expect(mockPublish.mock.calls.every(([queue]) => queue === 'item')).toBe(true);
   });
 
   // KNOWN-GAPS #4 — rawStorageRef held item.url and the fetched text was discarded, so the
@@ -238,7 +238,7 @@ describe('handleIngestionJob', () => {
     const result = await handleIngestionJob('cfg-1');
     expect(result.signalsCreated).toBe(0);
     expect(result.signalsPublished).toBe(0);
-    expect(mockPublishMessage).not.toHaveBeenCalled();
+    expect(mockPublish).not.toHaveBeenCalled();
   });
 
   it('skips duplicate signals (onConflictDoNothing returns empty)', async () => {
@@ -256,7 +256,7 @@ describe('handleIngestionJob', () => {
 
     const result = await handleIngestionJob('cfg-1');
     expect(result.signalsCreated).toBe(0);
-    expect(mockPublishMessage).not.toHaveBeenCalled();
+    expect(mockPublish).not.toHaveBeenCalled();
   });
 });
 
@@ -356,9 +356,8 @@ describe('reconcilePendingSignals', () => {
     const result = await reconcilePendingSignals();
 
     expect(result).toEqual({ pending: 2, published: 2 });
-    expect(mockTopic).toHaveBeenCalledWith('staging-item');
-    expect(mockPublishMessage).toHaveBeenCalledWith({ data: Buffer.from('sig-1') });
-    expect(mockPublishMessage).toHaveBeenCalledWith({ data: Buffer.from('sig-2') });
+    expect(mockPublish).toHaveBeenCalledWith('item', 'sig-1');
+    expect(mockPublish).toHaveBeenCalledWith('item', 'sig-2');
   });
 
   it('is a no-op when nothing is pending', async () => {
@@ -369,7 +368,7 @@ describe('reconcilePendingSignals', () => {
     const result = await reconcilePendingSignals();
 
     expect(result).toEqual({ pending: 0, published: 0 });
-    expect(mockPublishMessage).not.toHaveBeenCalled();
+    expect(mockPublish).not.toHaveBeenCalled();
   });
 
   it('bounds the sweep so a large backlog cannot exceed the request timeout', async () => {

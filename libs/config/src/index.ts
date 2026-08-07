@@ -17,12 +17,11 @@ const envSchema = z
     // Comma-separated list of allowed browser origins for the API. Unset = reflect any origin
     // (safe here because auth is Bearer-token only, with no cookies/ambient credentials).
     CORS_ORIGINS: z.string().optional(),
-    PUBSUB_EMULATOR_HOST: z.string().optional(),
-    // Concrete Pub/Sub topic names, injected per environment by Terraform (`<env>-item`).
-    // Resolved through topicName() in @project-signal/messaging, which falls back to the
-    // local-dev constants when these are unset.
-    ITEM_TOPIC: z.string().optional(),
-    REPORT_TOPIC: z.string().optional(),
+    // Concrete SQS queue URLs, injected per environment by Terraform. There is deliberately no
+    // default: an SQS URL embeds the account id and region, so no local constant could stand in
+    // for it, and a wrong guess would publish into nowhere. queueUrl() throws when unset.
+    ITEM_QUEUE_URL: z.string().optional(),
+    REPORT_QUEUE_URL: z.string().optional(),
     VERTEX_AI_LOCATION: z.string().default('europe-west2'),
     // Both default to 2.5 Flash: it is the only Gemini model available in europe-west2, which
     // is where VERTEX_AI_LOCATION is pinned. The 2.0 defaults these replace were retired on

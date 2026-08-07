@@ -19,22 +19,26 @@ services:
       timeout: 5s
       retries: 10
 
-  pubsub:
-    # Must be the `emulators` tag, not `slim`: the Pub/Sub emulator is a Java program and
-    # `slim` ships no JRE, so it exited on every start with
-    # "a Java 7+ JRE must be installed and on your system PATH".
-    image: gcr.io/google.com/cloudsdktool/cloud-sdk:emulators
-    command: >
-      gcloud beta emulators pubsub start
-      --host-port=0.0.0.0:8085
-      --project=project-signal-local
+  localstack:
+    # Stands in for S3 and SQS locally. This replaces the Pub/Sub emulator, and is a straight
+    # upgrade on what it replaces: there was never a GCS emulator, so the raw-payload write and
+    # read path could only ever be exercised against mocks. It can now be run for real.
+    image: localstack/localstack:3
     ports:
-      - '8085:8085'
+      - '4566:4566'
+    environment:
+      SERVICES: s3,sqs
+      DEBUG: '0'
+      # Credentials are irrelevant to LocalStack but the SDKs refuse to sign without them.
+      AWS_DEFAULT_REGION: eu-west-2
+    volumes:
+      # Creates the bucket and queues on first boot so the stack is usable immediately.
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh:ro
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:8085']
+      test: ['CMD', 'curl', '-f', 'http://localhost:4566/_localstack/health']
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
 
 volumes:
   postgres_data:
