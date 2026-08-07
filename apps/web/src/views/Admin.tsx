@@ -54,7 +54,7 @@ export function AdminView() {
         <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 18, margin: '0 0 4px' }}>
           Create tenant
         </h2>
-        <p style={{ color: '#8a8f99', fontSize: 13, margin: '0 0 20px' }}>
+        <p style={{ color: 'var(--t2)', fontSize: 13, margin: '0 0 20px' }}>
           Provisions a tenant, its owned brand, and an admin user.
         </p>
         <form onSubmit={submit}>
@@ -91,7 +91,7 @@ export function AdminView() {
             placeholder="firebase uid of the tenant admin"
             required
           />
-          {error && <p style={{ color: '#e2725b', fontSize: 13, margin: '12px 0 0' }}>{error}</p>}
+          {error && <p style={{ color: 'var(--coral)', fontSize: 13, margin: '12px 0 0' }}>{error}</p>}
           <button type="submit" disabled={busy} style={btn}>
             {busy ? 'Creating…' : 'Create tenant'}
           </button>
@@ -99,9 +99,9 @@ export function AdminView() {
       </div>
 
       {result && (
-        <div style={{ ...card, marginTop: 16, borderColor: '#2c5e4f' }}>
-          <h3 style={{ fontSize: 14, margin: '0 0 8px', color: '#5dcaa5' }}>Tenant created</h3>
-          <dl style={{ margin: 0, fontSize: 13, color: '#c9ccd3' }}>
+        <div style={{ ...card, marginTop: 16, borderColor: 'color-mix(in srgb, var(--mint) 40%, transparent)' }}>
+          <h3 style={{ fontSize: 14, margin: '0 0 8px', color: 'var(--mint)' }}>Tenant created</h3>
+          <dl style={{ margin: 0, fontSize: 13, color: 'var(--t2)' }}>
             <Row label="Tenant" value={`${result.data.tenant.name} (${result.data.tenant.slug})`} />
             <Row label="Tenant ID" value={result.data.tenant.id} />
             <Row label="Brand" value={result.data.brand.name} />
@@ -119,7 +119,7 @@ export function AdminView() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: 'flex', gap: 8, padding: '3px 0' }}>
-      <dt style={{ color: '#8a8f99', minWidth: 90 }}>{label}</dt>
+      <dt style={{ color: 'var(--t2)', minWidth: 90 }}>{label}</dt>
       <dd style={{ margin: 0, fontFamily: 'IBM Plex Mono, monospace' }}>{value}</dd>
     </div>
   );
@@ -127,31 +127,31 @@ function Row({ label, value }: { label: string; value: string }) {
 
 const card: CSSProperties = {
   padding: 24,
-  background: '#101217',
-  border: '1px solid #1e2128',
+  background: 'var(--bg-2)',
+  border: '1px solid var(--line)',
   borderRadius: 14,
 };
 const lbl: CSSProperties = {
   display: 'block',
   fontSize: 12,
-  color: '#8a8f99',
+  color: 'var(--t2)',
   margin: '12px 0 4px',
 };
 const inp: CSSProperties = {
   width: '100%',
   padding: '10px 12px',
-  background: '#0b0c0f',
-  border: '1px solid #1e2128',
+  background: 'var(--bg)',
+  border: '1px solid var(--line)',
   borderRadius: 8,
-  color: '#e8e8ea',
+  color: 'var(--t1)',
   fontSize: 14,
   boxSizing: 'border-box',
 };
 const btn: CSSProperties = {
   marginTop: 20,
   padding: '10px 18px',
-  background: '#5dcaa5',
-  color: '#06241b',
+  background: 'var(--mint)',
+  color: 'var(--ink-accent)',
   border: 'none',
   borderRadius: 8,
   fontWeight: 600,

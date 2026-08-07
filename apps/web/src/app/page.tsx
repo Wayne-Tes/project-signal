@@ -12,9 +12,9 @@ const ClientApp = dynamic(() => import('@/components/ClientApp').then((m) => m.C
         minHeight: '100vh',
         display: 'grid',
         placeItems: 'center',
-        background: '#0b0c0f',
-        color: '#8a8f99',
-        fontFamily: 'IBM Plex Sans, sans-serif',
+        background: 'var(--bg)',
+        color: 'var(--t2)',
+        fontFamily: 'var(--font-body)',
       }}
     >
       Loading…

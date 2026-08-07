@@ -12,7 +12,7 @@ import type { Dimension } from '@/lib/types';
 
 function RepDimBar({ d }: { d: Dimension }) {
   const col =
-    d.score >= 78 ? '#1f8a5b' : d.score >= 65 ? '#3d7bf5' : d.score >= 55 ? '#c8902a' : '#d2553f';
+    d.score >= 78 ? 'var(--paper-ok)' : d.score >= 65 ? 'var(--paper-info)' : d.score >= 55 ? 'var(--paper-warn)' : 'var(--paper-bad)';
   return (
     <div className="rep-dim">
       <div className="v" style={{ color: col }}>
@@ -71,10 +71,10 @@ export function ReportView() {
             <h2>Executive summary</h2>
             <div className="rep-score-row">
               <div>
-                <div className="rep-score-big" style={{ color: '#1f8a5b' }}>
+                <div className="rep-score-big" style={{ color: 'var(--paper-ok)' }}>
                   73
                 </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#6c707c' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-5)' }}>
                   BRAND PERCEPTION INDEX · +4 pts
                 </div>
               </div>
@@ -99,12 +99,12 @@ export function ReportView() {
             <svg viewBox={`0 0 ${w} ${h}`} width="100%" style={{ display: 'block' }}>
               {[55, 65, 75, 85].map((t) => (
                 <g key={t}>
-                  <line x1={pad} x2={w - pad} y1={y(t)} y2={y(t)} stroke="#eceae4" />
+                  <line x1={pad} x2={w - pad} y1={y(t)} y2={y(t)} stroke="var(--paper-line)" />
                   <text
                     x={pad - 6}
                     y={y(t) + 3}
                     textAnchor="end"
-                    style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#a4a7af' }}
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: 'var(--ink-7)' }}
                   >
                     {t}
                   </text>
@@ -117,7 +117,7 @@ export function ReportView() {
               <path
                 d={line}
                 fill="none"
-                stroke="#1f8a5b"
+                stroke="var(--paper-ok)"
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -126,7 +126,7 @@ export function ReportView() {
                 cx={x(data.length - 1)}
                 cy={y(data[data.length - 1]?.score ?? 73)}
                 r="4"
-                fill="#1f8a5b"
+                fill="var(--paper-ok)"
               />
             </svg>
           </div>
@@ -170,7 +170,7 @@ export function ReportView() {
                         style={{
                           fontFamily: 'var(--font-mono)',
                           fontSize: 11,
-                          color: '#d2553f',
+                          color: 'var(--paper-bad)',
                           fontWeight: 600,
                         }}
                       >
@@ -196,7 +196,7 @@ export function ReportView() {
                 <span className="n">{i + 1}.</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 13.5 }}>{a.title}</div>
-                  <div style={{ fontSize: 12, color: '#5a5e68', marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
                     {a.priority} · {PS_DIMENSIONS.find((d) => d.key === a.dimension)?.label} ·
                     effort {a.effort}
                   </div>
@@ -217,7 +217,7 @@ export function ReportView() {
                     alignItems: 'center',
                     gap: 8,
                     fontSize: 12.5,
-                    color: '#33363d',
+                    color: 'var(--ink-2)',
                   }}
                 >
                   <span
@@ -232,7 +232,7 @@ export function ReportView() {
                 </div>
               ))}
             </div>
-            <p className="rep-prose" style={{ marginTop: 14, fontSize: 12.5, color: '#6c707c' }}>
+            <p className="rep-prose" style={{ marginTop: 14, fontSize: 12.5, color: 'var(--ink-5)' }}>
               {PS_BRAND.signalsThisWeek.toLocaleString()} signals processed this period across{' '}
               {PS_BRAND.sourcesActive} active sources. Every figure in this report is traceable to a
               source item with timestamp, model version and confidence in the Project Signal audit trail.

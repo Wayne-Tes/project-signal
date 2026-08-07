@@ -5,7 +5,7 @@ import { useRef, useCallback, useEffect } from 'react';
 const TWEAKS_STYLE = `
   .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
     max-height:calc(100vh - 32px);display:flex;flex-direction:column;
-    background:rgba(250,249,247,.78);color:#29261b;
+    background:var(--panel);color:var(--ink-panel);
     -webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);
     border:.5px solid rgba(255,255,255,.6);border-radius:14px;
     box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 40px rgba(0,0,0,.18);
@@ -15,7 +15,7 @@ const TWEAKS_STYLE = `
   .twk-hd b{font-size:12px;font-weight:600;letter-spacing:.01em}
   .twk-x{appearance:none;border:0;background:transparent;color:rgba(41,38,27,.55);
     width:22px;height:22px;border-radius:6px;cursor:pointer;font-size:13px;line-height:1}
-  .twk-x:hover{background:rgba(0,0,0,.06);color:#29261b}
+  .twk-x:hover{background:rgba(0,0,0,.06);color:var(--ink-panel)}
   .twk-body{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px;
     overflow-y:auto;overflow-x:hidden;min-height:0}
   .twk-row{display:flex;flex-direction:column;gap:5px}
@@ -42,9 +42,9 @@ const TWEAKS_STYLE = `
     border-radius:6px;cursor:pointer;padding:4px 6px;line-height:1.2}
   .twk-toggle{position:relative;width:32px;height:18px;border:0;border-radius:999px;
     background:rgba(0,0,0,.15);transition:background .15s;cursor:pointer;padding:0}
-  .twk-toggle[data-on="1"]{background:#34c759}
+  .twk-toggle[data-on="1"]{background:var(--ok)}
   .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
-    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+    background:var(--paper-on-accent);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
   .twk-toggle[data-on="1"] i{transform:translateX(14px)}
 `;
 

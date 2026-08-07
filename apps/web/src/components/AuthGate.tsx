@@ -13,8 +13,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           minHeight: '100vh',
           display: 'grid',
           placeItems: 'center',
-          background: '#0b0c0f',
-          color: '#8a8f99',
+          background: 'var(--bg)',
+          color: 'var(--t2)',
           fontFamily: 'IBM Plex Sans, sans-serif',
         }}
       >

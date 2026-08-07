@@ -23,6 +23,49 @@
 
   --r-sm: 8px; --r: 14px; --r-lg: 20px;
   --shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 40px -16px rgba(0,0,0,0.6);
+
+  /* Ink for text sitting ON an accent fill (e.g. a mint submit button). Near-black with a
+     green cast so it reads as part of the accent rather than a hole punched in it. */
+  --ink-accent: #06241b;
+
+  /* Semantic status. Deliberately NOT the five accents above: those are brand colours and
+     the Tweaks palette switcher reassigns them, whereas "this toggle is on" must not change
+     meaning when someone picks Midnight ink. */
+  --ok: #34c759;
+
+  /* ---------- paper surfaces ----------
+     The printable report and the floating Tweaks panel are light by design. They are not
+     part of the dark instrument surface and the palette switcher does not reassign them, so
+     they need their own ramp. Values are named 1:1 rather than consolidated: every one of
+     these sits behind AuthGate and cannot be seen rendered until an identity provider
+     exists (KNOWN-GAPS #16), and collapsing near-identical greys unseen is a visual change
+     nobody can currently check. Consolidate once the report can actually be looked at. */
+  --paper: #fdfcfa;
+  --paper-edge: #b8bbc2;
+  --paper-track: #ecebe6;
+  --paper-line: #eceae4;
+  --paper-line-2: #e4e2db;
+  --paper-line-3: #dcdad2;
+  --panel: rgba(250,249,247,.78);
+
+  --ink: #1a1c20;
+  --ink-strong: #101216;
+  --ink-2: #33363d;
+  --ink-3: #44474e;
+  --ink-4: #5a5e68;
+  --ink-5: #6c707c;
+  --ink-6: #8a8d96;
+  --ink-7: #a4a7af;
+  --ink-8: #c8c5bd;
+  --ink-panel: #29261b;
+
+  --paper-accent: #6f67d8;
+  --paper-accent-2: #5a9fe0;
+  --paper-ok: #1f8a5b;
+  --paper-info: #3d7bf5;
+  --paper-warn: #c8902a;
+  --paper-bad: #d2553f;
+  --paper-on-accent: #fff;
 }
 
 * { box-sizing: border-box; }
@@ -54,7 +97,7 @@ a { color: inherit; text-decoration: none; }
 .brandmark .logo {
   width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
   background: radial-gradient(120% 120% at 30% 20%, var(--peri), var(--sky));
-  color: #0b0c0f; font-family: var(--font-display); font-weight: 700; font-size: 19px;
+  color: var(--bg); font-family: var(--font-display); font-weight: 700; font-size: 19px;
   box-shadow: 0 4px 16px -4px color-mix(in srgb, var(--peri) 60%, transparent);
   flex: none;
 }
@@ -65,7 +108,7 @@ a { color: inherit; text-decoration: none; }
   display: flex; align-items: center; gap: 10px; padding: 9px 11px; margin-bottom: 14px;
   border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface);
 }
-.brand-switch .ava { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, var(--mint), var(--sky)); display:grid; place-items:center; color:#08130f; font-weight:700; font-size:13px; flex: none; }
+.brand-switch .ava { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, var(--mint), var(--sky)); display:grid; place-items:center; color:var(--ink-accent); font-weight:700; font-size:13px; flex: none; }
 .brand-switch .meta { flex: 1; min-width: 0; }
 .brand-switch .nm { font-size: 13px; font-weight: 600; }
 .brand-switch .ct { font-size: 10.5px; color: var(--t3); }
@@ -104,7 +147,10 @@ a { color: inherit; text-decoration: none; }
   transition: background .15s, border-color .15s;
 }
 .btn:hover { background: var(--surface); }
-.btn.primary { background: var(--t1); color: #0b0c0f; border-color: var(--t1); }
+.btn.primary { background: var(--t1); color: var(--bg); border-color: var(--t1); }
+/* Pure white, deliberately literal: this is the "brightest possible" hover on an already
+   light button, not a palette colour. Same reasoning as the print block at the foot of this
+   file — both must stay white whichever palette is selected. */
 .btn.primary:hover { background: #fff; }
 .btn.ghost { border-color: transparent; color: var(--t2); }
 .btn.ghost:hover { color: var(--t1); background: var(--surface); }
@@ -279,41 +325,41 @@ button.drill-hint:hover { color: var(--peri); border-color: color-mix(in srgb,va
 .alert-banner .ad { font-size: 12.5px; color: var(--t2); margin-top: 3px; }
 
 /* ---------- report (light) ---------- */
-.report-frame { background: #b8bbc2; padding: 40px; display: flex; justify-content: center; min-height: 100%; }
+.report-frame { background: var(--paper-edge); padding: 40px; display: flex; justify-content: center; min-height: 100%; }
 .page {
-  width: 794px; min-height: 1123px; background: #fdfcfa; color: #1a1c20; border-radius: 3px;
+  width: 794px; min-height: 1123px; background: var(--paper); color: var(--ink); border-radius: 3px;
   box-shadow: 0 30px 80px -30px rgba(0,0,0,0.6); padding: 64px 60px; margin-bottom: 32px;
   font-family: var(--font-body); position: relative;
 }
 .page * { color: inherit; }
-.rep-head { display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 2px solid #1a1c20; padding-bottom: 22px; }
+.rep-head { display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 2px solid var(--ink); padding-bottom: 22px; }
 .rep-logo { display:flex; align-items:center; gap:11px; }
-.rep-logo .lg { width: 36px; height: 36px; border-radius: 9px; background: linear-gradient(135deg, #6f67d8, #5a9fe0); color: #fff; display:grid; place-items:center; font-family: var(--font-display); font-weight: 700; font-size: 20px; flex: none; }
-.rep-logo .wm { font-family: var(--font-display); font-weight: 600; font-size: 20px; color:#1a1c20; }
-.rep-logo .by { font-size: 10.5px; color: #8a8d96; }
-.rep-meta { text-align: right; font-size: 11.5px; color: #6c707c; font-family: var(--font-mono); line-height: 1.7; }
-.rep-title { font-family: var(--font-display); font-size: 34px; font-weight: 600; margin: 34px 0 6px; letter-spacing: -.015em; color:#101216; }
-.rep-sub { font-size: 14px; color: #5a5e68; }
+.rep-logo .lg { width: 36px; height: 36px; border-radius: 9px; background: linear-gradient(135deg, var(--paper-accent), var(--paper-accent-2)); color: var(--paper-on-accent); display:grid; place-items:center; font-family: var(--font-display); font-weight: 700; font-size: 20px; flex: none; }
+.rep-logo .wm { font-family: var(--font-display); font-weight: 600; font-size: 20px; color:var(--ink); }
+.rep-logo .by { font-size: 10.5px; color: var(--ink-6); }
+.rep-meta { text-align: right; font-size: 11.5px; color: var(--ink-5); font-family: var(--font-mono); line-height: 1.7; }
+.rep-title { font-family: var(--font-display); font-size: 34px; font-weight: 600; margin: 34px 0 6px; letter-spacing: -.015em; color:var(--ink-strong); }
+.rep-sub { font-size: 14px; color: var(--ink-4); }
 .rep-section { margin-top: 36px; }
-.rep-section h2 { font-family: var(--font-mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: #8a8d96; border-bottom: 1px solid #e4e2db; padding-bottom: 8px; margin: 0 0 18px; }
+.rep-section h2 { font-family: var(--font-mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-6); border-bottom: 1px solid var(--paper-line-2); padding-bottom: 8px; margin: 0 0 18px; }
 .rep-score-row { display: flex; align-items: center; gap: 32px; }
-.rep-score-big { font-family: var(--font-display); font-size: 76px; font-weight: 600; line-height: 1; letter-spacing: -.02em; color:#101216; }
+.rep-score-big { font-family: var(--font-display); font-size: 76px; font-weight: 600; line-height: 1; letter-spacing: -.02em; color:var(--ink-strong); }
 .rep-dims { display: grid; grid-template-columns: repeat(5,1fr); gap: 14px; }
 .rep-dim { text-align: center; }
 .rep-dim .v { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
-.rep-dim .l { font-size: 11px; color: #6c707c; text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; font-family: var(--font-mono); }
-.rep-dim .bar { height: 5px; border-radius: 999px; background: #ecebe6; margin-top: 8px; overflow: hidden; }
+.rep-dim .l { font-size: 11px; color: var(--ink-5); text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; font-family: var(--font-mono); }
+.rep-dim .bar { height: 5px; border-radius: 999px; background: var(--paper-track); margin-top: 8px; overflow: hidden; }
 .rep-dim .bar > i { display:block; height:100%; border-radius:999px; }
-.rep-prose { font-size: 13.5px; line-height: 1.7; color: #33363d; }
-.rep-heel { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid #eceae4; }
-.rep-heel .rk { font-family: var(--font-display); font-size: 26px; font-weight: 600; color: #c8c5bd; width: 30px; flex: none; }
+.rep-prose { font-size: 13.5px; line-height: 1.7; color: var(--ink-2); }
+.rep-heel { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--paper-line); }
+.rep-heel .rk { font-family: var(--font-display); font-size: 26px; font-weight: 600; color: var(--ink-8); width: 30px; flex: none; }
 .rep-heel .ht { font-weight: 600; font-size: 15px; }
-.rep-heel .hd { font-size: 12.5px; color: #5a5e68; margin-top: 3px; }
-.rep-quote { font-style: italic; font-size: 12.5px; color: #44474e; border-left: 3px solid #dcdad2; padding-left: 12px; margin: 10px 0 0; }
-.rep-foot { position: absolute; bottom: 36px; left: 60px; right: 60px; display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: #a4a7af; border-top: 1px solid #eceae4; padding-top: 12px; }
+.rep-heel .hd { font-size: 12.5px; color: var(--ink-4); margin-top: 3px; }
+.rep-quote { font-style: italic; font-size: 12.5px; color: var(--ink-3); border-left: 3px solid var(--paper-line-3); padding-left: 12px; margin: 10px 0 0; }
+.rep-foot { position: absolute; bottom: 36px; left: 60px; right: 60px; display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--ink-7); border-top: 1px solid var(--paper-line); padding-top: 12px; }
 .rep-action { display: flex; gap: 12px; padding: 12px 0; align-items: baseline; }
-.rep-action .n { font-family: var(--font-display); font-weight: 600; color:#6f67d8; }
-.rep-action .impact { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: #1f8a5b; font-weight: 600; }
+.rep-action .n { font-family: var(--font-display); font-weight: 600; color:var(--paper-accent); }
+.rep-action .impact { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--paper-ok); font-weight: 600; }
 
 /* ---------- sparkline ---------- */
 svg.sparkline { display: block; overflow: visible; }

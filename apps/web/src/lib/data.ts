@@ -149,12 +149,12 @@ export const PS_VOLUME: VolumeData = (() => {
 })();
 
 export const PS_SOURCES: Record<string, Source> = {
-  Google: { label: 'Google reviews', short: 'Google', tone: '#85b7eb' },
-  Trustpilot: { label: 'Trustpilot', short: 'Trustpilot', tone: '#5dcaa5' },
-  'App Store': { label: 'App Store', short: 'App Store', tone: '#afa9ec' },
-  YouTube: { label: 'YouTube', short: 'YouTube', tone: '#e2725b' },
-  News: { label: 'News / RSS', short: 'News', tone: '#d9b25f' },
-  X: { label: 'X (Twitter)', short: 'X', tone: '#9aa0ad' },
+  Google: { label: 'Google reviews', short: 'Google', tone: 'var(--sky)' },
+  Trustpilot: { label: 'Trustpilot', short: 'Trustpilot', tone: 'var(--mint)' },
+  'App Store': { label: 'App Store', short: 'App Store', tone: 'var(--peri)' },
+  YouTube: { label: 'YouTube', short: 'YouTube', tone: 'var(--coral)' },
+  News: { label: 'News / RSS', short: 'News', tone: 'var(--gold)' },
+  X: { label: 'X (Twitter)', short: 'X', tone: 'var(--t2)' },
 };
 
 export const PS_CLUSTERS: Record<string, Cluster[]> = {

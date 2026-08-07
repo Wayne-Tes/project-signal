@@ -46,14 +46,14 @@ export function BrandManager() {
       <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 18, margin: '0 0 4px' }}>
         Manage brand
       </h2>
-      <p style={{ color: '#8a8f99', fontSize: 13, margin: '0 0 16px' }}>
+      <p style={{ color: 'var(--t2)', fontSize: 13, margin: '0 0 16px' }}>
         Configure data sources and name aliases for a brand.
       </p>
 
-      {error && <p style={{ color: '#e2725b', fontSize: 13 }}>{error}</p>}
+      {error && <p style={{ color: 'var(--coral)', fontSize: 13 }}>{error}</p>}
 
       {brands.length === 0 ? (
-        <p style={{ color: '#8a8f99', fontSize: 13 }}>No brands yet — create a tenant first.</p>
+        <p style={{ color: 'var(--t2)', fontSize: 13 }}>No brands yet — create a tenant first.</p>
       ) : (
         <>
           <label style={lbl} htmlFor="brandSelect">
@@ -200,7 +200,7 @@ function SourcesPanel({ brandId }: { brandId: string }) {
           </button>
         </div>
       </form>
-      {error && <p style={{ color: '#e2725b', fontSize: 13, margin: '8px 0 0' }}>{error}</p>}
+      {error && <p style={{ color: 'var(--coral)', fontSize: 13, margin: '8px 0 0' }}>{error}</p>}
     </section>
   );
 }
@@ -287,33 +287,33 @@ function AliasesPanel({ brandId }: { brandId: string }) {
           {busy ? 'Adding…' : 'Add'}
         </button>
       </form>
-      {error && <p style={{ color: '#e2725b', fontSize: 13, margin: '8px 0 0' }}>{error}</p>}
+      {error && <p style={{ color: 'var(--coral)', fontSize: 13, margin: '8px 0 0' }}>{error}</p>}
     </section>
   );
 }
 
 const card: CSSProperties = {
   padding: 24,
-  background: '#101217',
-  border: '1px solid #1e2128',
+  background: 'var(--bg-2)',
+  border: '1px solid var(--line)',
   borderRadius: 14,
 };
-const h3: CSSProperties = { fontSize: 14, margin: '0 0 6px', color: '#e8e8ea' };
-const muted: CSSProperties = { color: '#8a8f99', fontSize: 13, margin: 0 };
-const lbl: CSSProperties = { display: 'block', fontSize: 12, color: '#8a8f99', margin: '0 0 4px' };
+const h3: CSSProperties = { fontSize: 14, margin: '0 0 6px', color: 'var(--t1)' };
+const muted: CSSProperties = { color: 'var(--t2)', fontSize: 13, margin: 0 };
+const lbl: CSSProperties = { display: 'block', fontSize: 12, color: 'var(--t2)', margin: '0 0 4px' };
 const inp: CSSProperties = {
   padding: '9px 12px',
-  background: '#0b0c0f',
-  border: '1px solid #1e2128',
+  background: 'var(--bg)',
+  border: '1px solid var(--line)',
   borderRadius: 8,
-  color: '#e8e8ea',
+  color: 'var(--t1)',
   fontSize: 14,
   boxSizing: 'border-box',
 };
 const btn: CSSProperties = {
   padding: '9px 16px',
-  background: '#5dcaa5',
-  color: '#06241b',
+  background: 'var(--mint)',
+  color: 'var(--ink-accent)',
   border: 'none',
   borderRadius: 8,
   fontWeight: 600,
@@ -326,8 +326,8 @@ const row: CSSProperties = {
   alignItems: 'center',
   gap: 10,
   padding: '8px 10px',
-  background: '#0b0c0f',
-  border: '1px solid #1e2128',
+  background: 'var(--bg)',
+  border: '1px solid var(--line)',
   borderRadius: 8,
 };
 const chip: CSSProperties = {
@@ -335,15 +335,15 @@ const chip: CSSProperties = {
   alignItems: 'center',
   gap: 6,
   padding: '4px 6px 4px 10px',
-  background: '#0b0c0f',
-  border: '1px solid #1e2128',
+  background: 'var(--bg)',
+  border: '1px solid var(--line)',
   borderRadius: 999,
   fontSize: 13,
 };
 const chipX: CSSProperties = {
   background: 'transparent',
   border: 'none',
-  color: '#8a8f99',
+  color: 'var(--t2)',
   cursor: 'pointer',
   fontSize: 16,
   lineHeight: 1,
@@ -355,7 +355,7 @@ const pill = (on: boolean): CSSProperties => ({
   fontSize: 12,
   fontWeight: 600,
   cursor: 'pointer',
-  border: `1px solid ${on ? '#2c5e4f' : '#1e2128'}`,
-  background: on ? 'rgba(93,202,165,0.12)' : '#0b0c0f',
-  color: on ? '#5dcaa5' : '#8a8f99',
+  border: `1px solid ${on ? 'color-mix(in srgb, var(--mint) 40%, transparent)' : 'var(--line)'}`,
+  background: on ? 'rgba(93,202,165,0.12)' : 'var(--bg)',
+  color: on ? 'var(--mint)' : 'var(--t2)',
 });
