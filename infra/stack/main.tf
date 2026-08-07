@@ -129,9 +129,14 @@ module "run_web" {
   image                 = local.images["web"]
   service_account_email = module.service_accounts.emails["web"]
   allow_unauthenticated = true
+  # No API URL here, deliberately. The browser bundle reads NEXT_PUBLIC_API_URL, which Next.js
+  # inlines at BUILD time — a runtime env var on this service can never reach the client, which
+  # was the substance of KNOWN-GAPS #8. It is supplied as a Docker build arg by the deploy
+  # workflows instead; `terraform output api_url` is what feeds that secret on the second pass
+  # (docs/SETUP.md §12). A vestigial API_URL here only invites someone to "fix" the wiring by
+  # reading it at runtime, which appears to work in `next dev` and fails in the built image.
   env = {
     NODE_ENV = "production"
-    API_URL  = module.run_api.uri
   }
 }
 
