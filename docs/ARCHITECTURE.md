@@ -68,7 +68,7 @@ project-signal/
 ├── apps/
 │   ├── api/                  Fastify 5 REST API — owns the DB schema + migrations
 │   ├── ingestion/            Scheduled source pull + dispatcher
-│   ├── sentiment-worker/     Pub/Sub push consumer → Gemini Flash scoring
+│   ├── sentiment-worker/     Scores signals via Bedrock (HTTP route; SQS consumer is Phase 4)
 │   ├── report-worker/        Health-check skeleton (reporting deferred, Epic 12)
 │   └── web/                  Next.js 16 dashboard
 ├── libs/
@@ -259,11 +259,26 @@ A `.refine()` requires one of the two. The split exists because the Cloud SQL so
 host parsing, so it must be passed as `path`, not embedded in a URL.
 
 Other keys: `CORS_ORIGINS` (comma-separated; unset = reflect any origin, which is safe here
-because auth is Bearer-only with no cookies or ambient credentials), `PUBSUB_EMULATOR_HOST`,
-`VERTEX_AI_LOCATION`, `SCORER_MODEL`, `REPORTER_MODEL`, `APIFY_API_KEY`, `YOUTUBE_API_KEY`.
+because auth is Bearer-only with no cookies or ambient credentials), `ITEM_QUEUE_URL`,
+`REPORT_QUEUE_URL`, `RAW_BUCKET`, `SCORER_MODEL`, `REPORTER_MODEL`, `APIFY_API_KEY`,
+`YOUTUBE_API_KEY`, and the optional `GOOGLE_CLOUD_PROJECT` (still read by `firebase-admin`).
 
 Models are named by **use case** (`SCORER_MODEL` / `REPORTER_MODEL`), not by provider, so the
-underlying model can be swapped without touching code.
+underlying model can be swapped without touching code. That property is what let the move from
+Vertex to Bedrock leave every call site alone.
+
+**AWS credentials and region are deliberately NOT in this schema.** They resolve through the
+SDK's default provider chain — the ECS task role in a deployed environment, `AWS_PROFILE` or a
+LocalStack endpoint locally. No code holds a key.
+
+Two subtleties worth knowing before you edit it:
+
+- **The queue URLs have no defaults and throw when unset.** An SQS URL embeds the account id and
+  region, so no constant could stand in for one, and a wrong guess publishes into nowhere. This
+  is the AWS form of the fix for KNOWN-GAPS #7.
+- **`GOOGLE_CLOUD_PROJECT` is `.optional()`, and that matters.** It used to be required, which
+  meant every app in the monorepo refused to boot without it — including the four that never
+  touched GCP. Delete the line in the same change that removes the last firebase import.
 
 ### `libs/db`
 
@@ -278,48 +293,81 @@ createSql(1); // fresh pool with an explicit max; used for migrations
 ```
 
 Both `db` and `client` are lazy getters, not eagerly constructed clients — importing the lib
-does not open a connection, which matters for tests and for Cloud Run cold starts.
+does not open a connection, which matters for tests and for container cold starts.
 
-### `libs/gemini`
+### `libs/llm`
 
-Thin Vertex AI wrapper: `getVertexAI()` (memoised, configured with project + location),
-`getScorerModel()`, `getReporterModel()`.
+Provider-neutral LLM access, on **Amazon Bedrock**. Formerly `libs/gemini` / Vertex AI.
+
+```ts
+interface LlmClient {
+  structured<T>(request: StructuredRequest): Promise<T>;
+}
+```
+
+**One method, and deliberately the structured one.** The pipeline never wants free text: every
+call site needs a value of a known shape. `getLlmClient()` returns a memoised
+`BedrockLlmClient`; `getScorerModel()` / `getReporterModel()` resolve the model by use case.
+
+**Structured output comes from forced tool use, not from prompting.** The model is given exactly
+one tool whose input schema *is* the shape wanted, with `toolChoice` forcing it, so Bedrock
+returns a parsed object. This replaced a prompt that asked for "ONLY valid JSON", a ` ```json `
+fence-stripper, and a `JSON.parse` — and it is a correctness change, not tidying. A model that
+wrapped its answer in a sentence used to raise `PermanentScoringError`, **which acks the
+message**, so the signal was dropped permanently and silently. **If you change this lib, do not
+reintroduce prose-then-parse.**
+
+> **Model ids on Bedrock are inference profiles.** `eu.anthropic.claude-haiku-4-5-20251001-v1:0`
+> is what works; the bare `anthropic.claude-haiku-4-5-…` is rejected with *"on-demand throughput
+> isn't supported"*. The `eu.` prefix scopes routing to EU regions — `global.` variants exist and
+> do not. See `HANDOVER.md` §3.4.
 
 ### `libs/messaging`
 
-Memoised `getPubSub()` client — automatically targets the emulator when
-`PUBSUB_EMULATOR_HOST` is set — plus `topicName(logical)`, which is how topic names must be
-resolved:
+The publish side of the pipeline, on **SQS**. Formerly Pub/Sub.
 
 ```ts
-topicName('item'); // ITEM_TOPIC from env, else TOPICS.ITEM_QUEUE
-topicName('report'); // REPORT_TOPIC from env, else TOPICS.REPORT_QUEUE
+interface MessagePublisher {
+  publish(queue: 'item' | 'report', body: string): Promise<string>; // → message id
+}
 ```
 
-The `TOPICS` constants are **local-development names only**, used against the emulator.
-Terraform creates `<env>-item` / `<env>-report` and injects them as `ITEM_TOPIC` /
-`REPORT_TOPIC`. Publishing to a `TOPICS` constant in a deployed environment targets a topic
-that does not exist — always go through `topicName()`. An empty-string env override is treated
-as unset.
+**Callers name a logical queue and nothing else.** Resolving that to a concrete URL is
+`queueUrl()`'s job, reading `ITEM_QUEUE_URL` / `REPORT_QUEUE_URL`. There is **no fallback
+constant and an unset variable throws**, naming the missing variable — unlike the Pub/Sub design
+this replaced, where publishing to a hardcoded topic that existed in no deployed environment
+failed silently (KNOWN-GAPS #7).
+
+`publish()` also throws when SQS returns no `MessageId`, rather than reporting a publish that
+may not have happened.
+
+> **The consume side does not exist yet.** `apps/sentiment-worker` still serves an HTTP route
+> shaped like a Pub/Sub push envelope. Push→pull is a real model change, not a driver swap, and
+> it is Phase 4 — see `HANDOVER.md` §6.
 
 ### `libs/storage`
 
-Object storage for raw ingested payloads, behind a deliberately narrow interface:
+Object storage for raw ingested payloads, on **S3**, behind a deliberately narrow interface:
 
 ```ts
 interface ObjectStore {
-  put(key: string, body: string, contentType?: string): Promise<string>; // → gs://… | s3://…
+  put(key: string, body: string, contentType?: string): Promise<string>; // → s3://…
   get(key: string): Promise<string>;
 }
 ```
 
-`getObjectStore()` returns a memoised `GcsObjectStore` built from `RAW_BUCKET`, throwing a
-named error if it is unset. `rawKey(tenant, brand, source, externalId)` builds the deterministic
-key (percent-encoding `externalId`, which can contain slashes); `keyFromRef()` parses a stored
-reference back to a key and accepts both `gs://` and `s3://`.
+`getObjectStore()` returns a memoised `S3ObjectStore` built from `RAW_BUCKET`, throwing a named
+error if it is unset. `rawKey(tenant, brand, source, externalId)` builds the deterministic key
+(percent-encoding `externalId`, which can contain slashes); `keyFromRef()` parses a stored
+reference back to a key and accepts **both `s3://` and `gs://`** — the latter costs nothing and a
+reference that cannot be resolved is unrecoverable.
 
-Two methods is the whole surface, so the AWS migration's `S3ObjectStore` drops in behind
-`getObjectStore()` without touching a caller.
+`get()` throws when a response carries no body rather than returning `''`. An empty string would
+be scored as though it were the review text — a silent data fault of the same class as
+KNOWN-GAPS #4.
+
+Two methods is the whole surface. That narrowness is exactly what made replacing GCS with S3 a
+single-file change plus one line in the factory.
 
 ### `libs/scoring`
 
@@ -389,7 +437,7 @@ mapping to `getSystemCredentials()` if it needs a key, and add its form fields t
 
 ## 6. apps/api — REST API
 
-Fastify 5, port **8080**, ESM, deployed to Cloud Run as a public service.
+Fastify 5, port **8080**, ESM. Target: a public ECS Fargate service behind an ALB.
 
 ### Boot sequence (`src/main.ts`)
 
@@ -408,7 +456,7 @@ The API is the **single schema owner**. On boot it:
 
 1. No-ops if the `migrations/` directory is absent.
 2. Opens a **dedicated single connection** (`createSql(1)`).
-3. Takes Postgres advisory lock `4815162342` so concurrent Cloud Run instances serialise
+3. Takes Postgres advisory lock `4815162342` so concurrent instances serialise
    rather than racing.
 4. Runs Drizzle's migrator.
 5. Releases the lock and ends the connection in a `finally`.
@@ -502,7 +550,7 @@ Uses Application Default Credentials — run `gcloud auth application-default lo
 
 ## 7. apps/ingestion — source pull
 
-Fastify, port **8081**. Private on Cloud Run (invokable only by the Scheduler SA and itself).
+Fastify, port **8081**. Private: reachable only by the scheduler and itself.
 
 ### Endpoints
 
@@ -525,15 +573,15 @@ broken connection fails fast rather than at first request.
    API keys) **over** by the row's JSONB `config` (placeId, feedUrl, appId, …).
 5. `adapter.fetch(config, since)`.
 6. For each item: upload the verbatim payload (text + metadata) to
-   `gs://<RAW_BUCKET>/<tenant>/<brand>/<source>/<externalId>.json` via `getObjectStore()`,
+   `s3://<RAW_BUCKET>/<tenant>/<brand>/<source>/<externalId>.json` via `getObjectStore()`,
    **then** insert into `signals` with the returned `gs://` reference and
    `onConflictDoNothing()`. Upload-before-insert means `raw_storage_ref` can never point at a
    missing object. The `(source_url, brand_entity_id)` unique constraint does the
    deduplication; `.returning()` is empty for a duplicate, so only genuinely new rows are
    collected.
-7. Publish one Pub/Sub message per **newly created** signal id to `topicName('item')` — which
-   resolves `ITEM_TOPIC` from the environment, NOT the local-dev `TOPICS` constant
-   (payload = the raw uuid as a Buffer).
+7. Publish one SQS message per **newly created** signal id via `getPublisher().publish("item", id)`.
+   The handler names only the logical queue; the publisher resolves the URL from `ITEM_QUEUE_URL`
+   and throws if it is unset. Body is the bare signal uuid.
 8. Stamp `last_fetched_at` / `updated_at` on the `source_config`.
 9. Return `{ signalsCreated, signalsPublished }`.
 
@@ -543,7 +591,10 @@ Dedup + incremental `since` together mean a re-run of the same job is safe and c
 
 ## 8. apps/sentiment-worker — scoring
 
-Fastify, port **8082**. Private on Cloud Run (invokable only by the Pub/Sub push-invoker SA).
+Fastify, port **8082**. Private.
+
+> ⚠️ **This is still an HTTP push consumer and needs to become an SQS poller (Phase 4).** The
+> route below is shaped like a Pub/Sub push envelope, which nothing on AWS sends.
 
 ### Endpoint
 
@@ -765,9 +816,9 @@ Cloud Scheduler (weekly, Mon 06:00 UTC)
   └─ POST <ingestion>/ingest/dispatch      [OIDC]
        └─ for each enabled source_config → handleIngestionJob
             ├─ adapter.fetch(since = MAX(published_at))     ← incremental
-            ├─ store.put(rawKey(...)) → gs://<RAW_BUCKET>/… ← BEFORE the insert
+            ├─ store.put(rawKey(...)) → s3://<RAW_BUCKET>/… ← BEFORE the insert
             ├─ INSERT signals ... ON CONFLICT DO NOTHING    ← dedup
-            └─ publish signal id → topicName('item')        ← ITEM_TOPIC from env
+            └─ publish("item", id) → SQS            ← URL from ITEM_QUEUE_URL
                  └─ push subscription [OIDC] → <sentiment>/pubsub/item
                       ├─ read raw payload, scoreSignal(text) via Gemini Flash
                       ├─ UPSERT sentiment_results ON CONFLICT (signal_id)  ← idempotent
@@ -803,16 +854,39 @@ All four analytical views read this path. `Roadmap` and `Report` still read `lib
 
 ---
 
-## 12. Infrastructure (Terraform / GCP)
+## 12. Infrastructure
 
-Region **`europe-west2`** (London).
+### Current state: nothing is deployed, anywhere
 
-**No GCP environment is currently provisioned.** The project was originally stood up in a
-contractor-owned test project; on handover that environment was abandoned and every reference
-to it removed. Both `infra/envs/staging.tfvars` and `infra/envs/production.tfvars` now contain
-`REPLACE_ME` for `project_id` and `project_number`, and `infra/bootstrap/` has not been run
-against a new project yet. Standing up staging from scratch is the first infrastructure task —
-see [`../infra/README.md`](../infra/README.md).
+**No part of this system has ever run in any cloud.** Everything below §12 describes either a
+GCP stack that will never be applied, or an AWS stack that does not exist yet.
+
+### `infra-aws/` — the real target
+
+Region **`eu-west-2`** (London). Compute **ECS Fargate**, database **RDS Postgres**, auth
+**Cognito**, all decided by the owner. So far it contains only
+`scripts/00-discover.sh` — the read-only Phase 0 discovery pass, which has been run and whose
+findings are recorded in [`HANDOVER.md`](HANDOVER.md) §3.
+
+The account is **shared with other projects**, so the build is designed to be *separable*: own
+VPC, `psignal-<env>-*` naming, mandatory tags applied as Terraform defaults, tag-filtered
+budget. See [`AWS-SETUP.md`](AWS-SETUP.md) for the guardrails and
+[`HANDOVER.md`](HANDOVER.md) §3.2 for why each exists.
+
+### `infra/` — GCP, superseded, kept as reference
+
+Region `europe-west2`. Nine Terraform modules covering Cloud Run, Cloud SQL, Pub/Sub, Cloud
+Tasks, GCS, Scheduler, Artifact Registry, Identity Platform and service accounts.
+
+**It will never be applied.** The project was originally stood up in a contractor-owned test
+project; that environment was abandoned at handover, and the owner then decided not to build a
+replacement. `envs/*.tfvars` still contain `REPLACE_ME`.
+
+It is kept deliberately, and the rest of this section is worth reading for one reason: **it is
+the clearest available specification of what each service in this system actually needs** —
+which IAM grants, which env vars, which retry policy, which secret. Re-deriving that from prose
+while writing `infra-aws/` would be waste. Delete it once AWS reaches parity
+([`HANDOVER.md`](HANDOVER.md) §8).
 
 ### Layout
 
@@ -971,13 +1045,28 @@ is the standing fix.
 ## 15. Local development
 
 ```bash
-yarn install
+corepack yarn install
 cp .env.example .env
-docker compose up -d        # Postgres 16 (:5432) + Pub/Sub emulator (:8085)
-yarn dev                    # docker compose up -d && nx run-many -t dev --parallel
+docker compose up -d        # Postgres 16 (:5432) + LocalStack (:4566, s3 + sqs)
+corepack yarn dev           # docker compose up -d && nx run-many -t dev --parallel
 ```
 
-Migrations apply automatically when the API boots — there is no manual migrate step.
+**Migrations apply when the API boots** — there is no manual migrate step, and seeding before
+the API has started fails with `relation "tenants" does not exist`. Boot the API first.
+
+`scripts/localstack-init.sh` runs inside the LocalStack container on first boot and creates
+the `psignal-local-raw` bucket plus the item/report queues and their DLQs, with
+`maxReceiveCount: 5` matching the intended deployed redrive policy — so the local stack fails
+the same way the real one will.
+
+**This replaced the Pub/Sub emulator, and it is a straight upgrade.** There was never a GCS
+emulator, so the raw-payload write and read path could only ever be exercised against mocks.
+It can now be run for real — and was, on 2026-08-07: 52 signals ingested from a live RSS feed,
+written to S3, read back, published to SQS, deduplicated on re-run and swept by `/reconcile`.
+See [`HANDOVER.md`](HANDOVER.md) §5.
+
+The one link that cannot be closed locally is **scoring** — LocalStack does not emulate
+Bedrock, so that needs real AWS credentials.
 
 | Service          | URL                                                                      |
 | ---------------- | ------------------------------------------------------------------------ |

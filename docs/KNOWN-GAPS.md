@@ -34,7 +34,7 @@
 | 13  | Four of six views wired; Roadmap + Report remain              | 🟠 partial  | web ↔ API             |
 | 14  | ~~Hardcoded contractor fallbacks in the web client~~          | ✅ resolved | web config            |
 | 15  | ~~Working directory is not a git repository~~                 | ✅ resolved | repo                  |
-| 16  | No environment provisioned anywhere — now targets AWS         | 🔴          | infra                 |
+| 16  | No cloud environment — AWS discovery done, libs ported, undeployed | 🔴     | infra                 |
 | 17  | ~~`apps/web` build failure~~ — was local Node 24              | ✅ resolved | tooling               |
 | 18  | ~~User writes not atomic with Firebase custom claims~~        | ✅ resolved | API                   |
 | 19  | ~~Web components use literal hex, not CSS custom properties~~ | ✅ resolved | web style             |
@@ -479,8 +479,19 @@ reject the CI token.
 > implementation plan. See [`HANDOVER.md`](HANDOVER.md).
 >
 > The substance is unchanged and is the point of this entry: **no part of this system has ever
-> run in any cloud.** Everything is verified against Docker Postgres and the Pub/Sub emulator
-> only.
+> run in any cloud.**
+>
+> **Update 2026-08-07 — materially advanced, still open.** AWS discovery is complete against a
+> live account and the three cloud libraries are ported (S3, SQS, Bedrock). The pipeline has now
+> been **run end to end for real** — locally, against LocalStack and Postgres: 52 signals
+> ingested from a live RSS feed, written to S3, read back, published to SQS, deduplicated on
+> re-run and swept by `/reconcile`, with clean logs. That closed the last of this entry's
+> "verified against mocks only" caveat for ingest and storage.
+>
+> **Still true, and still the binding constraint:** nothing runs in a cloud, scoring has never
+> executed against a real model, and there is no AWS Terraform beyond the discovery script.
+> See [`HANDOVER.md`](HANDOVER.md) §3 for the verified account facts and §5 for the precise
+> line between proven and assumed.
 
 **Where:** `infra/envs/staging.tfvars`, `infra/envs/production.tfvars`,
 `infra/bootstrap/variables.tf`.

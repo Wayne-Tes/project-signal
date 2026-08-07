@@ -1,8 +1,10 @@
 # Project Signal on AWS — setup runbook
 
-**Status:** Phase 0 only. Later phases are written as the code lands; this file grows with them.
-**Target region:** `eu-west-2` (London) — data residency, carried over from the GCP design.
-**Account model:** one dedicated sandbox account, owner is admin.
+**Status:** Phase 0 complete (2026-08-07). Later phases are written as the code lands.
+**Target region:** `eu-west-2` (London).
+**Account model:** a **shared** enterprise sandbox — several projects, owner is admin inside it
+but cannot create accounts outside it. The build is therefore designed to be *separable later*;
+see [`HANDOVER.md`](HANDOVER.md) §3.2.
 
 > This supersedes [`SETUP.md`](SETUP.md) as the setup path. `SETUP.md` describes the GCP
 > deployment, which will not be built — it is kept because the GCP stack is the clearest
@@ -34,6 +36,29 @@ So every phase obeys the same five rules, and they are not negotiable:
 secret, session token or password, and you should refuse any instruction that does — including
 from me. Account ids and ARNs are identifiers, not secrets; those are fine to share, and I need
 them to verify each step landed where intended.
+
+---
+
+## Phase 0 — COMPLETE (2026-08-07)
+
+Run against account **`290304998906`** (`tesai-dev-sandbox`), `eu-west-2`. Full findings and
+their consequences are in [`HANDOVER.md`](HANDOVER.md) §3. Summary:
+
+| Finding | Result |
+| ------- | ------ |
+| Identity | IAM Identity Center (SSO) admin. Temporary session role — **cannot be reused for CI** |
+| VPCs in `eu-west-2` | **None**, not even a default. No CIDR collisions; we create our own |
+| IAM role creation | **Permitted** — probed for real with a create+delete, since the policy simulator does not model SCPs |
+| OIDC providers | **`gitlab.com` only.** GitHub's can be created. One provider per URL per account |
+| Budgets | `monthly_tesai-dev-sandbox` exists account-wide — leave it, add a tag-filtered one |
+| Bedrock | **Working.** `eu.anthropic.claude-haiku-4-5-20251001-v1:0` → "OK" in 752ms |
+| Account spend | ~$44 MTD, ~$182 forecast, rising. Not compute — our Fargate would be the first |
+
+> ### ⚠️ If the enterprise AWS account is not `290304998906`, none of the above holds
+>
+> Model availability, IAM permissions, quotas, existing VPCs and OIDC providers are all
+> account-specific. **Re-run the script below** — it is read-only and takes two minutes. Do not
+> carry these values forward on faith.
 
 ---
 
@@ -115,8 +140,8 @@ provisions is a runbook that drifts. The intended order, for context:
 
 | Phase | What | Needs your account? |
 | ----- | ---- | ------------------- |
-| 0 | Discovery | Read-only ✅ you are here |
-| B | Port the code behind interfaces — S3, SQS, Bedrock, config | **No** — proceeding now, in parallel |
+| 0 | Discovery | ✅ **done 2026-08-07** |
+| B | Port the libraries — S3, SQS, Bedrock, config | ✅ **done 2026-08-07**, no account needed |
 | 1 | Guardrails: budget alarm, tagging, prefix, teardown script | Yes |
 | 2 | Foundation: VPC, RDS Postgres, S3, ECR, Secrets Manager | Yes |
 | 3 | **Thin vertical slice** — one brand, one RSS feed, one signal, end to end | Yes |

@@ -1,448 +1,479 @@
-# Handover — GCP is being abandoned; AWS is the target, starting now
+# Handover — read this first
 
-**Written:** 2026-08-06
-**Audience:** the next agent picking this up
-**Status of this document:** authoritative on the decision below. Where it disagrees with
-`docs/superpowers/plans/2026-08-06-aws-migration.md`, this document wins — that plan was written
-under an assumption that no longer holds. See §2.
+**Written:** 2026-08-07
+**Audience:** the next agent, in a fresh repository, with no memory of how any of this came to be.
+**Status:** authoritative on current state. Where this disagrees with any other document, this wins.
 
-Read this in full before touching code or writing a plan. Then read, in order:
-[`DEVRULES.md`](../DEVRULES.md), [`docs/ARCHITECTURE.md`](ARCHITECTURE.md),
-[`docs/KNOWN-GAPS.md`](KNOWN-GAPS.md).
+You are picking up a system that is **code-complete on AWS libraries, verified end to end
+locally, and not yet deployed anywhere.** This document tells you what exists, what is proven,
+what is assumed, and what to do next. Read it in full before writing code.
 
----
-
-## 1. The decision
-
-**The owner has decided (2026-08-06) not to stand up GCP at all. The system goes to AWS, and
-that work starts now.**
-
-The prior sequence was: stand up GCP → test end to end → then migrate to AWS. That is cancelled.
-GCP was never provisioned (`KNOWN-GAPS` #16 — the contractor's environment was abandoned and no
-replacement was ever built), and the owner has chosen not to build a throwaway one.
-
-Everything to date has been developed and verified locally, against Docker Postgres and the
-Pub/Sub emulator. **No part of this system has ever run in any cloud.** Treat every claim about
-cloud behaviour in the repo's docs as untested design intent.
+Then read, in order: [`../DEVRULES.md`](../DEVRULES.md),
+[`ARCHITECTURE.md`](ARCHITECTURE.md), [`KNOWN-GAPS.md`](KNOWN-GAPS.md),
+[`AWS-SETUP.md`](AWS-SETUP.md).
 
 ---
 
-## 2. What the decision changes — this is no longer a migration
+## 0. If you are reading this in a newly created repository
 
-This is the single most important thing to internalise, and the existing plan does not reflect
-it. `docs/superpowers/plans/2026-08-06-aws-migration.md` is a **migration** plan — 23 tasks
-across 7 phases, built around the first bullet of its § Global Constraints —
+This codebase was developed in a personal GitHub repo and moved into an enterprise one by
+export. Several things are therefore **stale by construction** and must be fixed before CI can
+work. None of them are subtle, but all of them fail confusingly if missed:
 
-> _"Nothing in this plan may break the GCP environment until Phase 7. Every phase before it must
-> leave `CLOUD_PROVIDER=gcp` fully working."_
+| What | Where | Why it breaks |
+| ---- | ----- | ------------- |
+| Git remote / repo name | `.git/config` | Everything below keys off it |
+| `github_repository` | `infra/bootstrap/variables.tf` | Currently `LokimotiveUK/project-signal`. The GCP WIF provider pins tokens to that exact string. GCP is abandoned, so this only matters if you keep `infra/` at all — see §8 |
+| GitHub OIDC trust policy | not yet written (Phase 6) | The IAM role's trust policy will name `repo:<org>/<repo>:*`. Get the new path right first time |
+| Branch protection / environments | GitHub settings | `ci.yml` runs on `main` and `staging`; `deploy-staging.yml` triggers on a **`staging` branch that does not exist** — see §9 |
+| Commit history | — | If the export dropped history, the reasoning behind changes lives *only* in these docs. Treat them as the record |
 
-**There is no GCP environment to break.** That constraint is void, and with it a large fraction
-of the plan's cost and risk. Concretely:
-
-| Plan element                                                          | Status under the new decision                                                                                                                                                  |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Phase 1 — portability refactor to keep both clouds working (5–7 days) | **Mostly unnecessary as scoped.** No dual path needs maintaining. Keep the interfaces already built; do not build more of them purely for symmetry.                            |
-| `CLOUD_PROVIDER` env switch and GCS/S3 factory branches               | **Reconsider.** A switch with one live branch is dead weight. See open decision §6.6.                                                                                          |
-| Phase 7 Task 22 — data migration and cutover (3–5 days)               | **Dissolved.** There is no data and no traffic to cut over.                                                                                                                    |
-| Phase 7 Task 23 — decommission GCP                                    | **Dissolved.** Nothing is commissioned. Reduces to deleting `infra/` (a decision — see §6.7).                                                                                  |
-| Phase 6 — Cognito, rated "High — deepest app change, user-visible"    | **Still the deepest app change, but no longer user-visible.** There are no live users, so "password re-provisioning is irreversible" does not apply. Risk drops materially.    |
-| Plan §"Open items requiring a decision before Phase 3", item 2        | **Closed by the decision.** Scoring-prompt parity between Gemini and Claude only mattered for comparing sentiment history across the cutover. There is no history to compare.  |
-| Total estimate: 31–44 working days                                    | **Must be re-derived.** It explicitly includes work that no longer exists; the plan itself attributes the delta over its earlier 4–7 week figure "almost entirely" to Phase 1. |
-
-### The risk that this decision _adds_
-
-Be honest about this in the new plan. Skipping GCP removes the intermediate integration
-checkpoint. The prior sequence would have proven the pipeline on managed cloud primitives the
-team had already provisioned in Terraform, before changing primitives. Now the first real cloud
-run happens on AWS, on unprovisioned infrastructure, with new SDKs, new auth and new
-messaging semantics — all at once.
-
-**Recommendation for the new plan:** insert a deliberately thin vertical slice as the first
-AWS-touching phase — one brand, one source, one signal, end to end (ingest → S3 → queue → score
-→ read via the API) on real AWS, before porting breadth. The existing plan's phase order
-(foundation → adapters → compute → workers → auth) defers the first true end-to-end run to
-Phase 5 of 7. That is too late when nothing has ever run in a cloud.
+**Everything verified below was verified in AWS account `290304998906` (`tesai-dev-sandbox`).
+If the enterprise account is a different one, every account-specific fact in §3 is unverified
+again** — model availability, IAM permissions, quotas, the lot. Re-run the discovery script
+(§3.5). It is read-only and takes two minutes. Do not carry these values forward on faith; that
+is precisely the failure mode DEVRULES exists to prevent.
 
 ---
 
-## 3. Where the codebase actually stands
+## 1. What this system is
 
-**Re-verified 2026-08-07.** Full gate green — 13 projects lint, 12 typecheck, **297 tests
-across 11 projects**. See §8 for the exact commands, the per-project counts, and two runner
-traps: one that makes `yarn test` look hung, and one that makes the whole gate pass having run
-nothing at all.
+An **agency-managed, multi-tenant brand-intelligence SaaS**. It ingests public brand signals
+(Google/App Store/Play reviews, YouTube comments, RSS), scores each with an LLM for sentiment
+across five fixed dimensions — **trust, quality, service, value, experience** — and surfaces a
+composite Brand Perception Index, an "Achilles Heel" weakness ranking, and competitor
+benchmarking.
 
-`KNOWN-GAPS.md` was made the backlog by owner decision and burned down over the preceding days.
-**15 of 19 items are closed.** What remains:
+One `tenant` per customer. A tenant owns `brand_entities` (its own brands, plus competitors it
+tracks). Users are `owner` / `admin` / `user`, with `user` optionally pinned to one brand.
 
-- **#16** — no environment provisioned. **This item is now about AWS, not GCP.** It is still the
-  binding constraint on everything: nothing has been verified in a cloud.
-- **#12 (remainder)** — the users UI. The API half is done and tested; the UI cannot be driven
-  until #16.
-- **#13 (remainder)** — Roadmap and Report views still on `apps/web/src/lib/data.ts` mock data.
-  Roadmap is **unspecified work, not deferred work**: nothing in Epics 11–13 produces prioritised
-  recommendations. Report is Epic 12.
-- ~~**#19** — literal hex values in `apps/web`.~~ ✅ **closed 2026-08-07.** 79 real occurrences,
-  not the 119 recorded: `App.tsx`'s 40 were the palette *definitions* and had to stay literal.
-  Closing it extended the design system with `--ink-accent`, `--ok` and a paper ramp for the
-  report and Tweaks panel. **63 of the 79 render behind `AuthGate` and have never been seen** —
-  a browser pass over them is a required checkpoint once sign-in works, not an optional
-  follow-up.
-
-The remaining three do not block the AWS work, and the AWS work does not close any of them
-except #16 — though it is what finally makes #12's UI and #19's visual check reachable.
-
-**Two further defects were found and fixed on 2026-08-07**, both by re-verifying this document
-against the code rather than by testing:
-
-- **`GET /brands/:id` was missing `requireBrandAccess`** — the same intra-tenant hole as gap #5,
-  at metadata scope. Closed, with tests. The general point is in §7's table: the guard is
-  opt-in per route.
-- **`deploy-staging.yml` cannot fire** — it triggers on a push to `staging`, and only `main`
-  exists. Left as-is deliberately (see `KNOWN-GAPS.md` #15); the branch belongs with the AWS CI.
-
-`ARCHITECTURE.md`, `PLAN.md` and `SETUP.md` were also re-based on the same date — all three
-still described the pre-burn-down system in places, including five closed gaps presented as
-live symptoms in `SETUP.md` §14.
+**Isolation is enforced in application code, not by the database.** There is no Postgres RLS.
+Every query filters `tenant_id`; brand-scoped routes additionally carry the `requireBrandAccess`
+preHandler. This has produced two real security defects already (see §7) and is the single most
+important invariant to preserve.
 
 ---
 
-## 4. GCP coupling inventory — verified, and smaller than you expect
+## 2. The decision history, briefly
 
-This was measured by grep across `apps/` and `libs/` (excluding tests) on 2026-08-06. **Six
-files import a Google Cloud SDK.** The blast radius of the port is narrow; the difficulty is
-concentrated in auth, not in breadth.
+You need this because half the repo still describes GCP and you will otherwise assume that is
+current.
 
-| Concern         | File(s)                                                                                                                         | GCP today                    | AWS counterpart                              |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | -------------------------------------------- |
-| Object storage  | `libs/storage/src/gcs.ts:1`                                                                                                     | `@google-cloud/storage`      | S3. **Interface already exists** — see below |
-| Messaging       | `libs/messaging/src/index.ts:1,10`                                                                                              | `@google-cloud/pubsub`       | SQS (+ SNS if fan-out is ever needed)        |
-| LLM             | `libs/gemini/src/index.ts:1,10`                                                                                                 | `@google-cloud/vertexai`     | Bedrock                                      |
-| Auth (server)   | `apps/api/src/plugins/auth.ts:3,71`, `apps/api/src/lib/claims.ts:1`, `apps/api/scripts/bootstrap-owner.ts:12`                   | `firebase-admin`             | Cognito — **the hard one**, see §5.4         |
-| Auth (browser)  | `apps/web/src/lib/firebase.ts:1-2`, `apps/web/src/lib/auth.tsx:9`                                                               | `firebase` v11 client SDK    | Amplify Auth / `amazon-cognito-identity-js`  |
-| Project binding | `libs/config/src/index.ts:16`                                                                                                   | `GOOGLE_CLOUD_PROJECT`       | **required, not optional** — see §5.1        |
-| Database socket | `libs/config/src/index.ts:11-12` (`DB_SOCKET_PATH`)                                                                             | Cloud SQL Auth Proxy socket  | RDS is plain TCP — `DATABASE_URL`            |
-| Infrastructure  | `infra/modules/{artifact_registry,cloud_run,cloud_sql,cloud_tasks,identity_platform,pubsub,scheduler,service_accounts,storage}` | 9 Terraform modules          | New `infra-aws/` tree                        |
-| CI/CD           | `.github/workflows/{deploy-staging,deploy-production,terraform-plan}.yml`                                                       | Workload Identity Federation | GitHub OIDC → IAM role                       |
+1. The system was built for **GCP** — Cloud Run, Cloud SQL, Pub/Sub, GCS, Vertex AI, Identity
+   Platform — by a contractor. Terraform for all of it exists in `infra/`.
+2. That environment was **abandoned at handover** and every reference to it stripped. No GCP
+   project was ever created by this team. **The system has never run in any cloud.**
+3. **2026-08-06, owner decision:** do not stand up GCP at all. Go straight to AWS. A migration
+   plan written before that decision survives at
+   `docs/superpowers/plans/2026-08-06-aws-migration.md`, marked superseded — mine it for
+   task-level detail, do not execute it.
+4. **2026-08-07 (this session):** AWS discovery completed against a live account, and the three
+   cloud-coupled libraries ported. That is where you are joining.
 
-**Already portable.** `libs/storage` was built during the backlog burn-down with the split the
-plan asked for — `types.ts` (the `ObjectStore` interface), `gcs.ts` (implementation),
-`index.ts` (a memoised `getObjectStore()` factory). Adding S3 is genuinely one new file plus a
-branch in `libs/storage/src/index.ts:18`. Use it as the template for whatever you do to
-messaging and the LLM client, both of which are still single-file and directly coupled.
-
-**Not coupled at all** — do not waste plan budget here: `libs/db` (postgres-js, plain
-Postgres), `libs/scoring` (pure functions), `libs/shared-types`, `libs/source-adapters` (all
-five adapters talk to third-party HTTP APIs — Apify, YouTube, RSS, App Store, Play Store — and
-need only `APIFY_API_KEY` / `YOUTUBE_API_KEY` from a secret store).
+**Consequence to internalise:** `infra/`, and parts of `PLAN.md` and `SETUP.md`, accurately
+describe a deployment that will never be built. They are kept because the GCP stack is the
+clearest available specification of what each service needs. Do not treat them as the plan.
 
 ---
 
-## 5. What will bite you
+## 3. AWS: what was verified, and how
 
-Each of these is a verified property of the current code, and each is a way the port can
-silently regress something that already works.
+All of this was executed live on **2026-08-07** via CloudShell. Commands and outputs are
+reproducible; the discovery script in §3.5 re-runs them.
 
-### 5.1 `GOOGLE_CLOUD_PROJECT` is a hard boot requirement
+### 3.1 Account and identity
 
-`libs/config/src/index.ts:16` declares it `z.string()` — **not** `.optional()`. `getEnv()`
-throws on a failed parse, so **every app in the monorepo refuses to start without it**, including
-ones that never touch GCP. This is the first thing that will stop an AWS container from booting,
-and the error (`Invalid environment: ...`) will not obviously point at it.
-
-Do not simply delete it. `libs/config/src/index.ts` is the **single authority** on env vars
-(DEVRULES — `.env.example` is documentation of it and is allowed to drift). Any change there
-fans out to all five apps; enumerate the call sites.
-
-### 5.2 Migrations apply on API startup, under an advisory lock — this is the design
-
-`apps/api/src/migrate.ts:25` takes `pg_advisory_lock` before migrating and releases it after.
-There is deliberately no `db:migrate` script, and DEVRULES forbids adding migration calls to a
-worker.
-
-This already handles concurrent boots, which is exactly the ECS/Fargate rolling-deploy scenario
-the existing plan flags as "Medium risk — migration-on-startup under concurrency". **Read the
-file before treating that as an open risk.** Do not "fix" it into a one-off task without a
-reason that survives reading the lock.
-
-### 5.3 Migrations are generated, never hand-written
-
-Change `libs/db/src/schema/*.ts`, then `corepack yarn db:generate`. That emits the
-`NNNN_name.sql`, its `meta/` snapshot and the `_journal.json` entry — **all three commit
-together**. Never hand-author, renumber, or edit an applied migration. Keep `libs/shared-types`
-in sync in the same commit series.
-
-### 5.4 Auth is the deep change, and it has an invariant that must survive
-
-Authorisation reads **identity-provider custom claims**, not the `users` table. That is a
-project-wide hard rule, not an implementation detail.
-
-Two specific things to carry across:
-
-1. **`apps/api/src/lib/claims.ts` is called from inside the database transaction**, so that a
-   claim-setting failure rolls the user row back. That atomicity _was_ gap #18 — a fixed defect.
-   A naive Cognito port that writes the row, commits, then calls the identity provider
-   **silently reintroduces it**, and no existing test will fail.
-2. Cognito has no direct `setCustomUserClaims` equivalent. The realistic shapes are a
-   **pre-token-generation Lambda** (the existing plan's Task 18 choice) or groups/custom
-   attributes. Whichever you pick, the API's verifier at `apps/api/src/plugins/auth.ts:71`
-   (`admin.auth().verifyIdToken`) becomes JWKS verification against the user pool, and
-   `request.user.{role, brandEntityId, tenantId}` must end up populated identically —
-   `requireBrandAccess` in that same file depends on it.
-
-**Consider whether you need to do this at all** — see open decision §6.3.
-
-### 5.5 `NEXT_PUBLIC_*` is inlined at build time
-
-`apps/web` is Next.js 16. `NEXT_PUBLIC_*` values are baked into the bundle by `next build`, so
-they must be **Docker build args**, not runtime env. This was gap #8 and is already solved in
-`apps/web/Dockerfile`. Three of the four current vars
-(`NEXT_PUBLIC_FIREBASE_{API_KEY,AUTH_DOMAIN,PROJECT_ID}`) get replaced by Cognito equivalents;
-`NEXT_PUBLIC_API_URL` stays. **Do not regress this into runtime reads** — it will appear to work
-in `next dev` and fail only in the built image.
-
-### 5.6 Never interpolate a JS `Date` into a raw drizzle `sql` fragment
-
-House rule, and it has shipped **twice** — once in the keyset predicate, once in the `/stats`
-counts. Postgres receives `Thu Jul 30 2026 15:41:17 GMT+0100 (British Summer Time)` and rejects
-it at runtime. Every mocked test passed both times, because a mocked database never renders SQL.
-
-Use typed operators embedded into the fragment:
-
-```ts
-sql`COUNT(*) FILTER (WHERE ${gte(signals.publishedAt, since)})`;
+```
+Account   290304998906  (alias: tesai-dev-sandbox)
+Principal arn:aws:sts::290304998906:assumed-role/AWSReservedSSO_TesAiDevSandboxAdmin_.../Wayne.Strydom@tes.com
+Region    eu-west-2 (London)
 ```
 
-`apps/api/test/routes/keyset.test.ts` renders through the real `PgDialect` — that is the shape of
-a test that actually catches it. Copy it for any new raw SQL.
+Access is via **IAM Identity Center (SSO)**, so the working credential is a temporary session
+role. Two consequences: sessions expire (CloudShell refreshes automatically), and **this role
+cannot be reused for CI** — GitHub Actions needs its own IAM role.
 
-### 5.7 Tenant scoping is manual, and moving cloud does not change that
+### 3.2 The account is shared — this shapes the design
 
-There is no Postgres RLS. **Every query must filter on `tenant_id`**, and brand-scoped routes
-must additionally check `request.user.brandEntityId`. A greenfield database is arguably the
-moment to add RLS — flag it as a decision (§6.8), do not silently assume it.
+`tesai-dev-sandbox` hosts several projects. The owner has full control inside it but **cannot
+create accounts outside it.** So the design goal is not "make it work", it is **"make it
+separable later"**. Concretely:
 
-### 5.8 Model IDs and region availability decay — verify live, every time
+- Every resource named `psignal-<env>-*`. Nothing generic, nothing that could collide.
+- **Our own VPC.** There is no default VPC in `eu-west-2` (verified: `describe-vpcs` returns
+  nothing), so there is no CIDR to collide with and no shared default to land in by accident.
+- Mandatory tags on everything, applied as Terraform defaults so a resource *cannot* be created
+  without them: `Project`, `Owner`, `CostCentre`, `Environment`, `ManagedBy=terraform`,
+  `Expires`.
+- **Activate those as cost allocation tags in Billing.** Without that, spend is not attributable
+  and Fargate's continuous billing becomes an argument nobody can settle.
+- IAM roles scoped by resource tag, so a bug in this system cannot reach another project's data.
 
-DEVRULES calls this the single most common source of confidently-wrong output in this repo, and
-it has already burned this project: the shipped `gemini-2.0-flash-001` default was retired
-2026-06-01, and `gemini-2.0-pro-001` never existed.
+Done properly, lifting Project Signal into a dedicated account later is a `terraform apply`
+against a new account id, not a rewrite. **That is the highest-value property to protect and it
+costs nothing now.**
 
-**Never write a Bedrock model ID from memory.** Confirm against
-`aws bedrock list-foundation-models --region=<region>` or current vendor documentation at the
-moment of use, and confirm the model is actually enabled in the account — Bedrock requires
-explicit per-model access grants, which is a step that does not exist on Vertex and which the
-existing plan does not call out.
+**Two shared-account risks tagging does not solve.** Say them out loud rather than discovering
+them: **service quotas are account-wide** (Fargate task limits, Bedrock TPM, VPC count — another
+project's load test can throttle us and vice versa), and **Bedrock model access is account-wide**
+(enabling a model is additive and harmless, but it is a change others see — do it deliberately,
+not silently).
 
-### 5.9 Use Node 20
+### 3.3 Existing state in the account
 
-`.nvmrc` pins it; `engines` allows `>=20 <23`. On Node 24, `next build` fails with a null React
-dispatcher on Next's internal `/_global-error` page — an error three layers from its cause. This
-cost real time to diagnose (it was misdiagnosed as an upstream Next.js bug before being tracked
-to the local runtime). `next dev` works fine on newer runtimes, which is how it stayed hidden.
-CI and every Dockerfile are on Node 20.
+| Fact | Value | Why it matters |
+| ---- | ----- | -------------- |
+| VPCs in `eu-west-2` | **none**, not even a default | We create our own, no collisions. Region caps at 5 |
+| OIDC providers | **`gitlab.com` only** | GitHub's does not exist — we can create it. **An account allows only one provider per URL**, so if one appears later, reference it rather than creating a duplicate |
+| Budgets | `monthly_tesai-dev-sandbox` (account-wide) | Do not touch it. Add a **tag-filtered** budget for this project alongside |
+| Spend at time of survey | ~$44 month-to-date, ~$182 forecast, both rising | Not compute (there are no VPCs) — most likely Bedrock. **Our Fargate tasks would be the first persistent compute spend in the account** |
 
-### 5.10 There is no e2e harness
+The presence of a `gitlab.com` OIDC provider suggests the department's CI standard is GitLab
+while this repo is on GitHub. **Owner has confirmed: stay on GitHub.** Phase 6 therefore creates
+GitHub's OIDC provider in the account.
 
-Playwright is not a dependency in any `package.json`. Browser verification is MCP-driven and
-leaves no regression artefact. Adding `apps/web/e2e` is the standing fix. Until it exists, any
-completion claim involving UI must describe the manual-equivalent interaction explicitly.
+### 3.4 Bedrock — verified working, and the ID is not obvious
 
-### 5.11 `report-worker` is a health-check skeleton
+```
+$ aws bedrock-runtime converse --region eu-west-2 \
+    --model-id eu.anthropic.claude-haiku-4-5-20251001-v1:0 \
+    --messages '[{"role":"user","content":[{"text":"Reply with exactly: OK"}]}]'
+→ "OK"   16 tokens   752 ms
+```
 
-Reporting is Epic 12 and unbuilt. The existing plan already suggests dropping it rather than
-paying for an idle task; on Fargate (no scale-to-zero) that cost is real and continuous. Confirm
-with the owner, then leave it out of the AWS stack.
+**Three properties of that model id are load-bearing.** Get any of them wrong and it fails in a
+way the error does not explain:
+
+1. **It is an inference profile, not a model id.** The bare
+   `anthropic.claude-haiku-4-5-20251001-v1:0` is rejected with *"Invocation of model ID … with
+   on-demand throughput isn't supported. Retry your request with the ID or ARN of an inference
+   profile."* Newer models are profile-only.
+2. **`eu.` scopes routing to the EU.** Verified via `get-inference-profile`: it routes to
+   `eu-west-2, eu-west-1, eu-west-3, eu-central-1, eu-north-1, eu-south-1, eu-south-2`.
+   `global.` profiles also exist for the same models and route anywhere. **Note this is EU, not
+   UK** — worth confirming against your residency requirement, though what crosses a border is
+   public review text, not personal data. Storage, database and queues stay in `eu-west-2`
+   regardless; the profile governs inference only.
+3. **Model availability decays and is account-specific.** This project has already shipped a
+   retired model id (`gemini-2.0-flash-001`) and one that never existed
+   (`gemini-2.0-pro-001`). **Never write a model id from memory.** Re-run
+   `aws bedrock list-inference-profiles` in the target account.
+
+`REPORTER_MODEL` is deliberately left on Haiku rather than upgraded to something stronger:
+nothing reads it until Epic 12, and shipping an unverified default is exactly how the two bad
+Gemini ids got in.
+
+### 3.5 IAM — role creation is permitted
+
+Probed for real, because the IAM policy simulator does not reliably account for
+Service Control Policies:
+
+```
+aws iam create-role --role-name psignal-probe-delete-me --tags ... \
+  --assume-role-policy-document '{"...":"Effect":"Deny"...}'   → succeeded
+aws iam delete-role --role-name psignal-probe-delete-me        → succeeded
+```
+
+Role creation and tagging both work; no SCP blocks them. **CI can therefore use GitHub OIDC →
+IAM role with no long-lived keys** — the direct equivalent of the Workload Identity Federation
+design the GCP side used.
+
+**To re-verify all of the above in a different account**, run
+[`infra-aws/scripts/00-discover.sh`](../infra-aws/scripts/00-discover.sh). It is read-only apart
+from one explicitly fenced, self-cleaning IAM probe behind `--test-iam`.
 
 ---
 
-## 6. Open decisions — these must be settled before the implementation plan is finalised
+## 4. What the code looks like now
 
-The previous plan was written for a different decision, so several of its choices should be
-re-opened rather than inherited. Do not start writing code against any of these until the owner
-has ruled.
+### 4.1 The three library ports are done
 
-1. **Region.** The plan assumes `eu-west-2` (London) with data residency as a hard requirement.
-   Confirm this still holds, and confirm every service in the design is actually available
-   there — verify live, do not assume parity with the GCP `europe-west2` design.
-2. **Compute.** The plan chose ECS Fargate. The GCP design's economics rested on Cloud Run
-   scaling to zero (`docs/PLAN.md` costs it at "~$0, free tiers"). **Fargate does not scale to
-   zero**, so five idle services become a standing monthly bill. For a system with no live users
-   yet, App Runner, Lambda, or ECS with scheduled scale-down all deserve a look. This is the
-   highest-value decision to revisit and it was made under the old constraint.
-3. **Auth: Cognito, or keep Firebase Auth / Identity Platform?** Firebase Auth is reachable from
-   anywhere — it is not an infrastructure dependency the way Cloud Run or Pub/Sub is. Keeping it
-   deletes the single highest-risk phase (§5.4) and the plan's largest line item (7–10 days),
-   at the cost of retaining one Google dependency and its billing relationship. If the driver
-   for leaving GCP is cost, latency or consolidation, this trade may be worth taking; if it is
-   "no Google services at all", it is not. **Ask the owner which it is** — the answer changes
-   the plan's shape more than any other item here.
-4. **Database.** RDS Postgres vs Aurora Serverless v2. Same scale-to-zero economics question as
-   §6.2. Note `DB_SOCKET_PATH` exists only for the Cloud SQL proxy and simplifies away.
-5. **LLM.** Bedrock model choice, and whether prompt behaviour is re-validated. The
-   cross-cutover comparability problem is gone (§2), so this reduces to: does the current
-   sentiment prompt in `libs/gemini` produce sane output on the chosen Claude model? That needs
-   a real evaluation against real signals, not a smoke test.
-6. **Keep or drop the `CLOUD_PROVIDER` abstraction.** With GCP abandoned, a factory with one
-   live branch is dead code that must still be tested to clear the 80% gate. Options: (a) keep
-   the interfaces, delete the GCS/Pub/Sub/Vertex implementations; (b) keep both for genuine
-   portability; (c) drop the abstraction entirely. Recommend (a) — the interface has real design
-   value, the unused implementation does not.
-7. **`infra/` disposition.** Delete, or keep read-only as reference while `infra-aws/` is built?
-   Recommend keeping until the AWS stack reaches parity, then deleting in one commit — the GCP
-   modules are the clearest available specification of what each service needs.
-8. **Postgres RLS.** Adopt it now on a greenfield database, or keep manual `tenant_id`
-   filtering? Manual scoping has already produced one live intra-tenant hole (gap #5) and one
-   near-miss (gap #12's missing tenant filter on `PATCH /admin/users/:id`). That is two defects
-   of the same class in one register.
-9. **`report-worker`.** Port, or omit until Epic 12? (§5.11 — recommend omit.)
+| Library | Was | Is | Notes |
+| ------- | --- | -- | ----- |
+| `libs/storage` | GCS | **S3** (`@aws-sdk/client-s3`) | Was already split types/impl/factory, so this was one file plus a factory line |
+| `libs/messaging` | Pub/Sub | **SQS** (`@aws-sdk/client-sqs`) | Publish side only — see §5 |
+| `libs/gemini` → **`libs/llm`** | Vertex AI | **Bedrock** (`@aws-sdk/client-bedrock-runtime`) | Renamed by use case, not provider |
+
+**There is deliberately no `CLOUD_PROVIDER` switch.** GCP was never provisioned and is
+abandoned, so a factory with one live branch would be dead code that still had to clear the 80%
+coverage gate. The *interfaces* were kept — they are what made each swap a single-file change —
+and the GCP implementations were deleted, not parked.
+
+**All three take `AWS_ENDPOINT_URL` when set**, which points them at LocalStack, and nothing
+otherwise, so the SDK's default chain resolves the real endpoint. Credentials and region always
+come from that chain — the ECS task role in a deployed environment. **No code holds a key.**
+
+### 4.2 The scoring rewrite is a correctness change, not a port
+
+The Gemini scorer asked for "ONLY valid JSON", stripped ` ```json ` fences, and called
+`JSON.parse`. When a model wrapped its answer in a sentence, that raised `PermanentScoringError`
+— **which acks the message.** The signal was dropped permanently and silently.
+
+The Bedrock client uses **forced tool use**: the model is given exactly one tool whose input
+schema *is* the shape we want, with `toolChoice` forcing it, so the provider returns a parsed
+object. The fence-stripper and the `JSON.parse` are gone. **That failure class no longer
+exists** — it is not handled, it is absent.
+
+If you change `libs/llm`, preserve that property. Reintroducing prose-then-parse reintroduces
+silent data loss.
+
+### 4.3 Config is the authority on environment
+
+`libs/config/src/index.ts` is the single source of truth for env vars — **not** `.env.example`,
+which is documentation of it and is allowed to drift. Notable current state:
+
+- `GOOGLE_CLOUD_PROJECT` is now **optional**. It was required, which meant *every app in the
+  monorepo refused to boot without it*, including the four that never touched GCP. That would
+  have been the first thing to stop an AWS container, with an error naming the variable but not
+  the reason. It is still read by `firebase-admin` in `apps/api`; delete the line in the same
+  change that removes the last firebase import.
+- `ITEM_QUEUE_URL` / `REPORT_QUEUE_URL` have **no defaults and throw when unset**. An SQS URL
+  embeds the account id and region, so no constant could stand in for one. This is the AWS form
+  of the fix for gap #7, where publishing to a hardcoded topic that existed in no environment
+  failed silently.
+- `SCORER_MODEL` / `REPORTER_MODEL` default to the verified inference profile (§3.4).
+- `DB_SOCKET_PATH` still exists and is Cloud-SQL-proxy-only. **It simplifies away on RDS** —
+  delete it when the database lands.
+
+### 4.4 Auth is still Firebase — the only remaining Google dependency
+
+Five files: `apps/api/src/plugins/auth.ts`, `apps/api/src/lib/claims.ts`,
+`apps/api/scripts/bootstrap-owner.ts`, `apps/web/src/lib/firebase.ts`, `apps/web/src/lib/auth.tsx`.
+
+This is Phase 5 and it is the deepest change in the plan. **The invariant that must survive:**
+`setUserClaims()` is called **inside the database transaction** that writes the `users` row, so
+a claims failure rolls the row back. That atomicity was a fixed defect (gap #18). A Cognito port
+that writes the row, commits, then calls the identity provider **silently reintroduces it, and
+no existing test will fail.**
+
+Authorisation reads **identity-provider custom claims, not the `users` table**. Whatever
+replaces Firebase must populate `request.user.{role, tenantId, brandEntityId}` identically —
+`requireRole` and `requireBrandAccess` both depend on it.
+
+---
+
+## 5. What is proven, and what is not
+
+Be precise about this, because the distinction is where projects lie to themselves.
+
+### Proven end to end, against real services (2026-08-07, local, LocalStack + Postgres)
+
+| Step | Evidence |
+| ---- | -------- |
+| Ingest 52 items from the live BBC RSS feed | `{"signalsCreated":52,"signalsPublished":52}` |
+| Raw payloads → S3 | 52 objects, correct `tenant/brand/source/externalId` key layout |
+| Read back out of S3 | Real article text recovered |
+| Publish → SQS | 52 messages, body is a bare signal UUID |
+| DB rows | 52, all carrying `s3://…` refs |
+| Dedup | Identical re-run created **0** |
+| Reconcile sweep | Found all 52 unscored, re-published |
+| Rollup | `{"brands":4,"rows":0}` — correct, nothing scored yet |
+| Logs | Zero error-level lines, no 5xx |
+
+**This mattered.** There was never a GCS emulator, so `libs/storage`'s write path had only ever
+met a mock and gap #4 was closed on faith. The reconcile sweep had never run against a real
+queue. Both work.
+
+### NOT proven — do not claim otherwise
+
+- **Nothing has run in any cloud.** Not one line.
+- **Scoring has never executed against a real model.** Local LocalStack does not emulate
+  Bedrock. The `converse` smoke test proves the *account and model* work; it does not prove
+  `libs/llm` + `scorer.ts` produce a usable `sentiment_results` row. **That is the single most
+  valuable thing for you to prove first.**
+- **The SQS consumer does not exist.** `libs/messaging` covers the **publish** side only.
+  `apps/sentiment-worker` still serves an HTTP route at `POST /pubsub/item` shaped like a
+  Pub/Sub push envelope. Push→pull is a real model change, not a driver swap, and it is Phase 4.
+- **Everything behind `AuthGate` has never been seen rendered.** That includes 63 of the 79 CSS
+  token conversions done this session. A browser pass is a required checkpoint once sign-in
+  works, not an optional follow-up.
+- **No Terraform for AWS exists** beyond the discovery script.
+
+---
+
+## 6. The remaining plan
+
+Locked decisions (owner, 2026-08-06/07): **ECS Fargate** compute, **Cognito** auth, **RDS
+Postgres single instance**, **`eu-west-2`**, **GitHub** CI.
+
+| Phase | Work | Needs the account? |
+| ----- | ---- | ------------------ |
+| ~~0~~ | ~~Discovery~~ | ✅ **done** — §3 |
+| ~~B~~ | ~~Port libraries behind interfaces~~ | ✅ **done** — §4.1 |
+| **1** | **Guardrails: tag defaults, name prefix, tag-filtered budget, teardown script** | Yes — **do this first, before anything billable** |
+| 2 | Foundation: VPC, RDS, S3, ECR, Secrets Manager | Yes |
+| 3 | **Thin vertical slice** — one brand, one RSS feed, one signal, ingest → score → read | Yes |
+| 4 | Full stack: Fargate services, SQS + DLQs, EventBridge Scheduler, **the SQS consumer** | Yes |
+| 5 | Cognito, then the browser pass over views nobody has ever seen | Yes |
+| 6 | CI/CD: GitHub OIDC → IAM role | Yes |
+| 7 | Delete `infra/` and the last Google dependencies | No |
+
+**Phase 3 is deliberately early and you should resist the urge to defer it.** The superseded
+plan put the first true end-to-end run at Phase 5 of 7. That is indefensible when nothing has
+ever executed in a cloud: the first real run is the highest-information moment in the whole
+project, and everything built before it rests on assumptions.
+
+**Fix gap #3 during Phase 4.** `/ingest/dispatch` fans out in-process via `Promise.allSettled`.
+SQS was supposed to dissolve that gap — it only does if the dispatcher actually enqueues per
+`(brand × source)`. Two properties outlive the choice of queue: a dispatch across many brands
+runs inside one HTTP request and can exceed the platform timeout, and a failed source is counted
+in `failed` and dropped rather than retried.
+
+**Cost reality:** Fargate does not scale to zero. The GCP costing (~$13–15/mo) rested entirely
+on Cloud Run doing so. Five idle services bill continuously, in an account whose spend is
+already visible to others. The budget alarm in Phase 1 is not ceremony.
 
 ---
 
 ## 7. What must not be regressed
 
-Fifteen gaps were closed to get here, several of them security or correctness defects found by
-running the system rather than by testing it. A re-platform is exactly the kind of change that
-silently undoes them. Treat this as the regression checklist for the AWS work:
+Fifteen defects were closed to reach this point, several found by running the system rather than
+testing it. A re-platform is exactly the change that silently undoes them.
 
-| #   | Property that must survive                                                                                                  |
-| --- | --------------------------------------------------------------------------------------------------------------------------- |
-| 5   | Brand-scoped routes enforce `request.user.brandEntityId` via the `requireBrandAccess` preHandler. It is **opt-in per route** — nothing fails when a new one omits it, which is how `GET /brands/:id` kept the hole until 2026-08-07. Add it to every new `/brands/:id...` route. |
-| 6   | Cursor pagination has a deterministic `ORDER BY` and a composite keyset predicate.                                          |
-| 4   | Raw payloads are written to object storage on ingest and read back by scoring — not re-fetched from a URL.                  |
-| 7   | Topic/queue names come from the environment, never from hard-coded constants outside local dev.                             |
-| 9   | Worker failures are classified permanent vs transient so the DLQ actually fires. Do not swallow errors in the SQS consumer. |
-| 18  | The user row and the identity-provider claim are written atomically. See §5.4, point 1.                                     |
-| 12  | `PATCH /admin/users/:id` reads the target first and 404s for a foreign tenant.                                              |
-| 10  | `dimension_scores` is written by the rollup; `libs/scoring` is pure and cloud-agnostic — it should need no changes at all.  |
-| 8   | `NEXT_PUBLIC_*` supplied as Docker build args. See §5.5.                                                                    |
-| 17  | Node 20 everywhere. See §5.9.                                                                                               |
+| Property | Note |
+| -------- | ---- |
+| Brand-scoped routes enforce `brandEntityId` | Via `requireBrandAccess`. **It is opt-in per route and nothing fails when a new route omits it** — that is how `GET /brands/:id` kept the hole until 2026-08-07. Add it to every new `/brands/:id...` route |
+| User row and identity-provider claim are atomic | §4.4. The Cognito trap |
+| `PATCH /admin/users/:id` reads the target first and 404s for a foreign tenant | Not confirming a row's existence is deliberate |
+| Cursor pagination has deterministic `ORDER BY` + composite keyset | `(published_at, id)`; neither is a stable sort key alone |
+| Raw payloads written to object storage **before** the row insert | So `raw_storage_ref` can never point at a missing object |
+| Queue/topic names come from the environment, never a constant | Gap #7 |
+| Worker failures classified permanent vs transient | So the DLQ can fire. **Do not swallow errors in the SQS consumer** |
+| `dimension_scores` written by the rollup; `libs/scoring` stays pure | It needs no AWS changes at all |
+| `NEXT_PUBLIC_*` supplied as Docker **build args** | Inlined by `next build`; a runtime env var can never reach the client |
+| Node 20 everywhere | On Node 24, `next build` fails with a null React dispatcher three layers from the cause |
 
-**Note the empty-`items` class of bug too:** Fastify's `fast-json-stringify` strips any property
-not declared in the response schema. `GET /brands/:id/signals` returned empty objects for
-exactly this reason and no test caught it. Every new or changed route needs its response schema
-checked against a real HTTP response, not a unit test.
+Two traps that are not defects but have each cost real time:
+
+- **Never interpolate a JS `Date` into a raw drizzle `sql` fragment.** It bypasses the
+  timestamptz serialiser and Postgres rejects the value at runtime. Shipped twice; every mocked
+  test passed both times because a mocked database never renders SQL. Copy
+  `apps/api/test/routes/keyset.test.ts`, which renders through the real `PgDialect`.
+- **Fastify strips undeclared response fields.** `fast-json-stringify` silently removes any
+  property the response schema does not declare. `GET /brands/:id/signals` returned
+  `items: [{}, {}]` for exactly this reason and no unit test caught it.
 
 ---
 
-## 8. How to verify anything
+## 8. Repository disposition
 
-**The gate — required before any completion claim:**
+- **`infra/`** — the GCP Terraform. Keep read-only until `infra-aws/` reaches parity, then
+  delete in one commit. It is the clearest available specification of what each service needs
+  and re-deriving it from prose would be wasteful. It will never be applied.
+- **`docs/superpowers/plans/2026-08-06-aws-migration.md`** — superseded, marked as such. Mine
+  the Terraform module breakdowns and the Cognito task; do not execute the phase order.
+- **`docs/SETUP.md`** — GCP setup, superseded, banner at the top. Kept for the same reason as
+  `infra/`.
+- **`apps/web/src/lib/data.ts`** — 588 lines of mock data for a fictional bank, still rendering
+  in the Roadmap and Report views. Deferred by owner decision until AWS is running. **No new
+  code may depend on it.**
+
+---
+
+## 9. How to verify anything
+
+**The gate, required before any completion claim:**
 
 ```bash
 corepack yarn lint && corepack yarn typecheck && corepack yarn test
 ```
 
-`yarn test` enforces 80% coverage per project. For Terraform: `terraform fmt -check -recursive`
-and `terraform validate` in the affected tree.
+**Baseline, verified 2026-08-07:** lint green across **13 projects**, typecheck across **12**,
+**309 tests across 11 projects** — api 105, source-adapters 52, scoring 43, web 23, ingestion 22,
+sentiment-worker 15, storage 13, messaging 12, config 11, llm 10, report-worker 3.
+(`@project-signal/db` has only a `build` target, hence 13/12/11.)
 
-**Baseline, re-verified 2026-08-07:** lint green across 13 projects, typecheck green across 12,
-and **297 tests green across 11 projects** — `api` 105, `source-adapters` 52, `scoring` 43,
-`web` 23, `ingestion` 22, `sentiment-worker` 17, `config` 10, `storage` 9, `messaging` 9,
-`gemini` 4, `report-worker` 3. (`api` was 101 until the `GET /brands/:id` brand-access fix
-added four tests; the 2026-08-06 baseline at commit `b62d260` was 293.)
-
-> **A green gate can be a hollow one — check the task count, not just the exit code.** Nx infers
-> the `lint` and `test` targets from `@nx/eslint` / `@nx/vite`. If it computes its project graph
-> while `node_modules` is incomplete — a fresh clone where something ran before
-> `yarn install` finished — those plugins cannot load, and Nx **caches a graph with zero `lint`
-> and `test` targets**. `yarn lint` then prints `No tasks were run` and **exits 0**. The whole
+> ### ⚠️ A green gate can be a hollow one — check the task count, not the exit code
+>
+> Nx infers `lint` and `test` targets from `@nx/eslint` / `@nx/vite`. If it computes its project
+> graph while `node_modules` is incomplete — a fresh clone where something ran before
+> `yarn install` finished — those plugins cannot load and **Nx caches a graph with zero `lint`
+> and `test` targets.** `yarn lint` then prints `No tasks were run` and **exits 0**. The entire
 > gate passes having checked nothing.
 >
-> The tell is the summary line: it should say **13 projects** for lint, **12** for typecheck.
-> The fix is `nx reset` (on Windows it reports `EPERM` on `.nx/workspace-data` while the daemon
-> holds the directory, and still clears enough to work).
+> The tell is the summary line: **13 projects** for lint, **12** for typecheck. The fix is
+> `nx reset` (on Windows it reports `EPERM` on `.nx/workspace-data` while the daemon holds the
+> directory, and still clears enough to work).
 
-> **`yarn test` as scripted will look like it has hung.** It is
-> `nx run-many -t test`, which defaults to running three vitest suites concurrently, each
-> spawning its own worker pool and coverage instrumentation. On a cold cache that did not
-> complete in **two separate 10-minute runs** here, producing no output at all — around 32 node
-> processes contending. The identical work finishes in roughly two minutes with:
+> ### ⚠️ `nx run-many -t test` is unreliable here
+>
+> Documented as finishing in ~2 minutes with `--parallel=1`. On this machine it ran **35+
+> minutes with no output and 57 node processes** before being killed. What works, reliably and
+> in well under a minute total, is driving vitest per project and skipping Nx orchestration:
 >
 > ```bash
-> corepack yarn nx run-many -t test --parallel=1 --output-style=stream
+> cd apps/api && corepack yarn vitest run --coverage    # 105 tests, ~12s
 > ```
 >
-> Use that when you need a cold-cache result or per-project output. Plain `yarn test` is fine
-> once the Nx cache is warm — it then returns in ~3s from cache. This is a local performance
-> characteristic, not a failure; every project passes when actually run. Do not spend a session
-> debugging it as though a test were deadlocked, and do not "fix" it by weakening the gate.
->
-> **Update 2026-08-07: `--parallel=1` did not rescue it either.** On this machine that form ran
-> **35+ minutes with no output and 57 node processes** before being killed. What does work,
-> reliably and in well under a minute total, is driving vitest per project and skipping Nx
-> orchestration entirely — `apps/api` alone is 105 tests in ~12s:
->
-> ```bash
-> cd apps/api && corepack yarn vitest run --coverage
-> ```
->
-> Do that when you need an attributable, trustworthy result. The tests themselves are fast; the
-> orchestration is the problem.
+> The tests are fast; the orchestration is the problem. Do not "fix" this by weakening the gate.
 
-> Note: bare `yarn` is not on `PATH` in this environment — it resolves through
-> `corepack yarn` (Yarn 4.9.2, confirmed). Node on `PATH` here is v24; use Node 20 for anything
-> that runs `next build` (§5.9).
-
-**The local stack:**
+**The local stack** — this is how the end-to-end run in §5 was performed:
 
 ```bash
-corepack yarn dev        # Docker services + all apps; web :3000, api :8080
-corepack yarn db:up      # Postgres only
+docker compose up -d                 # Postgres 16 (:5432) + LocalStack (:4566, s3+sqs)
+cp .env.example .env
+corepack yarn nx run api:dev         # MIGRATIONS APPLY ON API STARTUP — boot this before seeding
 corepack yarn db:seed
-docker compose exec postgres psql -U project_signal_app -d project_signal
+corepack yarn nx run ingestion:dev
+curl -X POST localhost:8081/ingest -H 'Content-Type: application/json' \
+     -d '{"sourceConfigId":"<the rss one>"}'
 ```
 
-The Pub/Sub emulator image must be the `:emulators` tag — `cloud-sdk:slim` has no JRE and the
-emulator silently never starts. If you replace Pub/Sub with SQS locally, ElasticMQ or LocalStack
-is the equivalent; there is no committed setup for either yet.
+`scripts/localstack-init.sh` creates the bucket, both queues and both DLQs on boot, with
+`maxReceiveCount: 5` matching the intended deployed redrive policy — so the local stack fails
+the same way the real one will.
 
-**Two traps when checking a running service:** port 8080 has been found occupied by an unrelated
-application on this machine (an "API is up" check hit the wrong app and was only caught because
-a 403 body turned out to be an HTML SPA — always assert on the body shape, not the status code).
-And `corepack yarn install` fails under `CI=1` after any `package.json` change, because that
-implies `--immutable`.
+**Three environment traps that have each burned time here:**
 
-**What cannot be verified locally today:** a real object-storage round trip (no GCS/S3 emulator
-is committed), anything behind `AuthGate` in the web app, and every cloud primitive. This is why
-§2 recommends the thin vertical slice.
-
----
-
-## 9. Suggested first moves
-
-1. **Get the owner's rulings on §6**, particularly §6.2 (compute) and §6.3 (Cognito vs Firebase
-   Auth). Those two determine the plan's size and its riskiest phase. Everything else can be
-   decided as you go; these cannot.
-2. **Do a full analysis pass of your own** against the live code — do not inherit this document's
-   findings unverified. DEVRULES' inviolable rule binds you too. The inventory in §4 was accurate
-   on 2026-08-06 at commit `d57ff54`; check it still is.
-3. **Rewrite the plan**, do not patch the old one. Its phase structure is organised around a
-   constraint that no longer exists, and patching it will leave contradictions scattered through
-   a document well over a thousand lines long. Mine it for the task-level detail — the Terraform module breakdowns and the Cognito
-   task in particular are worth keeping — and supersede the rest. Re-derive the estimate.
-4. **Re-base the docs in the same change as the code**, per CLAUDE.md: `ARCHITECTURE.md`
-   (describes Cloud Run, Pub/Sub, Cloud SQL and Identity Platform throughout), `PLAN.md`
-   (Epic status and the cost table), `SETUP.md` (15 sections of GCP-specific setup that need an
-   AWS equivalent), and `KNOWN-GAPS.md` #16.
-5. **Do not start the AWS build while §6 is unanswered.** The owner's standing rule is
-   autonomous, uninterrupted execution once development is underway — which is precisely why the
-   questions get asked _now_, upfront, rather than mid-flight.
+- **`yarn` is not on `PATH`** in this environment; it resolves through `corepack yarn` (Yarn
+  4.9.2). Node on `PATH` may be v24 — fine for tests, **fatal for `next build`** (gap #17). Build
+  the web app in Docker (`node:20-alpine`) if your host Node is newer.
+- **Port 5432 and 8080 have both been found occupied** by unrelated applications on a developer
+  machine. Always assert on the **body shape** of a health check, not the status code — an
+  "API is up" check once hit a different app entirely and was only caught because a 403 body
+  turned out to be an HTML SPA.
+- **`corepack yarn install` fails under `CI=1`** after any `package.json` change, because that
+  implies `--immutable`.
 
 ---
 
-## 10. Standing rules you will be held to
+## 10. Open questions for the owner
 
-Summarised from `DEVRULES.md` — read the original, this is a pointer not a substitute.
+Not blocking Phase 1, but needed before the resources they govern are created:
 
-- **Verify, never assume.** Every factual claim must name the file, command or query that
-  produced it. This overrides everything else.
-- **No fabricated columns, env vars, APIs or behaviours.** The Drizzle schema is the source of
-  truth for the database; `libs/config/src/index.ts` for the environment.
+1. **Cost centre code** to tag with, and whether `Environment` should be `dev` or `sandbox`.
+   These go into Terraform defaults so no resource can be created without them.
+2. **Is the enterprise AWS account the same as `290304998906`?** If not, re-run discovery (§3.5)
+   before designing anything.
+3. **EU-wide inference acceptable?** §3.4 — the `eu.` profile routes across seven EU regions,
+   not London alone. The data crossing a border is public review text.
+4. **`report-worker`:** it is a health-check skeleton and Epic 12 is unbuilt. On Fargate it
+   would be a permanently-running task doing nothing. **Recommend omitting it from the AWS stack**
+   until Epic 12, adding it back as a one-file change.
+5. **Postgres RLS.** A greenfield database is the moment to decide. Manual `tenant_id` scoping
+   has already produced one live intra-tenant hole and one near-miss — two defects of the same
+   class in one register.
+
+---
+
+## 11. Standing rules you will be held to
+
+Summarised from [`DEVRULES.md`](../DEVRULES.md) — read the original; this is a pointer.
+
+- **Verify, never assume.** Every factual claim names the file, command or query that produced
+  it. This overrides everything else in this repo, including this document.
+- **No fabricated columns, env vars, APIs or behaviours.** The Drizzle schema in
+  `libs/db/src/schema/*.ts` is the source of truth for the database; `libs/config/src/index.ts`
+  for the environment.
+- **Model ids and cloud service availability decay.** They are the single most common source of
+  confidently-wrong output in this repo. Verify against the live API at the moment of use.
 - **Definition of done** is proven working end to end, to production-release standard, with the
   proof stated. Not "tests pass". Not "should work".
 - **Zero technical debt.** A defect found is a defect fixed, not appended to a register.
 - **Work autonomously** once underway; ask everything you need upfront.
-- `commitlint` enforces a **closed scope list** in `commitlint.config.js` — new libs need their
-  scope added in the same change. Current list includes `storage` and `scoring`; it does **not**
-  include `llm` or anything AWS-flavoured yet.
+- **Migrations are generated, never hand-written.** Edit `libs/db/src/schema/*.ts`, run
+  `corepack yarn db:generate`; the `.sql`, the `meta/` snapshot and the `_journal.json` entry all
+  commit together. Never edit an applied migration.
+- **`commitlint` enforces a closed scope list** in `commitlint.config.js`. It currently includes
+  `llm` and `storage`; a new lib needs its scope added in the same change or the commit is
+  rejected by the hook.

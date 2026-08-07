@@ -32,7 +32,7 @@ is scaffolded but deliberately not provisioned yet.
 | 1 — Infrastructure (Terraform)      | 🟡 Code done, unprovisioned | All 8 modules written and previously applied in the contractor's test project. That environment was abandoned at handover; `staging.tfvars` / `production.tfvars` now hold `REPLACE_ME` and `bootstrap/` must be re-run against a new GCP project                    |
 | 2 — CI/CD                           | ✅ Done                     | 4 workflows, WIF keyless auth, 80% coverage gate. **Deploy triggers on the `staging` branch, not `main`** — the plan text below predates that change                                                                                                                 |
 | 3 — Database & migrations           | ✅ Done                     | 8 tables, **7 migrations**, advisory-locked startup migration                                                                                                                                                                                                        |
-| 4 — Shared libs & skeletons         | ✅ Done                     | **All 8 libs** (`storage` and `scoring` added during the burn-down); all 4 backend services build and serve health checks                                                                                                                                            |
+| 4 — Shared libs & skeletons         | ✅ Done                     | **All 8 libs.** `storage`, `scoring` added during the burn-down; `gemini` became `llm` in the AWS port. All 4 backend services build and serve health checks                                                                                                                                            |
 | 5 — Auth & RBAC                     | ✅ Done                     | Token verification, `requireRole`, `requireBrandAccess` on every `/brands/:id...` route, admin routes and Swagger. Role gating on `POST`/`PATCH /admin/users` fixed, and user rows + claims now write in one transaction (#5, #12, #18)                             |
 | 6 — Web deploy + live data          | 🟡 Partial                  | Dashboard, Trends, Achilles and Competitors are on the live API; Admin, BrandManager and UserManager too. **Roadmap and Report remain on `lib/data.ts`**, so the file survives and Epic 6's exit criterion is unmet (#13). Nothing is deployed anywhere (#16)        |
 | 7 — Ingestion: Google Reviews       | ✅ Done                     | Adapter, dispatcher, dedup, raw-payload storage and Pub/Sub publish all implemented, with topic names resolved from the environment — and **four more sources shipped early** (Epic 10). Cloud Tasks dispatch was dissolved rather than built (#3)                   |
@@ -44,22 +44,34 @@ is scaffolded but deliberately not provisioned yet.
 | 13 — Alerts & anomaly detection     | ❌ Deferred                 | —                                                                                                                                                                                                                                                                    |
 | 14 — Enterprise SSO                 | ❌ Deferred                 | Customer-driven                                                                                                                                                                                                                                                      |
 
-**Net position.** The vertical slice is built and **connected end to end in code** — ingest →
-object storage → queue → score → rollup → read → dashboard. 15 of the 19 items in
-`KNOWN-GAPS.md` are closed, and the full gate is green (13 projects lint, 12 typecheck, 297
-tests across 11).
+**Net position.** The vertical slice is built and **connected end to end** — ingest → object
+storage → queue → score → rollup → read → dashboard. 17 of the 19 items in `KNOWN-GAPS.md` are
+closed, and the full gate is green (13 projects lint, 12 typecheck, **309 tests across 11**).
 
-**But none of it has ever run in a cloud.** Everything is verified against Docker Postgres and
-the Pub/Sub emulator; a real object-storage round trip, a real Vertex call and anything behind
-`AuthGate` remain unexercised. That is `KNOWN-GAPS.md` #16, and it is still the binding
-constraint on everything else.
+**Ingest and storage are now proven against real services.** On 2026-08-07, locally against
+LocalStack and Postgres: 52 signals from a live RSS feed → S3 → SQS, read back out of S3,
+deduplicated on re-run, swept by `/reconcile`, clean logs. There was never a GCS emulator, so
+that path had only ever met a mock.
 
-**The destination has changed.** On 2026-08-06 the owner decided not to stand up GCP at all —
-the system goes straight to AWS. Every GCP-specific statement in this document is therefore an
-accurate description of the *code* and an obsolete description of the *destination*. See
-[`HANDOVER.md`](HANDOVER.md), which is authoritative on the decision, and note that the cost
-table below rests on Cloud Run scaling to zero — an assumption that does not survive a move to
-Fargate.
+**But nothing has ever run in a cloud, and scoring has never met a real model.** LocalStack does
+not emulate Bedrock. Anything behind `AuthGate` also remains unseen. That is `KNOWN-GAPS.md`
+#16, and it is still the binding constraint on everything else.
+
+**The destination has changed, and the code has followed it.** On 2026-08-06 the owner decided
+not to stand up GCP at all. On 2026-08-07 the three cloud-coupled libraries were ported:
+`libs/storage` → **S3**, `libs/messaging` → **SQS**, `libs/gemini` → **`libs/llm`** on
+**Bedrock**. Auth (Firebase) is the only Google dependency left, and it is Phase 5.
+
+So this document's GCP statements are now obsolete about **both** the destination *and*, for
+those three libraries, the code. [`HANDOVER.md`](HANDOVER.md) is authoritative on current state.
+Two specifics worth carrying:
+
+- **The cost table below rests on Cloud Run scaling to zero.** ECS Fargate does not. Five idle
+  services bill continuously, and the target account is shared, so that spend is visible to
+  other teams. Re-cost before quoting a figure.
+- **The pipeline has now run end to end for real** — locally, against LocalStack and Postgres,
+  on 2026-08-07. Ingest → S3 → SQS, with dedup and the reconcile sweep exercised. Scoring
+  against a real model remains unproven.
 
 ---
 

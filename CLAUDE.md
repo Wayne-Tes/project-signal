@@ -6,16 +6,24 @@ Follow all development rules in @DEVRULES.md
 
 | Document                                       | Why                                                                                                                                                                                                         |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`docs/HANDOVER.md`](docs/HANDOVER.md)         | **Read first.** The current state of play and the live decision: GCP is abandoned, AWS is the target, work starts now. Carries the GCP-coupling inventory, the regression checklist and the open questions. |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete code-accurate reference — every app, lib, table, route and infra module, plus end-to-end flows and a "gotchas before you edit" section. **Read this before making changes anywhere unfamiliar.**   |
-| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)     | Pipeline links that are provisioned but not connected. **Read before debugging any end-to-end flow** — several things that look broken were never wired.                                                    |
+| [`docs/HANDOVER.md`](docs/HANDOVER.md)         | **Read first, in full.** Current state, what is proven vs assumed, the verified AWS account facts, the remaining phase plan, and the regression checklist. Written for an agent with no memory of how any of this came to be. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete code-accurate reference — every app, lib, table, route and module, plus end-to-end flows and a "gotchas before you edit" section. **Read before changing anything unfamiliar.**                     |
+| [`docs/AWS-SETUP.md`](docs/AWS-SETUP.md)       | The AWS runbook and its guardrails. Phase 0 discovery is executable and read-only.                                                                                                                          |
+| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)     | The defect register. 17 of 19 closed; **read before debugging any end-to-end flow.**                                                                                                                        |
 | [`docs/PLAN.md`](docs/PLAN.md)                 | Design rationale, key decisions and epic status.                                                                                                                                                            |
 
 Keep all of these current when you change structure, and update `ARCHITECTURE.md` in the same
 change as the code it describes.
 
-> **`ARCHITECTURE.md`, `PLAN.md` and `SETUP.md` all describe a GCP deployment.** That is still an
-> accurate description of the code, but no longer of the destination — see `docs/HANDOVER.md` §2.
+> ### The destination is AWS. Some documents still describe GCP.
+>
+> The system was built for GCP and **never deployed there** — the environment was abandoned and
+> the owner decided (2026-08-06) to go straight to AWS. `libs/storage`, `libs/messaging` and
+> `libs/llm` now run on **S3, SQS and Bedrock**; auth is the only Google dependency left.
+>
+> **`infra/`, `docs/SETUP.md` and parts of `docs/PLAN.md` describe a GCP deployment that will
+> never be built.** They are kept because the GCP stack is the clearest available specification
+> of what each service needs. Do not treat them as the plan — see `docs/HANDOVER.md` §2 and §8.
 
 ## Monorepo: NX
 
@@ -69,25 +77,26 @@ The `apps/web` app runs **Next.js 16** with **React 19**. This is a newer releas
 
 ```
 apps/
-  web/              — Next.js 16 dashboard (client-side SPA, Identity Platform auth)
+  web/              — Next.js 16 dashboard (client-side SPA, Firebase auth until Cognito)
   api/              — Fastify 5 REST API; owns the schema, migrates on startup
   ingestion/        — Scheduled source pull + dispatcher
-  sentiment-worker/ — Pub/Sub consumer → Gemini Flash scoring
+  sentiment-worker/ — scores signals via Bedrock (HTTP route today; SQS consumer is Phase 4)
   report-worker/    — Health-check skeleton; reporting deferred
 libs/
   config/          — zod-validated env loader; the authority on env vars
   db/              — Drizzle schema + postgres-js client
-  storage/         — ObjectStore interface + GCS implementation + factory
+  storage/         — ObjectStore interface + S3 implementation + factory
   scoring/         — Brand Perception Index: decay, dimensions, clustering (pure)
-  gemini/          — Vertex AI client wrapper
-  messaging/       — Pub/Sub client + topic constants
+  llm/             — LlmClient interface + Bedrock implementation (forced tool use)
+  messaging/       — MessagePublisher interface + SQS implementation
   shared-types/    — Cross-service contracts
   source-adapters/ — Adapter interface + 5 implementations
-infra/             — Terraform: bootstrap / modules / stack / envs (GCP; see HANDOVER.md)
+infra/             — GCP Terraform. SUPERSEDED, kept as reference only (HANDOVER.md §8)
+infra-aws/         — AWS tree. Phase 0 discovery script only so far
 ```
 
 Lib dependency order (hard-coded in `scripts/build-libs.sh`):
-`config → shared-types → db → storage → scoring → gemini → messaging → source-adapters`.
+`config → shared-types → db → storage → scoring → llm → messaging → source-adapters`.
 
 ## Workspace Scripts
 
@@ -115,7 +124,16 @@ Postgres advisory lock. Never add migration calls to a worker.
 ## House rules that bite
 
 - **Tenant scoping is manual.** There is no Postgres RLS; every query must filter on
-  `tenant_id`. Brand-scoped routes should also check `request.user.brandEntityId`.
+  `tenant_id`, and every `/brands/:id...` route must add the `requireBrandAccess` preHandler.
+  **It is opt-in and nothing fails when a new route omits it** — that is how `GET /brands/:id`
+  kept an intra-tenant hole until 2026-08-07.
+- **Cloud clients take credentials from the SDK default chain, never from config.** The ECS task
+  role in a deployed environment; `AWS_ENDPOINT_URL` points them at LocalStack locally. No code
+  should ever hold a key.
+- **Never write a model id from memory.** This repo has shipped a retired one and one that never
+  existed. Model ids are inference profiles on Bedrock (`eu.anthropic.…`), they are
+  account-specific, and availability decays. Verify with
+  `aws bedrock list-inference-profiles --region eu-west-2` at the moment of use.
 - **Authorisation reads Firebase custom claims**, not the `users` table. Changing a row
   without calling `setCustomUserClaims` leaves the token stale for up to an hour.
 - **Style with CSS custom properties** in `apps/web` — literal hex values break the runtime
