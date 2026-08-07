@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { db, brandEntities } from '@project-signal/db';
 import { and, eq } from 'drizzle-orm';
+import { requireBrandAccess } from '../plugins/auth.js';
 
 const BRAND_SCHEMA = {
   type: 'object',
@@ -34,7 +35,14 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
     return db.get().select().from(brandEntities).where(baseCondition);
   });
 
+  // `requireBrandAccess` applies here for the same reason it applies to every other
+  // `/brands/:id/*` route: the tenant filter below closes cross-tenant reads, but without the
+  // guard a `user` pinned to brand A could still read brand B's row — including a competitor
+  // tracked by the same tenant — by changing the id in the URL. Only the brand's metadata
+  // leaked rather than its signals, which is why this route was missed when KNOWN-GAPS #5 was
+  // closed across the analytical endpoints; it is the same defect at a smaller blast radius.
   fastify.get('/brands/:id', {
+    preHandler: requireBrandAccess,
     schema: {
       security: [{ BearerAuth: [] }],
       params: {

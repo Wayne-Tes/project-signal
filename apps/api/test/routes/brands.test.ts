@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildTestApp } from '../helpers/app.js';
+import { buildTestApp, DEFAULT_OWNER, DEFAULT_PINNED_USER } from '../helpers/app.js';
 
 let _dbRows: unknown[] = [];
 const _dbRowQueue: unknown[][] = [];
@@ -74,5 +74,43 @@ describe('GET /brands/:id', () => {
     const app = await buildTestApp(brandsRoutes);
     const res = await app.inject({ method: 'GET', url: '/brands/does-not-exist' });
     expect(res.statusCode).toBe(404);
+  });
+
+  it('allows a pinned user to read their own brand', async () => {
+    _dbRows = [brand1];
+    const app = await buildTestApp(brandsRoutes, DEFAULT_PINNED_USER);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1' });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('rejects a pinned user reading a sibling brand in the same tenant', async () => {
+    // The row would have been returned — the tenant filter does not exclude it — so a 403
+    // here proves the guard, not an empty result set.
+    _dbRows = [brand2];
+    const app = await buildTestApp(brandsRoutes, DEFAULT_PINNED_USER);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-2' });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('does not constrain an unpinned user', async () => {
+    // Matches GET /brands, which returns every brand in the tenant when no pin is set.
+    _dbRows = [brand2];
+    const app = await buildTestApp(brandsRoutes, {
+      uid: 'u',
+      role: 'user',
+      tenantId: 'tenant-1',
+    });
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-2' });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('does not constrain owner or admin', async () => {
+    _dbRows = [brand2];
+    const owner = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
+    expect((await owner.inject({ method: 'GET', url: '/brands/brand-2' })).statusCode).toBe(200);
+
+    _dbRows = [brand2];
+    const admin = await buildTestApp(brandsRoutes);
+    expect((await admin.inject({ method: 'GET', url: '/brands/brand-2' })).statusCode).toBe(200);
   });
 });
