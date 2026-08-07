@@ -1,15 +1,25 @@
-# Project Signal Infrastructure (Terraform)
+# Project Signal Infrastructure (Terraform — GCP)
+
+> # ⚠️ SUPERSEDED — this stack will never be applied
+>
+> **On 2026-08-06 the owner decided not to stand up GCP at all.** The system goes to AWS; the
+> live tree is [`../infra-aws/`](../infra-aws/) and the runbook is
+> [`../docs/AWS-SETUP.md`](../docs/AWS-SETUP.md). Read
+> [`../docs/HANDOVER.md`](../docs/HANDOVER.md) first.
+>
+> **This directory is kept deliberately, and it is worth reading.** It is the clearest available
+> specification of what each service in this system actually needs — which IAM grants, which env
+> vars, which retry policy, which secret, and why. Re-deriving that from prose while writing the
+> AWS equivalent would be waste. Mine it; do not run it.
+>
+> Delete it once `infra-aws/` reaches parity (`HANDOVER.md` §8).
+>
+> Everything below describes the GCP deployment as designed. It was applied once, to a
+> contractor-owned project that was abandoned at handover; `envs/*.tfvars` hold `REPLACE_ME` and
+> `bootstrap/` has never been run by this team.
 
 GCP infrastructure for Project Signal, structured for multiple isolated environments.
-
-Region is **`europe-west2`** (London).
-
-> **Nothing is provisioned yet.** This stack was originally applied to a contractor-owned
-> test project, which was abandoned at handover. Both `envs/staging.tfvars` and
-> `envs/production.tfvars` contain `REPLACE_ME` for `project_id` / `project_number`, and
-> `bootstrap/` has not been run against a new project. Follow
-> [First-time setup](#first-time-setup-run-once-before-any-environment) below to build
-> staging from scratch.
+Region **`europe-west2`** (London).
 
 For how the infrastructure relates to the application code — and for the list of places where
 the two currently disagree — see [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) and

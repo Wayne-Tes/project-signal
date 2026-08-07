@@ -35,8 +35,8 @@ is scaffolded but deliberately not provisioned yet.
 | 4 — Shared libs & skeletons         | ✅ Done                     | **All 8 libs.** `storage`, `scoring` added during the burn-down; `gemini` became `llm` in the AWS port. All 4 backend services build and serve health checks                                                                                                                                            |
 | 5 — Auth & RBAC                     | ✅ Done                     | Token verification, `requireRole`, `requireBrandAccess` on every `/brands/:id...` route, admin routes and Swagger. Role gating on `POST`/`PATCH /admin/users` fixed, and user rows + claims now write in one transaction (#5, #12, #18)                             |
 | 6 — Web deploy + live data          | 🟡 Partial                  | Dashboard, Trends, Achilles and Competitors are on the live API; Admin, BrandManager and UserManager too. **Roadmap and Report remain on `lib/data.ts`**, so the file survives and Epic 6's exit criterion is unmet (#13). Nothing is deployed anywhere (#16)        |
-| 7 — Ingestion: Google Reviews       | ✅ Done                     | Adapter, dispatcher, dedup, raw-payload storage and Pub/Sub publish all implemented, with topic names resolved from the environment — and **four more sources shipped early** (Epic 10). Cloud Tasks dispatch was dissolved rather than built (#3)                   |
-| 8 — Sentiment scoring               | ✅ Done                     | Worker scores the **stored raw text**, upserts idempotently, and classifies permanent vs transient failures so the DLQ can fire (#1, #4, #9). Never yet exercised against a real Vertex endpoint or a real bucket                                                    |
+| 7 — Ingestion: Google Reviews       | ✅ Done                     | Adapter, dispatcher, dedup, raw-payload storage to S3 and SQS publish all implemented, with the queue URL resolved from the environment — and **four more sources shipped early** (Epic 10). Cloud Tasks dispatch was dissolved rather than built (#3)                   |
+| 8 — Sentiment scoring               | ✅ Done                     | Worker scores the **stored raw text**, upserts idempotently, and classifies permanent vs transient failures so the DLQ can fire (#1, #4, #9). Proven against a real bucket and queue locally (LocalStack, 2026-08-07); **never exercised against a real model**                                                    |
 | 9 — Observability & cost guardrails | ❌ Not started              | Log/metric writer IAM is granted, but no uptime checks, dashboards or budget alert exist                                                                                                                                                                             |
 | 10 — Additional sources             | ✅ Done early               | App Store, Play Store, RSS/Atom and YouTube adapters are all implemented alongside Google Reviews — this epic is no longer deferred                                                                                                                                  |
 | 11 — Full scoring engine            | 🟡 Partial                  | `libs/scoring` + `POST /rollup` write `dimension_scores` daily; `/score`, `/achilles`, `/strengths`, `/stats` read them (#10). Clusters are computed on read, not persisted, so there is no cluster history; the action roadmap has no producer at all                |
@@ -163,8 +163,8 @@ project-signal/
     shared-types/        # contracts: Signal, SentimentResult, etc.
     db/                  # Drizzle schema + client (migrations applied by API on startup)
     config/              # zod-validated env/config
-    gemini/              # Vertex AI client wrapper
-    messaging/           # Pub/Sub client + topic constants
+    llm/                 # LlmClient interface + Bedrock implementation
+    messaging/           # MessagePublisher interface + SQS implementation
     source-adapters/     # adapter interface + google_reviews, app_store, play_store,
                          #   rss, youtube implementations
   infra/

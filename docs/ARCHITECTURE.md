@@ -44,7 +44,7 @@ The loop it implements:
 
 1. **Ingest** public brand signals — Google reviews, App Store / Play Store reviews, YouTube
    comments, RSS/news — on a weekly schedule, per brand, per source.
-2. **Score** each signal with Gemini Flash: sentiment label, score (−1…1), confidence, which
+2. **Score** each signal with Claude on Bedrock: sentiment label, score (−1…1), confidence, which
    of the five brand dimensions it touches, and topic tags.
 3. **Surface** the result in a dashboard: a composite Brand Perception Index, per-dimension
    breakdown, an "Achilles Heel" ranking of the weaknesses doing the most damage, a
@@ -75,8 +75,8 @@ project-signal/
 │   ├── shared-types/         Cross-service contracts (no runtime deps)
 │   ├── config/               zod-validated env loader
 │   ├── db/                   Drizzle schema + postgres-js client
-│   ├── gemini/               Vertex AI client wrapper
-│   ├── messaging/            Pub/Sub client + env-resolved topic names
+│   ├── llm/                  LlmClient interface + Bedrock implementation
+│   ├── messaging/            MessagePublisher interface + SQS implementation
 │   ├── storage/              ObjectStore interface + GCS implementation
 │   ├── scoring/              Brand Perception Index: decay, dimensions, topic clusters
 │   └── source-adapters/      Adapter interface + 5 implementations
@@ -184,7 +184,7 @@ results row.
 - **Unique `(source_url, brand_entity_id)`** ← this is the deduplication key. Ingestion relies
   on it via `onConflictDoNothing()`.
 
-**`sentiment_results`** — Gemini output, one row per signal.
+**`sentiment_results`** — model output, one row per signal.
 `signal_id` (**unique**, → signals), `label`, `score` real, `confidence` real,
 `dimensions` text[], `topics` text[], `model_version`, `scored_at`.
 The unique constraint is what makes scoring idempotent — the worker upserts on it.
@@ -560,7 +560,7 @@ Fastify, port **8081**. Private: reachable only by the scheduler and itself.
 | `POST /ingest`              | Run one job. Body `{ sourceConfigId }`. 400 if missing.                                                                                             |
 | `POST /ingest/dispatch`     | Fan-out: selects **all** `source_configs` where `is_enabled = true` and runs each via `Promise.allSettled`; returns `{ total, succeeded, failed }`. |
 
-Startup pings the DB (`SELECT 1`) and initialises the Pub/Sub client before listening, so a
+Startup pings the DB (`SELECT 1`) and resolves the item queue URL before listening, so a
 broken connection fails fast rather than at first request.
 
 ### `handleIngestionJob(sourceConfigId)` — `src/handler.ts`
@@ -574,7 +574,7 @@ broken connection fails fast rather than at first request.
 5. `adapter.fetch(config, since)`.
 6. For each item: upload the verbatim payload (text + metadata) to
    `s3://<RAW_BUCKET>/<tenant>/<brand>/<source>/<externalId>.json` via `getObjectStore()`,
-   **then** insert into `signals` with the returned `gs://` reference and
+   **then** insert into `signals` with the returned `s3://` reference and
    `onConflictDoNothing()`. Upload-before-insert means `raw_storage_ref` can never point at a
    missing object. The `(source_url, brand_entity_id)` unique constraint does the
    deduplication; `.returning()` is empty for a duplicate, so only genuinely new rows are
@@ -611,7 +611,7 @@ code is the ack signal**, so it is load-bearing rather than cosmetic:
 | ------------------------ | ------- | ------------------------------------------------- |
 | Success                  | **204** | Acked.                                            |
 | `PermanentScoringError`  | **204** | Acked, logged at error level. Retry cannot help.  |
-| Anything else (transient) | **500** | Nacked → Pub/Sub retries with backoff → DLQ.     |
+| Anything else (transient) | **500** | Nacked → the queue retries with backoff → DLQ.     |
 
 ### `handlePubSubMessage(signalId)` — `src/handler.ts`
 
@@ -626,9 +626,9 @@ code is the ack signal**, so it is load-bearing rather than cosmetic:
 missing signal row, unresolvable reference, stored payload that is not JSON or has no text,
 model output that will not parse — raises `PermanentScoringError` and is acked, because
 redelivering sends the identical prompt and gets the identical garbage. Everything else
-(network, quota, 5xx from Vertex or the bucket) is rethrown so the retry backoff and
+(network, quota, throttling, 5xx from Bedrock or the bucket) is rethrown so the retry backoff and
 `max_delivery_attempts` configured in Terraform can actually fire. **Do not swallow errors
-here**; doing so previously made a Gemini outage silently drop every signal in the window.
+here**; doing so previously made a model outage silently drop every signal in the window.
 
 ### `scoreSignal(text)` — `src/scorer.ts`
 
@@ -650,7 +650,7 @@ exported so tests can assert on it.
 ## 9. apps/report-worker — deferred skeleton
 
 Fastify, port **8083**. Only `/health` and `/ready`, exposed through an exported
-`buildApp()` so tests can mount it without listening. Weekly Gemini Pro narrative reports and
+`buildApp()` so tests can mount it without listening. Weekly narrative reports and
 PDF generation are Epic 12 — deliberately unbuilt. Its `vitest.config.ts` intentionally omits
 coverage thresholds so the empty skeleton doesn't fail the 80% gate.
 
@@ -820,7 +820,7 @@ Cloud Scheduler (weekly, Mon 06:00 UTC)
             ├─ INSERT signals ... ON CONFLICT DO NOTHING    ← dedup
             └─ publish("item", id) → SQS            ← URL from ITEM_QUEUE_URL
                  └─ push subscription [OIDC] → <sentiment>/pubsub/item
-                      ├─ read raw payload, scoreSignal(text) via Gemini Flash
+                      ├─ read raw payload, scoreSignal(text) via Bedrock
                       ├─ UPSERT sentiment_results ON CONFLICT (signal_id)  ← idempotent
                       └─ transient failure → 500 → retry → item DLQ (after 5 attempts)
 Hourly  POST /reconcile  re-publishes signals with no sentiment_results row.
@@ -838,7 +838,7 @@ platform's request timeout, and a failed source is counted in `failed` and dropp
 retried.
 
 **None of this has ever run in a cloud** — see `HANDOVER.md`. It is verified locally against
-Docker Postgres and the Pub/Sub emulator only.
+Docker Postgres and LocalStack only.
 
 ### Dashboard read path
 
@@ -1008,7 +1008,7 @@ startup migrations silently no-op.**
 
 ## 14. Testing
 
-Vitest 2 with V8 coverage; ~4,060 lines across 28 test files. **297 tests across 11 projects**
+Vitest 2 with V8 coverage; ~4,200 lines across 29 test files. **309 tests across 11 projects**
 (`@project-signal/db` has only a `build` target, which is why 13 projects lint, 12 typecheck and
 11 test).
 
@@ -1025,7 +1025,7 @@ without building the libs.
 | API routes     | `admin`, `aliases`, `brands`, `integrations`, `keyset`, `scores`, `signals`, `users` | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers `@fastify/sensible` and stubs `request.user` in an `onRequest` hook — **Firebase is never involved**. `DEFAULT_ADMIN` / `DEFAULT_OWNER` / `DEFAULT_PINNED_USER` presets. |
 | API plugins    | `plugins/auth.test.ts`                                                         | Token parsing, public-prefix bypass, `requireRole` and `requireBrandAccess` behaviour                                                                                                                                                        |
 | API migrations | `migrate.test.ts`                                                              | Advisory-lock and no-op-when-absent behaviour                                                                                                                                                                                                |
-| Ingestion      | `handler.test.ts`, `rollup.test.ts`                                            | `vi.hoisted` mock chain impersonating the Drizzle fluent builder with a queue of result sets; adapters, storage and Pub/Sub mocked                                                                                                            |
+| Ingestion      | `handler.test.ts`, `rollup.test.ts`                                            | `vi.hoisted` mock chain impersonating the Drizzle fluent builder with a queue of result sets; adapters, storage and the SQS publisher mocked                                                                                                            |
 | Sentiment      | `handler`, `scorer`                                                            | Permanent-vs-transient classification, upsert-on-conflict, prompt shape, fence-stripping, JSON parsing                                                                                                                                        |
 | Web            | `test/brand-data.test.ts`                                                      | The API→presentation mapping, which is where view correctness is proven while `AuthGate` blocks browser verification                                                                                                                         |
 | Libs           | `config`, `gemini`, `messaging`, `scoring`, `storage`, all 5 adapters + `apifyClient` | `fetch` mocked; RSS tests cover both RSS and Atom shapes; `scoring` is pure and needs no mocks                                                                                                                                          |
@@ -1076,7 +1076,7 @@ Bedrock, so that needs real AWS credentials.
 | sentiment-worker | http://localhost:8082                                                    |
 | report-worker    | http://localhost:8083                                                    |
 | Postgres         | `postgresql://project_signal_app:password@localhost:5432/project_signal` |
-| Pub/Sub emulator | localhost:8085                                                           |
+| LocalStack (S3+SQS) | http://localhost:4566                                                 |
 
 **Calling the API locally without Firebase** — with `NODE_ENV=development`:
 
