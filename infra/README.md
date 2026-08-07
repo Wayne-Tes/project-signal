@@ -114,7 +114,7 @@ Note the outputs: `state_bucket_name`, `workload_identity_provider`,
 
 Bootstrap restricts the WIF provider to a single repository via
 `attribute_condition = assertion.repository == "<owner/repo>"` (default
-`LokimotiveUK/project-signal`). Set `github_repository` if the repo moves — a mismatch fails
+`Wayne-Tes/project-signal`). Set `github_repository` if the repo moves — a mismatch fails
 CI auth with an unhelpful error.
 
 ### 3. Create the GitHub environment and its secrets

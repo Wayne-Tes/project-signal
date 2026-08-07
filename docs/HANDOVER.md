@@ -16,17 +16,21 @@ Then read, in order: [`../DEVRULES.md`](../DEVRULES.md),
 
 ## 0. If you are reading this in a newly created repository
 
-This codebase was developed in a personal GitHub repo and moved into an enterprise one by
-export. Several things are therefore **stale by construction** and must be fixed before CI can
-work. None of them are subtle, but all of them fail confusingly if missed:
+This codebase was developed in a personal GitHub repo (`LokimotiveUK/project-signal`) and
+**moved to `Wayne-Tes/project-signal` on 2026-08-07 by pushing, not by export** — so the full
+32-commit history came with it. Read the commit messages; they carry the reasoning for every
+change and are a first-class part of this handover.
 
-| What | Where | Why it breaks |
-| ---- | ----- | ------------- |
-| Git remote / repo name | `.git/config` | Everything below keys off it |
-| `github_repository` | `infra/bootstrap/variables.tf` | Currently `LokimotiveUK/project-signal`. The GCP WIF provider pins tokens to that exact string. GCP is abandoned, so this only matters if you keep `infra/` at all — see §8 |
-| GitHub OIDC trust policy | not yet written (Phase 6) | The IAM role's trust policy will name `repo:<org>/<repo>:*`. Get the new path right first time |
-| Branch protection / environments | GitHub settings | `ci.yml` runs on `main` and `staging`; `deploy-staging.yml` triggers on a **`staging` branch that does not exist** — see §9 |
-| Commit history | — | If the export dropped history, the reasoning behind changes lives *only* in these docs. Treat them as the record |
+Things that the move made stale, or that still need doing:
+
+| What | Where | Status |
+| ---- | ----- | ------ |
+| Git remote | `.git/config` | ✅ Done. `origin` → `https://Wayne-Tes@github.com/Wayne-Tes/project-signal.git`. The old personal repo is retained as the `old-origin` remote; delete it when you are confident nothing is needed from it |
+| GitHub OIDC trust policy | not yet written (Phase 6) | **The IAM role's trust policy must name `repo:Wayne-Tes/project-signal:*`.** Get this right first time — a mismatch fails with an error that does not name the cause |
+| `github_repository` | `infra/bootstrap/variables.tf` | Updated to the new path for accuracy, but it is GCP WIF and **will never be applied** — see §8 |
+| Repo is user-owned, not org-owned | GitHub | `Wayne-Tes` is a **user account**, so there are no teams — access is per-individual collaborator. A repo can be transferred into an organisation later without losing history or issues; do that if the team needs shared ownership |
+| Branch protection | GitHub settings | Not yet configured. `ci.yml` runs on `main` and `staging`; `deploy-staging.yml` triggers on a **`staging` branch that does not exist** — see §9 |
+| GitHub Actions on a private repo | GitHub settings | Verify Actions are enabled and that GitHub-hosted runners are permitted. The workflows target `ubuntu-latest`; a self-hosted-only policy means they need editing |
 
 **Everything verified below was verified in AWS account `290304998906` (`tesai-dev-sandbox`).
 If the enterprise account is a different one, every account-specific fact in §3 is unverified

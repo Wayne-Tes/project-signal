@@ -17,7 +17,7 @@ variable "state_bucket_name" {
 variable "github_repository" {
   description = "GitHub repo allowed to authenticate via Workload Identity Federation, as 'owner/name'."
   type        = string
-  default     = "LokimotiveUK/project-signal"
+  default     = "Wayne-Tes/project-signal"
 }
 
 variable "enabled_apis" {

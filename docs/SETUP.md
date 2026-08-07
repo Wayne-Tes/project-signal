@@ -30,7 +30,7 @@ regional model availability — the doc says how to check rather than asserting 
 | A Google account with rights to create projects and link billing | Steps 2–4                         | Needs Owner on the new project.              |
 | A payment method                                                 | Bootstrap enables paid APIs       | Free-trial credit works.                     |
 | An Apify account                                                 | 3 of 5 source adapters            | Paid; the free tier is enough to smoke-test. |
-| Admin on the GitHub repo                                         | Steps 5, 10                       | `LokimotiveUK/project-signal`.               |
+| Admin on the GitHub repo                                         | Steps 5, 10                       | `Wayne-Tes/project-signal`.               |
 | Microsoft Entra tenant                                           | Optional — Microsoft sign-in only | Skip if email/password is enough.            |
 
 ### Local tooling
@@ -149,7 +149,7 @@ terraform output
 ```
 
 > **The WIF provider is pinned to one repository.** `attribute_condition` is
-> `assertion.repository == "LokimotiveUK/project-signal"`. If the repo is renamed, moved or
+> `assertion.repository == "Wayne-Tes/project-signal"`. If the repo is renamed, moved or
 > forked, change `github_repository` in `infra/bootstrap/variables.tf` and re-apply bootstrap,
 > or CI auth fails with an error that does not name the cause.
 

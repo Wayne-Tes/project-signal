@@ -452,7 +452,7 @@ The working tree had no `.git` directory, so nothing could be committed and the 
 design was unreachable.
 
 **Resolved during handover:** the repo is initialised and `origin` is
-`https://github.com/LokimotiveUK/project-signal.git`, which matches `github_repository` in
+`https://github.com/Wayne-Tes/project-signal.git`, which matches `github_repository` in
 `infra/bootstrap/variables.tf` — they must stay in step or Workload Identity Federation will
 reject the CI token.
 
@@ -507,7 +507,7 @@ the repo. `infra/README.md` § First-time setup is the executable version of thi
 1. Create a GCP project with billing enabled; put its id and number into
    `envs/staging.tfvars` (both are still `REPLACE_ME`).
 2. ~~Set `github_repository` in `infra/bootstrap/variables.tf` to match the real repo.~~ ✅
-   done — it is `LokimotiveUK/project-signal`. Change it if the repo moves; the WIF provider's
+   done — it is `Wayne-Tes/project-signal`. Change it if the repo moves; the WIF provider's
    `attribute_condition` pins tokens to exactly that string.
 3. Copy `infra/bootstrap/bootstrap.tfvars.example` → `bootstrap.tfvars`, fill it in, run
    `infra/bootstrap/` once, then set `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`, `GCP_PROJECT_ID`
