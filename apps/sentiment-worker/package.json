@@ -13,7 +13,7 @@
   "dependencies": {
     "@project-signal/config": "workspace:*",
     "@project-signal/db": "workspace:^",
-    "@project-signal/gemini": "workspace:^",
+    "@project-signal/llm": "workspace:^",
     "@project-signal/messaging": "workspace:^",
     "@project-signal/shared-types": "workspace:*",
     "@project-signal/storage": "workspace:*",

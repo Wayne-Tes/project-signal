@@ -13,7 +13,13 @@ const envSchema = z
     DB_NAME: z.string().default('project_signal'),
     DB_USER: z.string().default('project_signal_app'),
     DB_PASSWORD: z.string().optional(),
-    GOOGLE_CLOUD_PROJECT: z.string(),
+    // Optional since the move to AWS. It was `z.string()` — required — which meant EVERY app in
+    // the monorepo refused to boot without it, including the four that never touched GCP
+    // (HANDOVER §5.1). That would have stopped the first AWS container from starting with an
+    // `Invalid environment: ...` error that named the variable but not the reason.
+    // Still read by `firebase-admin` in apps/api, which authenticates users until Cognito
+    // lands; delete this line in the same change that removes the last firebase-admin import.
+    GOOGLE_CLOUD_PROJECT: z.string().optional(),
     // Comma-separated list of allowed browser origins for the API. Unset = reflect any origin
     // (safe here because auth is Bearer-token only, with no cookies/ambient credentials).
     CORS_ORIGINS: z.string().optional(),
@@ -22,13 +28,21 @@ const envSchema = z
     // for it, and a wrong guess would publish into nowhere. queueUrl() throws when unset.
     ITEM_QUEUE_URL: z.string().optional(),
     REPORT_QUEUE_URL: z.string().optional(),
-    VERTEX_AI_LOCATION: z.string().default('europe-west2'),
-    // Both default to 2.5 Flash: it is the only Gemini model available in europe-west2, which
-    // is where VERTEX_AI_LOCATION is pinned. The 2.0 defaults these replace were retired on
-    // 2026-06-01. 2.5 Flash is itself scheduled for shutdown on 2026-10-16 — moving past it
-    // means moving inference to europe-west1/west4 or the EU multi-region. See docs/SETUP.md §8.
-    SCORER_MODEL: z.string().default('gemini-2.5-flash'),
-    REPORTER_MODEL: z.string().default('gemini-2.5-flash'),
+    // Bedrock model ids. Both default to the Claude Haiku 4.5 EU inference profile, which was
+    // verified live in account 290304998906 on 2026-08-07: `converse` returned in 752ms.
+    //
+    // Three things about this value are load-bearing:
+    //   - The `eu.` prefix is an INFERENCE PROFILE, not a model. Bedrock rejects the bare
+    //     `anthropic.claude-haiku-4-5-…` id with "on-demand throughput isn't supported".
+    //   - `eu.` routes within the EU (verified: eu-west-2, -west-1, -west-3, -central-1,
+    //     -north-1, -south-1, -south-2). `global.` profiles also exist and do not. Storage and
+    //     the database stay in eu-west-2 regardless; this governs where inference runs.
+    //   - REPORTER_MODEL should eventually be a stronger model — it is the low-volume,
+    //     higher-quality slot. It is left on Haiku because nothing reads it until Epic 12 and
+    //     shipping an UNVERIFIED default is precisely how this project came to ship
+    //     `gemini-2.0-pro-001`, a model that never existed. Verify before changing it.
+    SCORER_MODEL: z.string().default('eu.anthropic.claude-haiku-4-5-20251001-v1:0'),
+    REPORTER_MODEL: z.string().default('eu.anthropic.claude-haiku-4-5-20251001-v1:0'),
     // Cloud Storage buckets, injected per environment by Terraform. RAW_BUCKET holds the
     // verbatim ingested payloads that sentiment scoring reads back.
     RAW_BUCKET: z.string().optional(),

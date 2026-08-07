@@ -53,7 +53,7 @@ const mockScore = {
   confidence: 0.9,
   dimensions: {},
   topics: [],
-  modelVersion: 'gemini-2.5-flash',
+  modelVersion: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0',
 };
 
 beforeEach(() => {

@@ -23,14 +23,13 @@ describe('getEnv', () => {
     // silently satisfy the assertion instead of the default doing so.
     delete process.env['NODE_ENV'];
     delete process.env['PORT'];
-    delete process.env['VERTEX_AI_LOCATION'];
     const { getEnv } = await import('../src/index.js');
     const env = getEnv();
     expect(env.DATABASE_URL).toBe(BASE_ENV.DATABASE_URL);
     expect(env.GOOGLE_CLOUD_PROJECT).toBe('project-signal-local');
+    expect(env.SCORER_MODEL).toContain('eu.anthropic');
     expect(env.NODE_ENV).toBe('development');
     expect(env.PORT).toBe(8080);
-    expect(env.VERTEX_AI_LOCATION).toBe('europe-west2');
   });
 
   it('coerces PORT from a string to a number', async () => {
@@ -79,13 +78,13 @@ describe('getEnv', () => {
   it('applies SCORER_MODEL default', async () => {
     delete process.env['SCORER_MODEL'];
     const { getEnv } = await import('../src/index.js');
-    expect(getEnv().SCORER_MODEL).toBe('gemini-2.5-flash');
+    expect(getEnv().SCORER_MODEL).toBe('eu.anthropic.claude-haiku-4-5-20251001-v1:0');
   });
 
   it('applies REPORTER_MODEL default', async () => {
     delete process.env['REPORTER_MODEL'];
     const { getEnv } = await import('../src/index.js');
-    expect(getEnv().REPORTER_MODEL).toBe('gemini-2.5-flash');
+    expect(getEnv().REPORTER_MODEL).toBe('eu.anthropic.claude-haiku-4-5-20251001-v1:0');
   });
 
   it('accepts the SQS queue URLs', async () => {

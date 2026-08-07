@@ -1,11 +1,11 @@
 {
-  "name": "@project-signal/gemini",
+  "name": "@project-signal/llm",
   "version": "0.0.1",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "dependencies": {
-    "@google-cloud/vertexai": "^1.0.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1105.0",
     "@project-signal/config": "workspace:*",
     "@project-signal/shared-types": "workspace:*"
   },

@@ -7,7 +7,7 @@
 # sibling @project-signal/* packages stay external (resolved via node_modules to their own dist).
 # tsc emits the .d.ts that consumer builds typecheck against.
 set -e
-for lib in config shared-types db storage scoring gemini messaging source-adapters; do
+for lib in config shared-types db storage scoring llm messaging source-adapters; do
   echo "building @project-signal/$lib"
   ./node_modules/.bin/esbuild "libs/$lib/src/index.ts" \
     --bundle --platform=node --format=esm --packages=external \

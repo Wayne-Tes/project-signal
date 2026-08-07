@@ -18,7 +18,7 @@
       "@project-signal/shared-types": ["libs/shared-types/src/index.ts"],
       "@project-signal/db": ["libs/db/src/index.ts"],
       "@project-signal/config": ["libs/config/src/index.ts"],
-      "@project-signal/gemini": ["libs/gemini/src/index.ts"],
+      "@project-signal/llm": ["libs/llm/src/index.ts"],
       "@project-signal/messaging": ["libs/messaging/src/index.ts"],
       "@project-signal/storage": ["libs/storage/src/index.ts"],
       "@project-signal/scoring": ["libs/scoring/src/index.ts"],

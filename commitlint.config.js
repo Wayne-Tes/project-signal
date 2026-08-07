@@ -13,7 +13,7 @@ export default {
         "shared-types",
         "db",
         "config",
-        "gemini",
+        "llm",
         "messaging",
         "storage",
         "scoring",

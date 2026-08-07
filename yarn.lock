@@ -35,6 +35,26 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@aws-sdk/client-bedrock-runtime@npm:^3.1105.0":
+  version: 3.1105.0
+  resolution: "@aws-sdk/client-bedrock-runtime@npm:3.1105.0"
+  dependencies:
+    "@aws-sdk/core": "npm:^3.977.6"
+    "@aws-sdk/credential-provider-node": "npm:^3.972.78"
+    "@aws-sdk/eventstream-handler-node": "npm:^3.972.31"
+    "@aws-sdk/middleware-eventstream": "npm:^3.972.26"
+    "@aws-sdk/middleware-websocket": "npm:^3.972.49"
+    "@aws-sdk/token-providers": "npm:3.1105.0"
+    "@aws-sdk/types": "npm:^3.974.2"
+    "@smithy/core": "npm:^3.31.1"
+    "@smithy/fetch-http-handler": "npm:^5.6.13"
+    "@smithy/node-http-handler": "npm:^4.9.13"
+    "@smithy/types": "npm:^4.16.1"
+    tslib: "npm:^2.6.2"
+  checksum: 10c0/ba8cdf7345e72a5ad61b881811b1488b8e5ebfc617faec5b695691800359cede216e3830eeafaf2465cdecfc3483cca90906bd1ef017df0513798a4a1b14c21d
+  languageName: node
+  linkType: hard
+
 "@aws-sdk/client-s3@npm:^3.1105.0":
   version: 3.1105.0
   resolution: "@aws-sdk/client-s3@npm:3.1105.0"
@@ -211,6 +231,30 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@aws-sdk/eventstream-handler-node@npm:^3.972.31":
+  version: 3.972.31
+  resolution: "@aws-sdk/eventstream-handler-node@npm:3.972.31"
+  dependencies:
+    "@aws-sdk/types": "npm:^3.974.2"
+    "@smithy/core": "npm:^3.31.1"
+    "@smithy/types": "npm:^4.16.1"
+    tslib: "npm:^2.6.2"
+  checksum: 10c0/a7d2ae7099bc58be7703c2bb2567e0e376db58557c295e322525cf154a21f03ce5a5640ee227a06e36855dff9977b51eb43478bb66af6b2f4af84499df1dc2f0
+  languageName: node
+  linkType: hard
+
+"@aws-sdk/middleware-eventstream@npm:^3.972.26":
+  version: 3.972.26
+  resolution: "@aws-sdk/middleware-eventstream@npm:3.972.26"
+  dependencies:
+    "@aws-sdk/types": "npm:^3.974.2"
+    "@smithy/core": "npm:^3.31.1"
+    "@smithy/types": "npm:^4.16.1"
+    tslib: "npm:^2.6.2"
+  checksum: 10c0/b8c317340bc0d2df04976b6d2ddc6d13b7d0b0d9e006b8cd8e9e21c82121bafa1cea284a4d35c3d84c9e7ebdbaec17ba8db051e84e05f9cef43b6be2bf036d7d
+  languageName: node
+  linkType: hard
+
 "@aws-sdk/middleware-sdk-s3@npm:^3.972.72":
   version: 3.972.72
   resolution: "@aws-sdk/middleware-sdk-s3@npm:3.972.72"
@@ -234,6 +278,21 @@ __metadata:
     "@smithy/types": "npm:^4.16.1"
     tslib: "npm:^2.6.2"
   checksum: 10c0/271b52ce554afa4c63c901a8197d743307737122b619b2962350a2c72855be2f8176d214f92768cbc1a0846a228a5f9a55426f65518628c09c9a26d56509d034
+  languageName: node
+  linkType: hard
+
+"@aws-sdk/middleware-websocket@npm:^3.972.49":
+  version: 3.972.49
+  resolution: "@aws-sdk/middleware-websocket@npm:3.972.49"
+  dependencies:
+    "@aws-sdk/core": "npm:^3.977.6"
+    "@aws-sdk/types": "npm:^3.974.2"
+    "@smithy/core": "npm:^3.31.1"
+    "@smithy/fetch-http-handler": "npm:^5.6.13"
+    "@smithy/signature-v4": "npm:^5.6.12"
+    "@smithy/types": "npm:^4.16.1"
+    tslib: "npm:^2.6.2"
+  checksum: 10c0/28af93fd04514aa50f301b8ee7d0a02bdf66d6f2d595fa34bec113d4170aaac29edc1c0f98a7ee1083b962fdc5166ed4d262d698d2b2d9eea5c9b7284f63d1f9
   languageName: node
   linkType: hard
 
@@ -276,6 +335,20 @@ __metadata:
     "@smithy/types": "npm:^4.16.1"
     tslib: "npm:^2.6.2"
   checksum: 10c0/5f86aa221e537b8a3fd11ed76ac025935f8859cc62b3af293abd759b8ca3aa390c17f6716723c08056b3373997a17bbdee2ff568eab5049bf0a372d35893b48d
+  languageName: node
+  linkType: hard
+
+"@aws-sdk/token-providers@npm:3.1105.0":
+  version: 3.1105.0
+  resolution: "@aws-sdk/token-providers@npm:3.1105.0"
+  dependencies:
+    "@aws-sdk/core": "npm:^3.977.6"
+    "@aws-sdk/nested-clients": "npm:^3.997.41"
+    "@aws-sdk/types": "npm:^3.974.2"
+    "@smithy/core": "npm:^3.31.1"
+    "@smithy/types": "npm:^4.16.1"
+    tslib: "npm:^2.6.2"
+  checksum: 10c0/36f18c5fd82262f18aaa7ee5bb3fa94dc10aa26ad69e2f0991881163a48710b34255cac35c6cdb117c2a4cf585af744876c36bf260c4aa357eb1e297d9b69016
   languageName: node
   linkType: hard
 
@@ -3432,33 +3505,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@google-cloud/vertexai@npm:^1.0.0":
-  version: 1.12.0
-  resolution: "@google-cloud/vertexai@npm:1.12.0"
-  dependencies:
-    "@google/genai": "npm:^1.45.0"
-    google-auth-library: "npm:^9.1.0"
-  checksum: 10c0/ec95bd9751a8b25c027a9b6db8aca338c88d123346a9b129ab7fb92647c0c67751bf2df340630ed4e61c4aa9a99fc4b5d3a85e77e53ed2215fce7f0c5bd4747c
-  languageName: node
-  linkType: hard
-
-"@google/genai@npm:^1.45.0":
-  version: 1.52.0
-  resolution: "@google/genai@npm:1.52.0"
-  dependencies:
-    google-auth-library: "npm:^10.3.0"
-    p-retry: "npm:^4.6.2"
-    protobufjs: "npm:^7.5.4"
-    ws: "npm:^8.18.0"
-  peerDependencies:
-    "@modelcontextprotocol/sdk": ^1.25.2
-  peerDependenciesMeta:
-    "@modelcontextprotocol/sdk":
-      optional: true
-  checksum: 10c0/2d22f6bd4baa915a402289dae4797410acbd5c5add1ed0c8d1bedef3ac7871fe1f04640d0612aa793fe7055f086719487491f55474a5b21597addfdea8631fa6
-  languageName: node
-  linkType: hard
-
 "@grpc/grpc-js@npm:^1.10.9":
   version: 1.14.4
   resolution: "@grpc/grpc-js@npm:1.14.4"
@@ -5451,19 +5497,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@project-signal/gemini@workspace:^, @project-signal/gemini@workspace:libs/gemini":
-  version: 0.0.0-use.local
-  resolution: "@project-signal/gemini@workspace:libs/gemini"
-  dependencies:
-    "@google-cloud/vertexai": "npm:^1.0.0"
-    "@project-signal/config": "workspace:*"
-    "@project-signal/shared-types": "workspace:*"
-    esbuild: "npm:^0.21.5"
-    typescript: "npm:^5.5.0"
-    vitest: "npm:^2.0.0"
-  languageName: unknown
-  linkType: soft
-
 "@project-signal/ingestion@workspace:apps/ingestion":
   version: 0.0.0-use.local
   resolution: "@project-signal/ingestion@workspace:apps/ingestion"
@@ -5478,6 +5511,19 @@ __metadata:
     drizzle-orm: "npm:^0.45.2"
     fastify: "npm:^5.0.0"
     tsx: "npm:^4.0.0"
+    typescript: "npm:^5.5.0"
+    vitest: "npm:^2.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@project-signal/llm@workspace:^, @project-signal/llm@workspace:libs/llm":
+  version: 0.0.0-use.local
+  resolution: "@project-signal/llm@workspace:libs/llm"
+  dependencies:
+    "@aws-sdk/client-bedrock-runtime": "npm:^3.1105.0"
+    "@project-signal/config": "workspace:*"
+    "@project-signal/shared-types": "workspace:*"
+    esbuild: "npm:^0.21.5"
     typescript: "npm:^5.5.0"
     vitest: "npm:^2.0.0"
   languageName: unknown
@@ -5526,7 +5572,7 @@ __metadata:
   dependencies:
     "@project-signal/config": "workspace:*"
     "@project-signal/db": "workspace:^"
-    "@project-signal/gemini": "workspace:^"
+    "@project-signal/llm": "workspace:^"
     "@project-signal/messaging": "workspace:^"
     "@project-signal/shared-types": "workspace:*"
     "@project-signal/storage": "workspace:*"
@@ -6520,13 +6566,6 @@ __metadata:
     "@types/tough-cookie": "npm:*"
     form-data: "npm:^2.5.5"
   checksum: 10c0/1c6798d926a6577f213dbc04aa09945590f260ea367537c20824ff337b0a49d56e5199a6a6029e625568d97c3bbb98908bdb8d9158eb421f70a0d03ae230ff72
-  languageName: node
-  linkType: hard
-
-"@types/retry@npm:0.12.0":
-  version: 0.12.0
-  resolution: "@types/retry@npm:0.12.0"
-  checksum: 10c0/7c5c9086369826f569b83a4683661557cab1361bac0897a1cefa1a915ff739acd10ca0d62b01071046fe3f5a3f7f2aec80785fe283b75602dc6726781ea3e328
   languageName: node
   linkType: hard
 
@@ -10716,7 +10755,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"google-auth-library@npm:^10.3.0, google-auth-library@npm:^10.6.1":
+"google-auth-library@npm:^10.6.1":
   version: 10.7.0
   resolution: "google-auth-library@npm:10.7.0"
   dependencies:
@@ -10730,7 +10769,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"google-auth-library@npm:^9.1.0, google-auth-library@npm:^9.3.0, google-auth-library@npm:^9.6.3":
+"google-auth-library@npm:^9.3.0, google-auth-library@npm:^9.6.3":
   version: 9.15.1
   resolution: "google-auth-library@npm:9.15.1"
   dependencies:
@@ -13225,16 +13264,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"p-retry@npm:^4.6.2":
-  version: 4.6.2
-  resolution: "p-retry@npm:4.6.2"
-  dependencies:
-    "@types/retry": "npm:0.12.0"
-    retry: "npm:^0.13.1"
-  checksum: 10c0/d58512f120f1590cfedb4c2e0c42cb3fa66f3cea8a4646632fcb834c56055bb7a6f138aa57b20cc236fb207c9d694e362e0b5c2b14d9b062f67e8925580c73b0
-  languageName: node
-  linkType: hard
-
 "p-retry@npm:^6.2.0":
   version: 6.2.1
   resolution: "p-retry@npm:6.2.1"
@@ -14098,7 +14127,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"protobufjs@npm:^7.2.5, protobufjs@npm:^7.2.6, protobufjs@npm:^7.3.2, protobufjs@npm:^7.5.4, protobufjs@npm:^7.5.5":
+"protobufjs@npm:^7.2.5, protobufjs@npm:^7.2.6, protobufjs@npm:^7.3.2, protobufjs@npm:^7.5.5":
   version: 7.6.2
   resolution: "protobufjs@npm:7.6.2"
   dependencies:
