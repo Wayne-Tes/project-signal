@@ -82,7 +82,7 @@ project-signal/
 │   └── source-adapters/      Adapter interface + 5 implementations
 ├── infra/
 │   ├── bootstrap/            One-shot: APIs, TF state bucket, Workload Identity Federation
-│   ├── modules/              8 reusable Terraform modules
+│   ├── modules/              9 reusable Terraform modules
 │   ├── stack/                Shared .tf for every environment
 │   └── envs/                 staging.tfvars / production.tfvars
 ├── .github/workflows/        ci, deploy-staging, deploy-production, terraform-plan
@@ -169,8 +169,15 @@ mentions that don't use the canonical brand name (e.g. "Cadence", "Cadence Bank"
 
 **`signals`** — one row per ingested item. The spine of the system.
 `tenant_id`, `brand_entity_id`, `source` varchar(50), `source_url`, `raw_storage_ref`,
-`published_at`, `ingested_at`, plus four _currently unwritten_ denormalised columns
-(`sentiment_label`, `sentiment_score`, `confidence`, `model_version`).
+`published_at`, `ingested_at`.
+
+Sentiment lives **only** in `sentiment_results`, read by joining. `signals` used to carry
+`sentiment_label` / `sentiment_score` / `confidence` / `model_version` as well — a second home
+for the same fact that nothing ever wrote. Migration `0005` dropped them rather than adopting
+them as a read cache (KNOWN-GAPS #11): two plausible homes invite a future writer to pick the
+wrong one and split the truth. If a denormalised cache is ever wanted for list performance,
+reintroduce it deliberately, maintained by the sentiment worker in the same transaction as the
+results row.
 
 - Index `signals_tenant_brand_idx` on `(tenant_id, brand_entity_id)`
 - Index `signals_published_at_idx` on `(published_at)`
@@ -185,8 +192,10 @@ The unique constraint is what makes scoring idempotent — the worker upserts on
 **`dimension_scores`** — daily per-brand per-dimension rollups.
 `tenant_id`, `brand_entity_id`, `date`, `dimension`, `score`, `signal_count`,
 **unique `(brand_entity_id, date, dimension)`**.
-The table and its read endpoint exist so the dashboard can query it; **nothing writes to it
-yet** — the rollup engine is Epic 11.
+Written by `rollupDimensionScores()` in `apps/ingestion/src/rollup.ts`, exposed as
+`POST /rollup` and driven by a daily Cloud Scheduler job. The unique constraint is what makes
+that upsert idempotent, so a retried or manually re-triggered run overwrites rather than
+duplicating.
 
 **`source_configs`** — one row per `(brand, source)` pair; drives ingestion.
 `tenant_id`, `brand_entity_id`, `source`, `is_enabled` (default true), `config` JSONB
@@ -208,15 +217,17 @@ runtime by the ingestion handler.
 
 ### Migrations
 
-Five migrations exist, tracked in `apps/api/migrations/meta/_journal.json`:
+Seven migrations exist, tracked in `apps/api/migrations/meta/_journal.json`:
 
-| Tag                       | Contents                                            |
-| ------------------------- | --------------------------------------------------- |
-| `0000_hot_loners`         | `tenants`, `brand_entities`, `signals` + indexes    |
-| `0001_fluffy_guardsmen`   | `users`, `sentiment_results`, `dimension_scores`    |
-| `0002_slippery_energizer` | `source_configs`                                    |
-| `0003_amused_moondragon`  | Unique `(source_url, brand_entity_id)` on `signals` |
-| `0004_chief_freak`        | `brand_aliases`                                     |
+| Tag                       | Contents                                                            |
+| ------------------------- | ------------------------------------------------------------------- |
+| `0000_hot_loners`         | `tenants`, `brand_entities`, `signals` + indexes                    |
+| `0001_fluffy_guardsmen`   | `users`, `sentiment_results`, `dimension_scores`                    |
+| `0002_slippery_energizer` | `source_configs`                                                    |
+| `0003_amused_moondragon`  | Unique `(source_url, brand_entity_id)` on `signals`                 |
+| `0004_chief_freak`        | `brand_aliases`                                                     |
+| `0005_demonic_mindworm`   | Drops the four denormalised sentiment columns from `signals`        |
+| `0006_familiar_vermin`    | Adds `brand_entities.dimension_weights` jsonb (per-brand BPI weights) |
 
 Authoring a new migration: edit the schema in `libs/db/src/schema/`, then run
 `yarn db:generate` (→ `nx run @project-signal/api:generate` → `drizzle-kit generate`). Never hand-write
@@ -444,16 +455,18 @@ difference.
 | Method & path                             | Role         | Response shape       | Behaviour                                                                                                               |
 | ----------------------------------------- | ------------ | -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `POST /admin/tenants`                     | owner        | `{status,data}`      | **Transactional**: creates tenant + owned brand + admin user row in one `db.transaction`. Slugs are derived from names. |
-| `POST /admin/users`                       | owner        | bare row             | Inserts the `users` row **and** calls `setCustomUserClaims(role, tenantId, brandEntityId)`.                             |
-| `PATCH /admin/users/:id`                  | owner, admin | bare row             | Updates role/brand, re-syncs custom claims from the updated row. 404 if absent.                                         |
+| `POST /admin/users`                       | owner, admin | bare row             | Row **and** claims written in one transaction. An `admin` is confined to their own tenant and to the roles admin/user. |
+| `PATCH /admin/users/:id`                  | owner, admin | bare row             | Reads the target first, then updates role/brand and re-syncs claims in one transaction. 404 for a foreign tenant.      |
 | `GET /admin/users`                        | owner, admin | bare array           | Users in the caller's tenant.                                                                                           |
 | `GET /brands`                             | any          | bare array           | Tenant-scoped. A `user` with a `brandEntityId` sees **only** that brand.                                                |
-| `GET /brands/:id`                         | any          | bare row             | Tenant-scoped; 404 otherwise.                                                                                           |
+| `GET /brands/:id`                         | any          | bare row             | Tenant-scoped + `requireBrandAccess`; 404 otherwise.                                                                    |
 | `GET /brands/:id/signals`                 | any          | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`; `limit` max 100, default 50.                            |
 | `GET /brands/:id/sentiment-summary`       | any          | object               | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results.    |
 | `GET /brands/:id/dimension-scores`        | any          | bare array           | Dimension history from `dimension_scores`, `from`/`to` optional, default last 90 days. Lives in `routes/scores.ts`.     |
 | `GET /brands/:id/score`                   | any          | object               | Brand Perception Index for the latest rollup, its per-dimension breakdown, and the comparison point ≥7 days earlier.    |
 | `GET /brands/:id/achilles`                | any          | bare array           | Top topic clusters by damage, computed on read from `sentiment_results`. `limit` defaults to 3.                         |
+| `GET /brands/:id/strengths`               | any          | bare array           | The mirror of `/achilles`, ranked by `volume × positivity × recency`. `limit` defaults to 3.                            |
+| `GET /brands/:id/stats`                   | any          | object               | Dashboard stat row: this/previous week signal counts, total, scored (pipeline coverage), active/configured sources.     |
 | `GET /brands/:id/integrations`            | admin, owner | `{status,data}`      | List `source_configs` for the brand.                                                                                    |
 | `POST /brands/:id/integrations`           | admin, owner | `{status,data}`      | **Upsert** on `(brand_entity_id, source)`.                                                                              |
 | `PATCH /brands/:id/integrations/:source`  | admin, owner | `{status,data}`      | Update `isEnabled` and/or `config`. 404 if absent.                                                                      |
@@ -465,8 +478,13 @@ difference.
 Every route declares JSON Schema (`body` / `params` / `querystring` / `response`) so Swagger
 output stays accurate and Fastify serialises responses fast.
 
-> ⚠️ The three `/brands/:id/*` read endpoints scope by `tenant_id` but do **not** check the
-> `:id` against `request.user.brandEntityId`. See `KNOWN-GAPS.md` #5.
+**Brand scoping.** Every `/brands/:id...` route — including `GET /brands/:id` itself — carries
+the shared `requireBrandAccess` preHandler from `plugins/auth.ts`, which 403s when a `user`
+pinned to one brand asks for another. The `tenant_id` filter in each query closes cross-tenant
+reads; this closes the intra-tenant one (KNOWN-GAPS #5). An **unpinned** `user` is deliberately
+not constrained, matching `GET /brands`, which returns the whole tenant when no pin is set;
+`owner` and `admin` are never constrained. Any new brand-scoped route must add the preHandler —
+the guard is not automatic.
 
 ### Ops script — `scripts/bootstrap-owner.ts`
 
@@ -535,21 +553,31 @@ Fastify, port **8082**. Private on Cloud Run (invokable only by the Pub/Sub push
 { "message": { "data": "<base64 signal uuid>" }, "subscription": "..." }
 ```
 
-It base64-decodes `message.data` to a signal id, calls `handlePubSubMessage`, and returns
-**204**.
+It base64-decodes `message.data` to a signal id and calls `handlePubSubMessage`. The **status
+code is the ack signal**, so it is load-bearing rather than cosmetic:
+
+| Outcome                  | Status  | Effect                                            |
+| ------------------------ | ------- | ------------------------------------------------- |
+| Success                  | **204** | Acked.                                            |
+| `PermanentScoringError`  | **204** | Acked, logged at error level. Retry cannot help.  |
+| Anything else (transient) | **500** | Nacked → Pub/Sub retries with backoff → DLQ.     |
 
 ### `handlePubSubMessage(signalId)` — `src/handler.ts`
 
-1. Load the signal; warn and return if absent (a missing signal must not be retried forever).
-2. Score the text.
-3. **Upsert** into `sentiment_results` with `onConflictDoUpdate` on the unique `signal_id` —
+1. Load the signal; warn and return if absent (a missing row is not coming back).
+2. Resolve `raw_storage_ref` through `getObjectStore()` and `keyFromRef()`, parse the stored
+   JSON, and take its `text` — **the verbatim payload ingestion wrote**, not the source URL.
+3. Score that text.
+4. **Upsert** into `sentiment_results` with `onConflictDoUpdate` on the unique `signal_id` —
    this is the idempotency guarantee, so redelivery is harmless.
-4. Errors are caught and logged, not rethrown — the message is acked rather than
-   dead-lettered.
 
-> ⚠️ Two placeholders here: the worker scores `signal.sourceUrl` because raw text is never
-> persisted (it logs its own `[placeholder]` warning), and swallowing errors means genuine
-> Gemini failures never reach the DLQ. See `KNOWN-GAPS.md` #4 and #9.
+**Failures are classified, and the distinction is the point** (KNOWN-GAPS #9). Permanent —
+missing signal row, unresolvable reference, stored payload that is not JSON or has no text,
+model output that will not parse — raises `PermanentScoringError` and is acked, because
+redelivering sends the identical prompt and gets the identical garbage. Everything else
+(network, quota, 5xx from Vertex or the bucket) is rethrown so the retry backoff and
+`max_delivery_attempts` configured in Terraform can actually fire. **Do not swallow errors
+here**; doing so previously made a Gemini outage silently drop every signal in the window.
 
 ### `scoreSignal(text)` — `src/scorer.ts`
 
@@ -638,15 +666,15 @@ and passed as a Docker build arg by the deploy workflows — see
 
 ### Views (`src/views/`)
 
-| View          | Contents                                                                                 |
-| ------------- | ---------------------------------------------------------------------------------------- |
-| `Dashboard`   | Hero score (radial gauge or bars), dimension bars, sparklines, source volume, alert card |
-| `Trends`      | 26-week multi-series line chart with legend hover-highlight                              |
-| `Achilles`    | Top-3 weakness cards ranked by damage (volume × negative sentiment × recency)            |
-| `Roadmap`     | Prioritised actions with impact/effort/confidence and cited evidence                     |
-| `Competitors` | Animated benchmark bars, sorted, with "you" highlighted                                  |
-| `Report`      | Print-styled weekly report composed from all datasets                                    |
-| `Admin`       | **The only live-wired view** — see below                                                 |
+| View          | Data   | Contents                                                                                            |
+| ------------- | ------ | --------------------------------------------------------------------------------------------------- |
+| `Dashboard`   | live   | Hero score (radial gauge or bars), dimension bars, sparklines, stat row → `/score`, `/dimension-scores`, `/stats`, `/achilles`, `/strengths` |
+| `Trends`      | live   | Dimension history line chart → `/score`, `/dimension-scores`                                        |
+| `Achilles`    | live   | Top weakness cards ranked by damage → `/achilles`                                                   |
+| `Competitors` | live   | Benchmark bars → `/brands` plus one `/score` per brand                                              |
+| `Roadmap`     | **mock** | Prioritised actions. **No producer exists** — nothing in Epics 11–13 generates recommendations.   |
+| `Report`      | **mock** | Print-styled weekly report. Epic 12.                                                              |
+| `Admin`       | live   | Tenant creation, `BrandManager`, `UserManager`                                                      |
 
 ### Charts and motion
 
@@ -668,14 +696,28 @@ switching.
 
 ### Live data vs mock data
 
-**Live:** `views/Admin.tsx` (POST `/admin/tenants`) and `components/BrandManager.tsx` — which
-reads `/brands` and does full CRUD against `/brands/:id/integrations` and
-`/brands/:id/aliases`, with a dynamic add-source form driven by the `SOURCE_FIELDS` map.
+**Live:** the four analytical views above, plus `views/Admin.tsx` (POST `/admin/tenants`),
+`components/BrandManager.tsx` (reads `/brands`, full CRUD against `/brands/:id/integrations`
+and `/brands/:id/aliases`, dynamic add-source form driven by `SOURCE_FIELDS`) and
+`components/UserManager.tsx` (`/admin/users`).
 
-**Mock:** everything else. `lib/data.ts` (~590 lines) generates deterministic fake data for a
-fictional challenger bank called **"Cadence"** — a seeded sine-based 26-week history
-generator, clusters, verbatim signals, roadmap items, competitors, and an alert. Wiring the
-six dashboard views to the live API and deleting this file is Epic 6's remaining work.
+Three pieces carry that wiring and are worth knowing before you touch a view:
+
+- **`lib/brand-context.tsx`** — `BrandProvider` loads the tenant's brands and holds the
+  selected one. The shell previously hard-coded a single fictional brand.
+- **`hooks/useApi.ts` + `components/ViewState.tsx`** — loading, error and empty are **three
+  distinct states**, and every live view must render all three. A `null` path means "not ready
+  yet", so views do not fire a request at `/brands/null/...`.
+- **`lib/brand-data.ts`** — pure API→presentation mapping with no React or fetch. Because every
+  view sits behind `AuthGate` and cannot be driven without a real identity provider
+  (KNOWN-GAPS #16), this is where the reshaping correctness is actually proven, under
+  `apps/web/test/brand-data.test.ts`.
+
+**Mock:** `lib/data.ts` (588 lines) still generates deterministic fake data for a fictional
+challenger bank called **"Cadence"**. It survives because `Roadmap` and `Report` remain on it,
+and because `App.tsx`, `charts.tsx`, `DrillDown.tsx` and `primitives.tsx` still import
+constants from it. Deleting it is Epic 6's exit criterion (KNOWN-GAPS #13). **No new code may
+depend on it.**
 
 `lib/types.ts` defines the frontend view models (`Brand`, `Dimension`, `HistoryRow`, `Cluster`,
 `Signal`, `RoadmapItem`, `Competitor`, `Alert`, `NavLevel`, `NavActions`, `TweakValues`). Note
@@ -700,37 +742,48 @@ API  → onRequest hook → verifyIdToken → request.user
 Role changes take effect in the token within roughly an hour (custom-claim refresh), which is
 why the API trusts the claim and the `users` table is only a mirror.
 
-### Ingestion → scoring (intended design)
+### Ingestion → scoring
 
 ```
 Cloud Scheduler (weekly, Mon 06:00 UTC)
   └─ POST <ingestion>/ingest/dispatch      [OIDC]
        └─ for each enabled source_config → handleIngestionJob
-            ├─ adapter.fetch(since = MAX(published_at))
-            ├─ INSERT signals ... ON CONFLICT DO NOTHING   ← dedup
-            ├─ (design) write raw payload → GCS raw bucket
-            └─ publish signal id → item topic
-                 └─ push subscription [OIDC] → sentiment-worker
-                      ├─ scoreSignal(text) via Gemini Flash
-                      └─ UPSERT sentiment_results ON CONFLICT (signal_id)  ← idempotent
-                      └─ failures → item DLQ (after 5 attempts)
-Hourly "pending sweep" re-publishes anything missed.
+            ├─ adapter.fetch(since = MAX(published_at))     ← incremental
+            ├─ store.put(rawKey(...)) → gs://<RAW_BUCKET>/… ← BEFORE the insert
+            ├─ INSERT signals ... ON CONFLICT DO NOTHING    ← dedup
+            └─ publish signal id → topicName('item')        ← ITEM_TOPIC from env
+                 └─ push subscription [OIDC] → <sentiment>/pubsub/item
+                      ├─ read raw payload, scoreSignal(text) via Gemini Flash
+                      ├─ UPSERT sentiment_results ON CONFLICT (signal_id)  ← idempotent
+                      └─ transient failure → 500 → retry → item DLQ (after 5 attempts)
+Hourly  POST /reconcile  re-publishes signals with no sentiment_results row.
+Daily   POST /rollup     writes dimension_scores.
 ```
 
-**Reality check:** the dispatcher runs jobs in-process instead of via Cloud Tasks; raw
-payloads are never written to GCS; the push subscription targets a path the worker does not
-serve; the sweep endpoint does not exist; and topic names differ between code and Terraform.
-Each is itemised in `KNOWN-GAPS.md`.
+Every link above is connected in both code and Terraform. The five defects this diagram used to
+carry a "reality check" for — in-process dispatch, unwritten raw payloads, a mismatched push
+path, a missing sweep endpoint, and divergent topic names — are closed (KNOWN-GAPS #1, #2, #4,
+#7, #9). **The one that was dissolved rather than fixed is #3:** there is still no Cloud Tasks
+queue, so `/ingest/dispatch` fans out in-process via `Promise.allSettled`. That has two
+properties which outlive the choice of queue technology and must be fixed by whatever replaces
+it: a dispatch across many brands runs inside a single HTTP request and can exceed the
+platform's request timeout, and a failed source is counted in `failed` and dropped rather than
+retried.
+
+**None of this has ever run in a cloud** — see `HANDOVER.md`. It is verified locally against
+Docker Postgres and the Pub/Sub emulator only.
 
 ### Dashboard read path
 
 ```
-Web view → apiFetch('/brands/:id/sentiment-summary')
-        → API: JOIN signals × sentiment_results, 30-day window, tenant-scoped
-        → counts by label + avg score
+BrandProvider → apiFetch('/brands')                 → selects the brand
+Dashboard     → useApi(`/brands/${id}/score`)       → composite + breakdown + week-earlier delta
+              → useApi(`/brands/${id}/dimension-scores`), `/stats`, `/achilles`, `/strengths`
+              → brand-data.ts maps API rows into presentation shapes
+              → ViewState renders loading | error | empty | data
 ```
 
-Only the Admin view currently uses this path; the analytical views still read `lib/data.ts`.
+All four analytical views read this path. `Roadmap` and `Report` still read `lib/data.ts`.
 
 ---
 
@@ -764,7 +817,7 @@ One shared `.tf` stack, per-environment `.tfvars`, and state isolated by GCS pre
 
 **No service-account JSON keys exist anywhere in this project.**
 
-### `infra/modules/` — eight modules
+### `infra/modules/` — nine modules
 
 | Module              | What it creates                                                                                                      | Notable decisions                                                                                                                                                                                                                                                           |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -774,7 +827,7 @@ One shared `.tf` stack, per-environment `.tfvars`, and state isolated by GCS pre
 | `storage`           | `raw` and `reports` buckets                                                                                          | Both uniform bucket-level access + `public_access_prevention = enforced`. `raw` has a 30-day → NEARLINE lifecycle rule. Per-SA scoped IAM (ingestion writes raw, sentiment reads raw, report writes reports, API reads reports).                                            |
 | `pubsub`            | `item` + `report` topics, each with a DLQ; push subscriptions; 2 DLQ pull subscriptions                              | Push uses **OIDC tokens** minted as the push-invoker SA; `max_delivery_attempts = 5`; retry backoff 10s–600s. Includes the easily-missed service-agent IAM: DLQ publisher, source-subscription subscriber, and `serviceAccountTokenCreator` on the invoker SA.              |
 | `cloud_tasks`       | Rate-limited ingestion queue                                                                                         | 5 dispatches/sec, 10 concurrent, 5 attempts with 5s–300s backoff. **The rate limit is the entire point** — it protects Apify/YouTube quotas.                                                                                                                                |
-| `scheduler`         | Three cron jobs                                                                                                      | ingestion `0 6 * * 1` (Mon 06:00), report `0 7 * * 1`, pending-sweep `0 * * * *` (hourly), `Etc/UTC`. Ingestion + sweep are HTTP+OIDC; report publishes to the report topic.                                                                                                |
+| `scheduler`         | Four cron jobs                                                                                                       | ingestion `0 6 * * 1` (Mon 06:00), report `0 7 * * 1`, pending-sweep `0 * * * *` (hourly), dimension-rollup daily; all `Etc/UTC`. Ingestion, sweep and rollup are HTTP+OIDC; report publishes to the report topic.                                                          |
 | `artifact_registry` | Docker repository `project-signal`                                                                                   | Provides `registry_url` consumed by the image locals.                                                                                                                                                                                                                       |
 | `identity_platform` | Config + social IdP configs                                                                                          | Email/password toggle; `for_each` over `social_idps` (e.g. `microsoft.com`, `google.com`). Credentials passed via `TF_VAR_auth_social_idps` at apply time — **never committed**. See the module's own README for the one-time Entra multi-tenant app registration.          |
 
@@ -865,7 +918,9 @@ startup migrations silently no-op.**
 
 ## 14. Testing
 
-Vitest 2 with V8 coverage; ~2,160 lines across 22 test files.
+Vitest 2 with V8 coverage; ~4,060 lines across 28 test files. **297 tests across 11 projects**
+(`@project-signal/db` has only a `build` target, which is why 13 projects lint, 12 typecheck and
+11 test).
 
 **Coverage gate: 80%** on lines, branches, functions and statements — enforced **per project**
 in each `vitest.config.ts` rather than globally, so deferred skeletons can be exempted and
@@ -875,17 +930,25 @@ has no thresholds by design.
 Each project's config uses `vite-tsconfig-paths` so `@project-signal/*` aliases resolve in tests
 without building the libs.
 
-| Area           | Files                                                                | Approach                                                                                                                                                                                                                         |
-| -------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| API routes     | `admin`, `aliases`, `brands`, `integrations`, `signals`, `users`     | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers `@fastify/sensible` and stubs `request.user` in an `onRequest` hook — **Firebase is never involved**. `DEFAULT_ADMIN` / `DEFAULT_OWNER` presets. |
-| API plugins    | `plugins/auth.test.ts`                                               | Token parsing, public-prefix bypass, `requireRole` behaviour                                                                                                                                                                     |
-| API migrations | `migrate.test.ts`                                                    | Advisory-lock and no-op-when-absent behaviour                                                                                                                                                                                    |
-| Ingestion      | `handler.test.ts`                                                    | `vi.hoisted` mock chain that impersonates the Drizzle fluent builder (`select/from/where/insert/values/returning`) with a queue of result sets; adapters and Pub/Sub mocked                                                      |
-| Sentiment      | `handler`, `scorer`                                                  | Upsert-on-conflict behaviour; prompt shape, fence-stripping, JSON parsing                                                                                                                                                        |
-| Libs           | `config`, `gemini`, `messaging`, plus all 5 adapters + `apifyClient` | `fetch` mocked; RSS tests cover both RSS and Atom shapes                                                                                                                                                                         |
+| Area           | Files                                                                          | Approach                                                                                                                                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API routes     | `admin`, `aliases`, `brands`, `integrations`, `keyset`, `scores`, `signals`, `users` | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers `@fastify/sensible` and stubs `request.user` in an `onRequest` hook — **Firebase is never involved**. `DEFAULT_ADMIN` / `DEFAULT_OWNER` / `DEFAULT_PINNED_USER` presets. |
+| API plugins    | `plugins/auth.test.ts`                                                         | Token parsing, public-prefix bypass, `requireRole` and `requireBrandAccess` behaviour                                                                                                                                                        |
+| API migrations | `migrate.test.ts`                                                              | Advisory-lock and no-op-when-absent behaviour                                                                                                                                                                                                |
+| Ingestion      | `handler.test.ts`, `rollup.test.ts`                                            | `vi.hoisted` mock chain impersonating the Drizzle fluent builder with a queue of result sets; adapters, storage and Pub/Sub mocked                                                                                                            |
+| Sentiment      | `handler`, `scorer`                                                            | Permanent-vs-transient classification, upsert-on-conflict, prompt shape, fence-stripping, JSON parsing                                                                                                                                        |
+| Web            | `test/brand-data.test.ts`                                                      | The API→presentation mapping, which is where view correctness is proven while `AuthGate` blocks browser verification                                                                                                                         |
+| Libs           | `config`, `gemini`, `messaging`, `scoring`, `storage`, all 5 adapters + `apifyClient` | `fetch` mocked; RSS tests cover both RSS and Atom shapes; `scoring` is pure and needs no mocks                                                                                                                                          |
 
-There are **no tests for `apps/web`** and no end-to-end/integration tests against a real
-Postgres or emulator.
+**`test/routes/keyset.test.ts` is the one to copy for any new raw SQL.** It renders the keyset
+condition through the real `PgDialect`, which is what catches a JS `Date` interpolated into a
+raw `sql` fragment — a bug that has shipped twice and that every mocked test passed both times,
+because a mocked database never renders SQL.
+
+There are **no end-to-end or integration tests** against a real Postgres or emulator, and no
+committed e2e harness — **Playwright is not a dependency in any `package.json`**. Browser
+verification is therefore MCP-driven and leaves no regression artefact. Adding `apps/web/e2e`
+is the standing fix.
 
 ---
 
@@ -939,15 +1002,25 @@ yarn db:generate            # drizzle-kit generate → apps/api/migrations/
    — it goes in env/Secret Manager and is merged in by `getSystemCredentials()`.
 5. **`request.user` comes from token claims, not the `users` table.** Changing a row without
    calling `setCustomUserClaims` leaves authorisation stale for up to an hour.
-6. **Tenant scoping is manual.** There is no RLS. Every new query must filter on
-   `tenant_id` — and brand-scoped endpoints should also check `brandEntityId` for `user` role.
-7. **`apps/web` is client-side by necessity.** Don't convert views to Server Components while
+6. **Tenant scoping is manual.** There is no RLS. Every new query must filter on `tenant_id`,
+   and every new `/brands/:id...` route must add the `requireBrandAccess` preHandler — it is
+   not applied globally. Missing it is how `GET /brands/:id` leaked a sibling brand's metadata
+   after the analytical routes were fixed.
+7. **Never interpolate a JS `Date` into a raw drizzle `sql` fragment.** It bypasses the
+   timestamptz serialiser and Postgres rejects the value at runtime. Embed typed operators
+   instead — ``sql`COUNT(*) FILTER (WHERE ${gte(signals.publishedAt, since)})` `` — and cover
+   it the way `test/routes/keyset.test.ts` does. This has shipped twice.
+8. **Fastify strips undeclared response fields.** `fast-json-stringify` removes any property
+   the response schema does not declare, silently. `GET /brands/:id/signals` returned
+   `items: [{}, {}]` for exactly this reason and no unit test caught it — check every new or
+   changed route against a real HTTP response.
+9. **`apps/web` is client-side by necessity.** Don't convert views to Server Components while
    they depend on the Firebase client SDK.
-8. **Style with CSS custom properties.** Literal hex values break the Tweaks palette switcher.
-9. **Two API response conventions exist** (`{status,data}` vs bare rows). Match the file you're
-   editing and check the frontend caller before changing one.
-10. **`commitlint` enforces a closed scope list.** New scope → update `commitlint.config.js`.
-11. **Terraform requires `image_tag`.** `terraform apply` without it fails; that is intentional
+10. **Style with CSS custom properties.** Literal hex values break the Tweaks palette switcher.
+11. **Two API response conventions exist** (`{status,data}` vs bare rows). Match the file you're
+    editing and check the frontend caller before changing one.
+12. **`commitlint` enforces a closed scope list.** New scope → update `commitlint.config.js`.
+13. **Terraform requires `image_tag`.** `terraform apply` without it fails; that is intentional
     so local applies can't accidentally roll images back.
-12. **Read [`KNOWN-GAPS.md`](KNOWN-GAPS.md).** Several pipeline links are provisioned but not
-    connected — don't debug a flow that was never wired.
+14. **Read [`KNOWN-GAPS.md`](KNOWN-GAPS.md) and [`HANDOVER.md`](HANDOVER.md).** Most of the
+    register is closed, but four items remain open — and nothing here has ever run in a cloud.

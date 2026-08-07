@@ -67,9 +67,10 @@ Phase 5 of 7. That is too late when nothing has ever run in a cloud.
 
 ## 3. Where the codebase actually stands
 
-**Verified 2026-08-06.** Full gate green from a clean tree — 13 projects lint, 12 typecheck,
-**293 tests across 11 projects**. See §8 for the exact commands, the per-project counts, and a
-runner gotcha that makes `yarn test` look hung when it is not.
+**Re-verified 2026-08-07.** Full gate green — 13 projects lint, 12 typecheck, **297 tests
+across 11 projects**. See §8 for the exact commands, the per-project counts, and two runner
+traps: one that makes `yarn test` look hung, and one that makes the whole gate pass having run
+nothing at all.
 
 `KNOWN-GAPS.md` was made the backlog by owner decision and burned down over the preceding days.
 **15 of 19 items are closed.** What remains:
@@ -81,9 +82,22 @@ runner gotcha that makes `yarn test` look hung when it is not.
 - **#13 (remainder)** — Roadmap and Report views still on `apps/web/src/lib/data.ts` mock data.
   Roadmap is **unspecified work, not deferred work**: nothing in Epics 11–13 produces prioritised
   recommendations. Report is Epic 12.
-- **#19** — 118 literal hex values in `apps/web` that should be CSS custom properties.
+- **#19** — 119 literal hex values in `apps/web` that should be CSS custom properties.
 
 None of these four block the AWS work, and the AWS work does not close any of them except #16.
+
+**Two further defects were found and fixed on 2026-08-07**, both by re-verifying this document
+against the code rather than by testing:
+
+- **`GET /brands/:id` was missing `requireBrandAccess`** — the same intra-tenant hole as gap #5,
+  at metadata scope. Closed, with tests. The general point is in §7's table: the guard is
+  opt-in per route.
+- **`deploy-staging.yml` cannot fire** — it triggers on a push to `staging`, and only `main`
+  exists. Left as-is deliberately (see `KNOWN-GAPS.md` #15); the branch belongs with the AWS CI.
+
+`ARCHITECTURE.md`, `PLAN.md` and `SETUP.md` were also re-based on the same date — all three
+still described the pre-burn-down system in places, including five closed gaps presented as
+live symptoms in `SETUP.md` §14.
 
 ---
 
@@ -287,7 +301,7 @@ silently undoes them. Treat this as the regression checklist for the AWS work:
 
 | #   | Property that must survive                                                                                                  |
 | --- | --------------------------------------------------------------------------------------------------------------------------- |
-| 5   | Brand-scoped routes enforce `request.user.brandEntityId`. `apps/api/src/routes/signals.ts` still does not — do not copy it. |
+| 5   | Brand-scoped routes enforce `request.user.brandEntityId` via the `requireBrandAccess` preHandler. It is **opt-in per route** — nothing fails when a new one omits it, which is how `GET /brands/:id` kept the hole until 2026-08-07. Add it to every new `/brands/:id...` route. |
 | 6   | Cursor pagination has a deterministic `ORDER BY` and a composite keyset predicate.                                          |
 | 4   | Raw payloads are written to object storage on ingest and read back by scoring — not re-fetched from a URL.                  |
 | 7   | Topic/queue names come from the environment, never from hard-coded constants outside local dev.                             |
@@ -316,10 +330,22 @@ corepack yarn lint && corepack yarn typecheck && corepack yarn test
 `yarn test` enforces 80% coverage per project. For Terraform: `terraform fmt -check -recursive`
 and `terraform validate` in the affected tree.
 
-**Baseline, verified 2026-08-06 at commit `b62d260`:** lint green across 13 projects, typecheck
-green across 12, and **293 tests green across 11 projects** — `api` 101, `source-adapters` 52,
-`scoring` 43, `web` 23, `ingestion` 22, `sentiment-worker` 17, `config` 10, `storage` 9,
-`messaging` 9, `gemini` 4, `report-worker` 3.
+**Baseline, re-verified 2026-08-07:** lint green across 13 projects, typecheck green across 12,
+and **297 tests green across 11 projects** — `api` 105, `source-adapters` 52, `scoring` 43,
+`web` 23, `ingestion` 22, `sentiment-worker` 17, `config` 10, `storage` 9, `messaging` 9,
+`gemini` 4, `report-worker` 3. (`api` was 101 until the `GET /brands/:id` brand-access fix
+added four tests; the 2026-08-06 baseline at commit `b62d260` was 293.)
+
+> **A green gate can be a hollow one — check the task count, not just the exit code.** Nx infers
+> the `lint` and `test` targets from `@nx/eslint` / `@nx/vite`. If it computes its project graph
+> while `node_modules` is incomplete — a fresh clone where something ran before
+> `yarn install` finished — those plugins cannot load, and Nx **caches a graph with zero `lint`
+> and `test` targets**. `yarn lint` then prints `No tasks were run` and **exits 0**. The whole
+> gate passes having checked nothing.
+>
+> The tell is the summary line: it should say **13 projects** for lint, **12** for typecheck.
+> The fix is `nx reset` (on Windows it reports `EPERM` on `.nx/workspace-data` while the daemon
+> holds the directory, and still clears enough to work).
 
 > **`yarn test` as scripted will look like it has hung.** It is
 > `nx run-many -t test`, which defaults to running three vitest suites concurrently, each
@@ -335,6 +361,18 @@ green across 12, and **293 tests green across 11 projects** — `api` 101, `sour
 > once the Nx cache is warm — it then returns in ~3s from cache. This is a local performance
 > characteristic, not a failure; every project passes when actually run. Do not spend a session
 > debugging it as though a test were deadlocked, and do not "fix" it by weakening the gate.
+>
+> **Update 2026-08-07: `--parallel=1` did not rescue it either.** On this machine that form ran
+> **35+ minutes with no output and 57 node processes** before being killed. What does work,
+> reliably and in well under a minute total, is driving vitest per project and skipping Nx
+> orchestration entirely — `apps/api` alone is 105 tests in ~12s:
+>
+> ```bash
+> cd apps/api && corepack yarn vitest run --coverage
+> ```
+>
+> Do that when you need an attributable, trustworthy result. The tests themselves are fast; the
+> orchestration is the problem.
 
 > Note: bare `yarn` is not on `PATH` in this environment — it resolves through
 > `corepack yarn` (Yarn 4.9.2, confirmed). Node on `PATH` here is v24; use Node 20 for anything

@@ -6,7 +6,8 @@
 > [`PLAN.md`](PLAN.md) intends, what [`ARCHITECTURE.md`](ARCHITECTURE.md) describes, and what
 > the code currently does.
 >
-> Findings come from a full read of the repo on **2026-08-05**. Items struck through and
+> Findings come from a full read of the repo on **2026-08-05**, re-verified against the code on
+> **2026-08-07** (which added #5b). Items struck through and
 > marked ✅ have since been fixed; everything else is still open.
 >
 > **Severity key:** 🔴 breaks a flow · 🟠 correctness/security risk · 🟡 incomplete or drift
@@ -22,6 +23,7 @@
 | 3   | Cloud Tasks queue provisioned but never used                  | ⏸ dissolved | ingestion             |
 | 4   | ~~Raw payloads never written to Cloud Storage~~               | ✅ resolved | ingestion + sentiment |
 | 5   | ~~Brand-scoped reads don't enforce `brandEntityId`~~          | ✅ resolved | API authz             |
+| 5b  | ~~`GET /brands/:id` missed the same guard~~ (found 2026-08-07) | ✅ resolved | API authz             |
 | 6   | ~~Cursor pagination has no `ORDER BY`~~                       | ✅ resolved | API correctness       |
 | 7   | ~~Topic names differ between code and Terraform~~             | ✅ resolved | messaging             |
 | 8   | ~~Web app can't be pointed at the API at deploy time~~        | ✅ resolved | web ↔ infra           |
@@ -162,6 +164,24 @@ That matches `GET /brands`, which returns every brand in the tenant when no pin 
 routes treat "no pin" as tenant-wide read access. `owner` and `admin` are never constrained.
 
 This meets `PLAN.md`'s Epic 5 acceptance criterion.
+
+> **Follow-up (2026-08-07): the same hole survived on `GET /brands/:id`, now closed.** The
+> original fix applied `requireBrandAccess` to the three analytical routes named above, and the
+> four score/cluster endpoints added later inherited it. **`GET /brands/:id` itself never got
+> it** — it filtered on `tenant_id` only, so a pinned `user` could still read a sibling brand's
+> row, including a tracked competitor's, by changing the id in the URL.
+>
+> Materially less severe than the original: the row carries `name`, `slug` and `isOwned`, not
+> signals or sentiment. But it is the same defect, and "brand-scoped routes enforce
+> `brandEntityId`" is on `HANDOVER.md` §7's regression checklist, so it is fixed rather than
+> recorded. The preHandler is now on the route, with four tests in
+> `apps/api/test/routes/brands.test.ts` covering pinned-own-brand (200), pinned-sibling (403),
+> unpinned (200) and owner/admin (200) — the 403 case seeds the sibling row so the assertion
+> proves the guard rather than an empty result.
+>
+> **The general lesson, worth more than the fix:** `requireBrandAccess` is opt-in per route.
+> Nothing fails when a new `/brands/:id...` route omits it. Any future brand-scoped route —
+> including every one written for AWS — has to add it explicitly.
 
 ---
 
@@ -431,10 +451,22 @@ Docker build arg.
 The working tree had no `.git` directory, so nothing could be committed and the entire CI/CD
 design was unreachable.
 
-**Resolved during handover:** the repo is initialised with `main` and `staging` branches (the
-branches `ci.yml`, `deploy-staging.yml` and `terraform-plan.yml` expect). A remote still needs
-adding, and `github_repository` in `infra/bootstrap/variables.tf` must match it or Workload
-Identity Federation will reject the CI token.
+**Resolved during handover:** the repo is initialised and `origin` is
+`https://github.com/LokimotiveUK/project-signal.git`, which matches `github_repository` in
+`infra/bootstrap/variables.tf` — they must stay in step or Workload Identity Federation will
+reject the CI token.
+
+> **Correction (2026-08-07).** This entry previously claimed the repo was initialised with
+> `main` **and `staging`** branches, and that a remote still needed adding. Both were wrong,
+> established by `git branch -a` and `git remote -v`: the remote exists, and **only `main`
+> does**. `ci.yml` and `terraform-plan.yml` are unaffected — they also trigger on `main` and on
+> pull requests. **`deploy-staging.yml` triggers only on a push to `staging`, so it cannot fire
+> at all today.**
+>
+> No `staging` branch has been created, deliberately. Creating one now would point a GCP
+> deploy workflow at a GCP environment the owner has decided never to build (#16); it would
+> fail on the first step for want of `WIF_PROVIDER`. The branch belongs with whatever CI is
+> written for AWS, not before it.
 
 ---
 
@@ -582,7 +614,8 @@ PATCH that failed left the target's role unchanged at `owner`.
 
 **Where:** `App.tsx` (40 occurrences), `BrandManager.tsx` (25), `Admin.tsx` (14), `Report.tsx`
 (14), `SignIn.tsx` (12), `lib/data.ts` (6), `TweaksPanel.tsx` (3), `page.tsx` (2),
-`AuthGate.tsx` (2). **118 literals across 9 files.**
+`AuthGate.tsx` (2). **119 literals across 9 files** (recounted 2026-08-07; `TweaksPanel.tsx` is
+4, not 3).
 
 `CLAUDE.md` and `DEVRULES.md` both require styling through the custom properties in
 `app/globals.css`, because literal hex does not respond to the runtime palette switcher.
@@ -639,7 +672,7 @@ Remaining, in dependency order:
 11. **#13 (remainder)** — Roadmap needs prioritised recommendations to be **specified** before
     anything can generate them, and nothing in Epics 11–13 produces them; Report is Epic 12.
     `lib/data.ts` survives until both land.
-12. **#19** — convert the 118 literal hex values. A design task, not a substitution: ~45 map
+12. **#19** — convert the 119 literal hex values. A design task, not a substitution: ~45 map
     cleanly, three frequent values sit between tokens, and the long tail needs new tokens
     defined in `globals.css`.
 13. **#12 (remainder)** — the users UI. Blocked on #16; the API half is done and tested.

@@ -1,5 +1,15 @@
 # Project Signal — Environment Setup
 
+> # ⚠️ Superseded as a destination — do not work through this without reading `HANDOVER.md`
+>
+> **On 2026-08-06 the owner decided not to stand up GCP at all.** The system goes straight to
+> AWS. Everything below remains an accurate description of the deployment the *code* targets,
+> and it is kept for exactly that reason — the GCP stack is the clearest available
+> specification of what each service needs, and the AWS equivalent has to be written against
+> it. But it provisions an environment that is no longer intended to exist.
+>
+> Read [`HANDOVER.md`](HANDOVER.md) first.
+
 End-to-end instructions for standing up a Project Signal environment from nothing. Written
 for **staging first**; production is the same procedure with different names (§13).
 
@@ -387,21 +397,22 @@ Same procedure, separate project — do not share a project between environments
 
 ## 14. What "working" looks like — and what won't
 
-After all of the above you have a deployed, authenticating system. **The scoring pipeline will
-not produce meaningful output yet**, and that is expected rather than a misconfiguration. From
+After all of the above you have a deployed, authenticating system, and **the scoring pipeline
+is wired end to end** — the five defects this section used to list (gaps #1, #2, #4, #7, #9)
+were closed during the 2026-08 backlog burn-down. What remains from
 [`KNOWN-GAPS.md`](KNOWN-GAPS.md):
 
-| Gap | Symptom you will see                                                                                       |
-| --- | ---------------------------------------------------------------------------------------------------------- |
-| #7  | Ingestion publishes to `project-signal-item-queue`; Terraform created `staging-item`. Messages go nowhere. |
-| #1  | Pub/Sub pushes to `/events`; the sentiment worker serves `/pubsub/item`. 404 → 5 retries → DLQ.            |
-| #2  | The hourly sweep POSTs `/reconcile`, which doesn't exist. 404s hourly.                                     |
-| #4  | Raw text is never stored; the worker scores the _URL string_. Scores look real and are meaningless.        |
-| #9  | The worker swallows errors, so the DLQ never fires and failures are invisible.                             |
-| #13 | Six dashboard views render mock data for a fictional bank.                                                 |
+| Gap | What you will see                                                                                                                     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| #13 | **Roadmap** and **Report** still render mock data for a fictional bank. The other four analytical views are live.                     |
+| #3  | `/ingest/dispatch` fans out in-process, not through a queue. A dispatch across many brands can exceed the request timeout, and a failed source is dropped rather than retried. |
+| #12 | The users UI has never been driven in a browser — it needs a real sign-in, which is what this document provides.                      |
+| #19 | 119 literal hex values in `apps/web` do not respond to the runtime palette switcher.                                                  |
 
-Fix order is #7 → #1 → #2 → #4 → #9. Only the Admin view and brand management talk to the live
-API today.
+**Expect the first scoring run to be the real test.** Nothing in this repo has ever executed a
+Cloud Storage round trip or a live Vertex call; both are covered by unit tests and by mocked
+failure paths only. Watch the item DLQ and the worker logs on the first weekly run.
+
 
 ### Smoke tests that should pass
 

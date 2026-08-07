@@ -19,7 +19,7 @@ is scaffolded but deliberately not provisioned yet.
 
 ---
 
-## Status — as of 2026-08-05
+## Status — as of 2026-08-07
 
 > This document is the **plan and decision record**. For what the code actually does today,
 > read [`ARCHITECTURE.md`](ARCHITECTURE.md); for the places where the two disagree, read
@@ -31,27 +31,35 @@ is scaffolded but deliberately not provisioned yet.
 | 0 — Repo & tooling                  | ✅ Done                     | Nx 20, Yarn 4, strict TS, ESLint 9, husky + commitlint                                                                                                                                                                                                               |
 | 1 — Infrastructure (Terraform)      | 🟡 Code done, unprovisioned | All 8 modules written and previously applied in the contractor's test project. That environment was abandoned at handover; `staging.tfvars` / `production.tfvars` now hold `REPLACE_ME` and `bootstrap/` must be re-run against a new GCP project                    |
 | 2 — CI/CD                           | ✅ Done                     | 4 workflows, WIF keyless auth, 80% coverage gate. **Deploy triggers on the `staging` branch, not `main`** — the plan text below predates that change                                                                                                                 |
-| 3 — Database & migrations           | ✅ Done                     | 8 tables, 5 migrations, advisory-locked startup migration                                                                                                                                                                                                            |
-| 4 — Shared libs & skeletons         | ✅ Done                     | All 6 libs; all 4 backend services build and serve health checks                                                                                                                                                                                                     |
-| 5 — Auth & RBAC                     | 🟡 Mostly                   | Token verification, `requireRole`, admin routes and Swagger all exist. **Brand-level scoping is not enforced on `/brands/:id/*` reads** (`KNOWN-GAPS.md` #5), and `POST /admin/users` is owner-only rather than admin+ (#12)                                         |
-| 6 — Web deploy + live data          | 🟡 Partial                  | App is deployed, auth-gated, and the Admin area (tenant creation, source configs, aliases) is wired to the live API. The six analytical views still render `lib/data.ts` mock data; the users-management UI is not built (#13, #12)                                  |
-| 7 — Ingestion: Google Reviews       | 🟡 Mostly                   | Adapter, dispatcher, dedup and Pub/Sub publish all implemented — and **four more sources shipped early** (see Epic 10). Not wired: Cloud Tasks dispatch (#3), raw payload → Cloud Storage (#4), topic naming (#7)                                                    |
-| 8 — Sentiment scoring               | 🟡 Mostly                   | Worker, Gemini Flash prompt and idempotent upsert are implemented. Not working end-to-end: the push subscription targets a path the worker doesn't serve (#1), scoring reads a URL instead of review text (#4), and errors are swallowed so the DLQ never fires (#9) |
+| 3 — Database & migrations           | ✅ Done                     | 8 tables, **7 migrations**, advisory-locked startup migration                                                                                                                                                                                                        |
+| 4 — Shared libs & skeletons         | ✅ Done                     | **All 8 libs** (`storage` and `scoring` added during the burn-down); all 4 backend services build and serve health checks                                                                                                                                            |
+| 5 — Auth & RBAC                     | ✅ Done                     | Token verification, `requireRole`, `requireBrandAccess` on every `/brands/:id...` route, admin routes and Swagger. Role gating on `POST`/`PATCH /admin/users` fixed, and user rows + claims now write in one transaction (#5, #12, #18)                             |
+| 6 — Web deploy + live data          | 🟡 Partial                  | Dashboard, Trends, Achilles and Competitors are on the live API; Admin, BrandManager and UserManager too. **Roadmap and Report remain on `lib/data.ts`**, so the file survives and Epic 6's exit criterion is unmet (#13). Nothing is deployed anywhere (#16)        |
+| 7 — Ingestion: Google Reviews       | ✅ Done                     | Adapter, dispatcher, dedup, raw-payload storage and Pub/Sub publish all implemented, with topic names resolved from the environment — and **four more sources shipped early** (Epic 10). Cloud Tasks dispatch was dissolved rather than built (#3)                   |
+| 8 — Sentiment scoring               | ✅ Done                     | Worker scores the **stored raw text**, upserts idempotently, and classifies permanent vs transient failures so the DLQ can fire (#1, #4, #9). Never yet exercised against a real Vertex endpoint or a real bucket                                                    |
 | 9 — Observability & cost guardrails | ❌ Not started              | Log/metric writer IAM is granted, but no uptime checks, dashboards or budget alert exist                                                                                                                                                                             |
 | 10 — Additional sources             | ✅ Done early               | App Store, Play Store, RSS/Atom and YouTube adapters are all implemented alongside Google Reviews — this epic is no longer deferred                                                                                                                                  |
-| 11 — Full scoring engine            | ❌ Deferred                 | `dimension_scores` table and read endpoint exist; nothing writes them (#10)                                                                                                                                                                                          |
+| 11 — Full scoring engine            | 🟡 Partial                  | `libs/scoring` + `POST /rollup` write `dimension_scores` daily; `/score`, `/achilles`, `/strengths`, `/stats` read them (#10). Clusters are computed on read, not persisted, so there is no cluster history; the action roadmap has no producer at all                |
 | 12 — Reporting                      | ❌ Deferred                 | `report-worker` is a health-check skeleton                                                                                                                                                                                                                           |
 | 13 — Alerts & anomaly detection     | ❌ Deferred                 | —                                                                                                                                                                                                                                                                    |
 | 14 — Enterprise SSO                 | ❌ Deferred                 | Customer-driven                                                                                                                                                                                                                                                      |
 
-**Net position.** The vertical slice is built but **not yet connected end to end.** A user can
-sign in, an admin can provision a tenant and configure sources, and ingestion can pull and
-deduplicate real signals. What does not yet work in a deployed environment is the hop from
-ingestion to scoring, and the raw-text storage that makes scoring meaningful. Those are four
-small, located fixes — see the suggested order of attack at the end of `KNOWN-GAPS.md`.
+**Net position.** The vertical slice is built and **connected end to end in code** — ingest →
+object storage → queue → score → rollup → read → dashboard. 15 of the 19 items in
+`KNOWN-GAPS.md` are closed, and the full gate is green (13 projects lint, 12 typecheck, 297
+tests across 11).
 
-One further blocker sits outside the code: the working tree is **not a git repository**, so
-none of the CI/CD above can trigger (`KNOWN-GAPS.md` #15).
+**But none of it has ever run in a cloud.** Everything is verified against Docker Postgres and
+the Pub/Sub emulator; a real object-storage round trip, a real Vertex call and anything behind
+`AuthGate` remain unexercised. That is `KNOWN-GAPS.md` #16, and it is still the binding
+constraint on everything else.
+
+**The destination has changed.** On 2026-08-06 the owner decided not to stand up GCP at all —
+the system goes straight to AWS. Every GCP-specific statement in this document is therefore an
+accurate description of the *code* and an obsolete description of the *destination*. See
+[`HANDOVER.md`](HANDOVER.md), which is authoritative on the decision, and note that the cost
+table below rests on Cloud Run scaling to zero — an assumption that does not survive a move to
+Fargate.
 
 ---
 
