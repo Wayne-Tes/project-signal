@@ -3,6 +3,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Card } from './surfaces';
 import type { TONE_VAR } from './surfaces';
+import { cx } from '../cx';
 
 /**
  * Data display — the components that render numbers.
@@ -65,7 +66,7 @@ export function KpiCard({ label, value, trend, meta, tone, large, stagger }: Kpi
   return (
     <Card accent={tone} stagger={stagger}>
       <div className="ds-kpi__label">{label}</div>
-      <div className={`ds-kpi__value${large ? 'ds-kpi__value--lg' : ''}`}>{value}</div>
+      <div className={cx('ds-kpi__value', large && 'ds-kpi__value--lg')}>{value}</div>
       {(trend || meta) && (
         <div className="ds-kpi__meta">
           {trend && <Trend {...trend} />}
