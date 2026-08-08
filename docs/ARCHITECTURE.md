@@ -80,12 +80,18 @@ project-signal/
 │   ├── storage/              ObjectStore interface + S3 implementation
 │   ├── scoring/              Brand Perception Index: decay, dimensions, topic clusters
 │   └── source-adapters/      Adapter interface + 5 implementations
-├── infra/
+├── infra-aws/                THE REAL TARGET — see §12
+│   ├── bootstrap/            S3 remote-state bucket (local state, run once)
+│   ├── account/              ACCOUNT-GLOBAL, shared with co-tenant projects. Not ours
+│   ├── stack/                Tag-filtered budget. Phases 2-7 land here
+│   ├── envs/                 dev.tfvars, dev.stack.tfvars, account.tfvars
+│   └── scripts/              _guard.sh + discover / preflight / teardown
+├── infra/                    GCP. SUPERSEDED, reference only — never applied (§12)
 │   ├── bootstrap/            One-shot: APIs, TF state bucket, Workload Identity Federation
 │   ├── modules/              9 reusable Terraform modules
 │   ├── stack/                Shared .tf for every environment
 │   └── envs/                 staging.tfvars / production.tfvars
-├── .github/workflows/        ci, deploy-staging, deploy-production, terraform-plan
+├── .github/workflows/        ci, terraform-plan  (no deploy pipeline — Phase 6)
 ├── scripts/build-libs.sh     Deterministic lib build used by app Dockerfiles
 └── docs/                     PLAN.md, ARCHITECTURE.md, KNOWN-GAPS.md, diagram, spec
 ```

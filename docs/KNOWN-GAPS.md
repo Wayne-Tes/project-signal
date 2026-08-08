@@ -467,6 +467,12 @@ reject the CI token.
 > deploy workflow at a GCP environment the owner has decided never to build (#16); it would
 > fail on the first step for want of `WIF_PROVIDER`. The branch belongs with whatever CI is
 > written for AWS, not before it.
+>
+> **Update (2026-08-08): both GCP deploy workflows have been deleted**, so the paragraphs above
+> are history rather than current state. `deploy-staging.yml` and `deploy-production.yml` are
+> gone; `ci.yml` and a rewritten `terraform-plan.yml` (now covering `infra-aws/**`) are the only
+> workflows left, and there is no deploy pipeline until Phase 6. The `staging` branch remains
+> deliberately uncreated for the same reason, which is now simply that nothing deploys yet.
 
 ---
 
