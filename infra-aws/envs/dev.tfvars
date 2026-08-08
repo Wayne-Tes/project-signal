@@ -32,8 +32,17 @@ owner = "wayne.strydom@tes.com"
 
 # Owner decision, 2026-08-07: no formal cost centre code exists yet, so the account alias
 # stands in. It is at least attributable to a known owner if someone audits the shared account.
-# REPLACE THIS with the real code once one is issued — the tag is what makes spend attributable,
-# and cost allocation tags do not backfill, so the sooner it is correct the better.
+# SETTLED, owner 2026-08-08 — this is the correct value, not a placeholder awaiting a real one.
+# An earlier comment here said "REPLACE THIS once a real code is issued". There is no such code:
+# 290304998906 is the shared account where the department's canary projects, prototypes and
+# spikes live, and they are not charged per project. `tesai-dev-sandbox` names the thing actually
+# paying, which is what a cost centre is.
+#
+# Separating THIS project's spend from its co-tenants' is the `Project` tag's job, not this one —
+# the budget filters on user:Project$project-signal. See docs/HANDOVER.md §10.
+#
+# Revisit only if per-project charge codes appear, or if Project Signal moves to a dedicated
+# account, at which point aws_account_id changes anyway.
 cost_centre = "tesai-dev-sandbox"
 
 # Review date, one year out. The teardown script uses this to identify stale resources.

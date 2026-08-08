@@ -628,10 +628,37 @@ the reasoning matters more than the choice.
 | 4   | `report-worker` on Fargate?                               | **Omit it** until Epic 12. A health-check skeleton as a permanently-running task is pure cost. Adding it back is a one-file change                                                                                                                                                                                                                        |
 | 5   | Postgres RLS?                                             | **Add it in Phase 2 as defence-in-depth, keeping every existing `tenant_id` filter in place.** Belt and braces — no query is deleted, so a wrong policy cannot silently widen access, and the greenfield database is the only cheap moment to do it. Two defects of this class are already in the register (#5, #5b) plus the cross-tenant `PATCH` in #12 |
 
-**The cost centre placeholder is a live debt, not a decision.** Cost allocation tags do **not**
-backfill — they attribute from activation forward only. Every day spent on the placeholder is a
-day of spend attributed to a value that is not a real charge code. Replace it in
-`infra-aws/envs/dev.tfvars` the moment one is issued.
+#### `CostCentre = tesai-dev-sandbox` is the settled answer — owner, 2026-08-08
+
+An earlier revision of this section called the placeholder "a live debt, not a decision", on the
+assumption that a real charge code existed somewhere and simply had not been issued to us. **The
+owner has confirmed that is not the case, and the value is correct as it stands.**
+
+The reasoning, which is what matters if someone later thinks this needs fixing: `290304998906`
+is the account where the department's **canary projects, prototypes and spikes** all live. There
+is no per-project charge code because these workloads are not charged per project — they share
+one sandbox. `tesai-dev-sandbox` therefore names the thing actually paying, which is precisely
+what a cost centre is for.
+
+**This does not weaken attribution, because `CostCentre` was never the tag doing that work.**
+Separating this project's spend from its co-tenants' is the `Project` tag's job, and that is the
+one the budget filters on (`user:Project$project-signal`). All six keys are activated so every
+dimension is queryable in Cost Explorer, but `Project` is the discriminator.
+
+Revisit only if the department introduces real per-project charge codes, or if Project Signal
+moves out of the shared sandbox into a dedicated account — at which point the account id changes
+anyway and this value is reviewed with it.
+
+#### Budget headroom — owner, 2026-08-08
+
+The account budget reads **$1,600/month** (§3.3). The owner puts the working ceiling at "around
+two thousand" and can raise it on request, and does not expect this project to approach it: our
+steady state is costed at ~$109 with a $150 alarm, roughly 9% of the account limit.
+
+**The point of that headroom is that it buys room to do this properly**, including a
+deliberately torn-down test run if one is needed, rather than pressure to get everything right
+on a single attempt. It is not licence to leave things running — `Expires` tags and
+`scripts/99-teardown.sh` exist exactly so that a test can be proven gone afterwards.
 
 ### New question, raised by Phase 1
 
