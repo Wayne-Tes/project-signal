@@ -115,9 +115,8 @@ export interface NavActions {
   close: () => void;
 }
 
-export interface TweakValues {
-  palette: string;
-  fontPair: string;
-  scoreAnim: string;
-  animate: boolean;
-}
+/* `TweakValues` lived here. It described the prototype Tweaks panel — runtime
+   palette and font pickers — which the design system replaced. Theme, sidebar
+   and highlight colour are now real persisted settings typed in
+   `design-system/personalisation.ts`, so this interface had no remaining
+   referent and was removed rather than left as a type nobody constructs. */

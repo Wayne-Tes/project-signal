@@ -91,7 +91,9 @@ export function AdminView() {
             placeholder="Cognito sub of the tenant admin"
             required
           />
-          {error && <p style={{ color: 'var(--coral)', fontSize: 13, margin: '12px 0 0' }}>{error}</p>}
+          {error && (
+            <p style={{ color: 'var(--coral)', fontSize: 13, margin: '12px 0 0' }}>{error}</p>
+          )}
           <button type="submit" disabled={busy} style={btn}>
             {busy ? 'Creating…' : 'Create tenant'}
           </button>
@@ -99,7 +101,13 @@ export function AdminView() {
       </div>
 
       {result && (
-        <div style={{ ...card, marginTop: 16, borderColor: 'color-mix(in srgb, var(--mint) 40%, transparent)' }}>
+        <div
+          style={{
+            ...card,
+            marginTop: 16,
+            borderColor: 'color-mix(in srgb, var(--mint) 40%, transparent)',
+          }}
+        >
           <h3 style={{ fontSize: 14, margin: '0 0 8px', color: 'var(--mint)' }}>Tenant created</h3>
           <dl style={{ margin: 0, fontSize: 13, color: 'var(--t2)' }}>
             <Row label="Tenant" value={`${result.data.tenant.name} (${result.data.tenant.slug})`} />

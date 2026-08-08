@@ -142,8 +142,18 @@ function SourcesPanel({ brandId }: { brandId: string }) {
         <ul style={list}>
           {sources.map((s) => (
             <li key={s.id} style={row}>
-              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 13 }}>{s.source}</span>
-              <span style={{ ...muted, fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 13 }}>
+                {s.source}
+              </span>
+              <span
+                style={{
+                  ...muted,
+                  fontSize: 12,
+                  flex: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
                 {Object.values(s.config).join(' · ')}
               </span>
               <button
@@ -300,7 +310,12 @@ const card: CSSProperties = {
 };
 const h3: CSSProperties = { fontSize: 14, margin: '0 0 6px', color: 'var(--t1)' };
 const muted: CSSProperties = { color: 'var(--t2)', fontSize: 13, margin: 0 };
-const lbl: CSSProperties = { display: 'block', fontSize: 12, color: 'var(--t2)', margin: '0 0 4px' };
+const lbl: CSSProperties = {
+  display: 'block',
+  fontSize: 12,
+  color: 'var(--t2)',
+  margin: '0 0 4px',
+};
 const inp: CSSProperties = {
   padding: '9px 12px',
   background: 'var(--bg)',

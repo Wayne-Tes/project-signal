@@ -12,7 +12,13 @@ import type { Dimension } from '@/lib/types';
 
 function RepDimBar({ d }: { d: Dimension }) {
   const col =
-    d.score >= 78 ? 'var(--paper-ok)' : d.score >= 65 ? 'var(--paper-info)' : d.score >= 55 ? 'var(--paper-warn)' : 'var(--paper-bad)';
+    d.score >= 78
+      ? 'var(--paper-ok)'
+      : d.score >= 65
+        ? 'var(--paper-info)'
+        : d.score >= 55
+          ? 'var(--paper-warn)'
+          : 'var(--paper-bad)';
   return (
     <div className="rep-dim">
       <div className="v" style={{ color: col }}>
@@ -74,7 +80,9 @@ export function ReportView() {
                 <div className="rep-score-big" style={{ color: 'var(--paper-ok)' }}>
                   73
                 </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-5)' }}>
+                <div
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-5)' }}
+                >
                   BRAND PERCEPTION INDEX · +4 pts
                 </div>
               </div>
@@ -232,10 +240,14 @@ export function ReportView() {
                 </div>
               ))}
             </div>
-            <p className="rep-prose" style={{ marginTop: 14, fontSize: 12.5, color: 'var(--ink-5)' }}>
+            <p
+              className="rep-prose"
+              style={{ marginTop: 14, fontSize: 12.5, color: 'var(--ink-5)' }}
+            >
               {PS_BRAND.signalsThisWeek.toLocaleString()} signals processed this period across{' '}
               {PS_BRAND.sourcesActive} active sources. Every figure in this report is traceable to a
-              source item with timestamp, model version and confidence in the Project Signal audit trail.
+              source item with timestamp, model version and confidence in the Project Signal audit
+              trail.
             </p>
           </div>
 

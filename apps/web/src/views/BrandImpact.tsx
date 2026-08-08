@@ -1,102 +1,95 @@
 'use client';
+
+import { Target } from 'lucide-react';
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
 import { toHeelCards, type ApiCluster } from '@/lib/brand-data';
 import { ViewState } from '@/components/ViewState';
+import { Badge, Card, EmptyState, Grid, PageHeader, Row, Trend } from '@/design-system';
 import type { NavActions } from '@/lib/types';
 
+/**
+ * Brand impact — the topic clusters doing the most damage.
+ *
+ * Composed entirely from design-system primitives; the view contributes layout
+ * and data mapping and no styling of its own. Damage is
+ * volume x negative sentiment x recency, computed by the API.
+ */
 export function BrandImpactView({ nav }: { nav: NavActions }) {
   const { brandId, error: brandError } = useBrand();
   const { data, loading, error } = useApi<ApiCluster[]>(
     brandId ? `/brands/${brandId}/brand-impact` : null,
   );
-  const heels = data ? toHeelCards(data) : [];
+  const clusters = data ? toHeelCards(data) : [];
 
   return (
-    <div className="content view-enter">
-      <div style={{ maxWidth: 720, marginBottom: 24 }}>
-        <p className="kicker">Brand impact report</p>
-        <h2
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 28,
-            fontWeight: 600,
-            margin: '8px 0 8px',
-          }}
-        >
-          The weaknesses doing the most damage
-        </h2>
-        <p style={{ color: 'var(--t2)', fontSize: 14.5, lineHeight: 1.6 }}>
-          Ranked by damage score — volume × negative sentiment × recency.
-        </p>
-      </div>
+    <>
+      <PageHeader
+        eyebrow="Brand impact"
+        title="The weaknesses doing the most damage"
+        subtitle="Ranked by damage score — volume × negative sentiment × recency."
+      />
 
-      <ViewState
-        loading={loading}
-        error={error ?? brandError}
-        empty={
-          heels.length === 0
-            ? 'No weaknesses surfaced yet — nothing scored negatively in the window.'
-            : null
-        }
-      >
-        <div className="grid">
-          {heels.map((c, i) => (
-            <button
-              key={c.topic}
-              className="heel clickable"
-              onClick={() => c.dimensionKey && nav.openDimension(c.dimensionKey)}
-            >
-              <div className="rank">{i + 1}</div>
-              <div>
-                <div className="htitle">{c.title}</div>
-                <div className="hsum">
-                  {c.volume.toLocaleString()} signals, mean sentiment {c.sentiment.toFixed(2)}
-                </div>
-                <div className="hmeta">
-                  {c.dimensionLabel && (
-                    <span
-                      className="sent-chip"
+      <ViewState loading={loading} error={error ?? brandError} empty={null}>
+        {clusters.length === 0 ? (
+          <Card>
+            <EmptyState
+              icon={<Target size={22} strokeWidth={1.8} />}
+              title="Nothing has scored negatively yet"
+              // States what is true rather than reassuring. An empty result here
+              // is genuinely ambiguous — no damage, or nothing scored at all —
+              // and the second is far more likely early on.
+              body="No topic cluster has enough negative signal to rank. This is also what you see before any signals have been scored."
+            />
+          </Card>
+        ) : (
+          <Grid min="320px">
+            {clusters.map((c, i) => (
+              <Card
+                key={c.topic}
+                accent="critical"
+                stagger={i * 40}
+                onClick={c.dimensionKey ? () => nav.openDimension(c.dimensionKey!) : undefined}
+              >
+                <Row gap="var(--s-4)">
+                  <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                    <Row gap="var(--s-2)">
+                      <span className="ds-eyebrow">#{i + 1}</span>
+                      {c.dimensionLabel && <Badge tone="critical">{c.dimensionLabel}</Badge>}
+                    </Row>
+                    <h3
                       style={{
-                        color: 'var(--coral)',
-                        borderColor: 'color-mix(in srgb, var(--coral) 35%, transparent)',
+                        fontFamily: 'var(--font-display)',
+                        fontWeight: 'var(--fw-bold)',
+                        fontSize: 'var(--fs-h3)',
+                        color: 'var(--text-heading)',
+                        margin: 'var(--s-2) 0 4px',
                       }}
                     >
-                      <span className="dot" style={{ background: 'currentColor' }} />
-                      {c.dimensionLabel}
-                    </span>
-                  )}
-                  <span className="mono" style={{ fontSize: 12, color: 'var(--t3)' }}>
-                    {c.volume.toLocaleString()} signals
-                  </span>
-                </div>
-              </div>
-              <div className="damage-ring">
-                <div
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 38,
-                    fontWeight: 600,
-                    color: 'var(--coral)',
-                    lineHeight: 1,
-                  }}
-                >
-                  {c.damage}
-                </div>
-                <div className="kicker">damage</div>
-                {c.dimensionKey && (
-                  <span
-                    className="arr"
-                    style={{ color: 'var(--coral)', marginTop: 8, display: 'block', fontSize: 18 }}
-                  >
-                    →
-                  </span>
-                )}
-              </div>
-            </button>
-          ))}
-        </div>
+                      {c.title}
+                    </h3>
+                    <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+                      {c.volume.toLocaleString()} signals · mean sentiment {c.sentiment.toFixed(2)}
+                    </p>
+                  </div>
+
+                  <div style={{ textAlign: 'right', flex: '0 0 auto' }}>
+                    <div className="ds-kpi__value" style={{ color: 'var(--status-critical)' }}>
+                      {c.damage}
+                    </div>
+                    <div className="ds-eyebrow">damage</div>
+                    {/* Damage rising is bad, so the trend must not colour a rise
+                        green — hence upIsGood={false}. */}
+                    <div style={{ marginTop: 'var(--s-1)' }}>
+                      <Trend direction="up" value="" upIsGood={false} />
+                    </div>
+                  </div>
+                </Row>
+              </Card>
+            ))}
+          </Grid>
+        )}
       </ViewState>
-    </div>
+    </>
   );
 }

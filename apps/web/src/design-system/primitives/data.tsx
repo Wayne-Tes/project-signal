@@ -65,7 +65,7 @@ export function KpiCard({ label, value, trend, meta, tone, large, stagger }: Kpi
   return (
     <Card accent={tone} stagger={stagger}>
       <div className="ds-kpi__label">{label}</div>
-      <div className={`ds-kpi__value${large ? ' ds-kpi__value--lg' : ''}`}>{value}</div>
+      <div className={`ds-kpi__value${large ? 'ds-kpi__value--lg' : ''}`}>{value}</div>
       {(trend || meta) && (
         <div className="ds-kpi__meta">
           {trend && <Trend {...trend} />}

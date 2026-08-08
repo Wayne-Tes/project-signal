@@ -100,7 +100,9 @@ export function SignIn() {
             </p>
           </>
         )}
-        {error && <p style={{ color: 'var(--coral)', fontSize: 13, margin: '12px 0 0' }}>{error}</p>}
+        {error && (
+          <p style={{ color: 'var(--coral)', fontSize: 13, margin: '12px 0 0' }}>{error}</p>
+        )}
         <button type="submit" disabled={busy} style={btn}>
           {busy
             ? mustSetPassword
@@ -130,7 +132,12 @@ const card: CSSProperties = {
   border: '1px solid var(--line)',
   borderRadius: 14,
 };
-const lbl: CSSProperties = { display: 'block', fontSize: 12, color: 'var(--t2)', margin: '12px 0 4px' };
+const lbl: CSSProperties = {
+  display: 'block',
+  fontSize: 12,
+  color: 'var(--t2)',
+  margin: '12px 0 4px',
+};
 const inp: CSSProperties = {
   width: '100%',
   padding: '10px 12px',
