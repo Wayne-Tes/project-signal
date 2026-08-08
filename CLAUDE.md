@@ -29,9 +29,12 @@
 >   "clean up", do not retry with different credentials.
 >
 > **Enforcement already in the tree — keep it that way:** `allowed_account_ids` in
-> `infra-aws/bootstrap/versions.tf` and `infra-aws/stack/versions.tf`; `check` blocks in
-> `infra-aws/stack/guard.tf`; a hard abort in `infra-aws/scripts/_guard.sh`, which
-> `10-preflight.sh` and `99-teardown.sh` both source before doing anything.
+> `infra-aws/bootstrap/versions.tf`, `infra-aws/account/versions.tf` and
+> `infra-aws/stack/versions.tf`; `check` blocks in `infra-aws/stack/guard.tf` and
+> `infra-aws/account/main.tf`; a hard abort in `infra-aws/scripts/_guard.sh`, which
+> **all three** of `00-discover.sh`, `10-preflight.sh` and `99-teardown.sh` source before doing
+> anything, covered by `infra-aws/scripts/test/guard.test.sh` and enforced on every pull request
+> by `.github/workflows/terraform-plan.yml`.
 >
 > See [`infra-aws/CONVENTIONS.md`](infra-aws/CONVENTIONS.md) §0 and
 > [`docs/AWS-SETUP.md`](docs/AWS-SETUP.md).

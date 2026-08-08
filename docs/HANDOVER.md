@@ -114,8 +114,12 @@ cannot be reused for CI** — GitHub Actions needs its own IAM role.
 > anywhere else: **stop, change nothing, tell the owner.**
 >
 > Enforced by [`../infra-aws/scripts/_guard.sh`](../infra-aws/scripts/_guard.sh), sourced by
-> every script that calls AWS; wrong-account and no-credential aborts are both tested. Full
-> rule in [`../DEVRULES.md`](../DEVRULES.md) and
+> every script that calls AWS — read-only ones included. Its wrong-account, no-credential and
+> override paths are covered by
+> [`../infra-aws/scripts/test/guard.test.sh`](../infra-aws/scripts/test/guard.test.sh), which
+> stubs the AWS CLI so the tests make no real call and need no credentials. CI fails a pull
+> request if an AWS-calling script does not source the guard. Full rule in
+> [`../DEVRULES.md`](../DEVRULES.md) and
 > [`../infra-aws/CONVENTIONS.md`](../infra-aws/CONVENTIONS.md) §0.
 
 `tesai-dev-sandbox` hosts several projects. The owner has full control inside it but **cannot

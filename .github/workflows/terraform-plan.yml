@@ -85,12 +85,20 @@ jobs:
 
       - name: Syntax-check every script
         run: |
-          for f in infra-aws/scripts/*.sh; do
+          for f in infra-aws/scripts/*.sh infra-aws/scripts/test/*.sh; do
             bash -n "$f" || exit 1
           done
 
       - name: shellcheck
-        run: shellcheck -S warning infra-aws/scripts/*.sh
+        run: shellcheck -S warning infra-aws/scripts/*.sh infra-aws/scripts/test/*.sh
+
+      # The guard is the control the entire sandbox rule rests on, so it is the one piece of
+      # shell in this repository that has tests. They stub the AWS CLI, so this step makes no
+      # real AWS call and needs no credentials — which is also the only safe way to exercise
+      # the wrong-account path, since producing it for real would require credentials for an
+      # account we must never hold.
+      - name: Guard unit tests
+        run: bash infra-aws/scripts/test/guard.test.sh
 
       - name: Every AWS-calling script must source the account guard
         run: |

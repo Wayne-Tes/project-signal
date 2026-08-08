@@ -36,8 +36,11 @@ else's production environment, attributed to the account owner.
   Do not improvise a fix and do not retry with different credentials.
 
 This is enforced, not merely asked for: `infra-aws/scripts/_guard.sh` aborts before the first
-API call and is sourced by every script that talks to AWS. Its wrong-account and
-no-credential paths are both tested. Any new script must source it too.
+API call and is sourced by every script that talks to AWS — read-only ones included. Its
+wrong-account, no-credential and override paths are covered by
+`infra-aws/scripts/test/guard.test.sh`, which stubs the AWS CLI so the tests make no real call
+and need no credentials. Any new script must source it too, and CI fails the pull request if
+one does not.
 
 ---
 

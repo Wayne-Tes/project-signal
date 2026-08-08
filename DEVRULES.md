@@ -76,8 +76,10 @@ These are Project Signal invariants. Breaking one produces a security hole or a 
     or widen `allowed_account_ids` in `infra-aws/*/versions.tf`.
   - Never touch Organizations, SCPs, root-level IAM or billing. The account-wide budget
     `monthly_tesai-dev-sandbox` is **read-only to us**.
-  - Enforced by `infra-aws/scripts/_guard.sh`, sourced by every script that calls AWS; its
-    wrong-account and no-credential aborts are both tested. **Any new script must source it.**
+  - Enforced by `infra-aws/scripts/_guard.sh`, sourced by every script that calls AWS. Its
+    wrong-account, no-credential and override paths are covered by
+    `infra-aws/scripts/test/guard.test.sh`, which stubs the AWS CLI so no real call is made.
+    **Any new script must source it** — CI fails the pull request otherwise.
   - If credentials resolve anywhere else: **stop, change nothing, tell the owner.**
 
 - **Tenant scoping is manual.** There is no Postgres RLS. Every query MUST filter on `tenant_id`. Brand-scoped routes MUST additionally check `request.user.brandEntityId`. Note that `apps/api/src/routes/signals.ts` currently does _not_ — that is KNOWN-GAPS #5, an open intra-tenant isolation hole. Do not copy that pattern.
