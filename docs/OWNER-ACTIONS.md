@@ -68,10 +68,20 @@ expected, not a fault: the pool is admin-create-only, so **every** user meets a 
 change on first sign-in, and the sign-in form has a step for it. Minimum 12 characters, upper and
 lower case, a number and a symbol.
 
-After that you have an `owner` role but **no tenant yet**, which is deliberate: the account
-carries `custom:role = owner` and nothing else, because inventing a tenant id would create a
-claim pointing at nothing. Create the tenant from the **Admin** view — it provisions the tenant,
-its owned brand and an admin user in one transaction.
+**Your tenant already exists, so there is nothing to set up after that.** Your account carries:
+
+| Claim             | Value                                                   |
+| ----------------- | ------------------------------------------------------- |
+| `custom:role`     | `admin`                                                 |
+| `custom:tenantId` | `44483769-fd65-4c08-a642-1534e66d6c20` — tenant **TES** |
+| Owned brand       | **TES** (`301d4aa1-9c94-4118-949d-f2571f345f49`)        |
+
+`admin` manages users and every brand in the tenant, which is what day-to-day use needs. It
+cannot create _additional_ tenants — that is `owner`, and if you want a second tenant later,
+say so and it is a one-line attribute change.
+
+Your `users` row was written in the same transaction as the tenant and the brand, so the table
+and the token agree (KNOWN-GAPS #18).
 
 > ⚠️ **HTTP, not HTTPS.** An ALB's own DNS name cannot carry a TLS certificate. Fine for you to
 > test with, **not acceptable for sharing with the team** — the password would cross the network
