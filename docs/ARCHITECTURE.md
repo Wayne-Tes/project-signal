@@ -77,7 +77,7 @@ project-signal/
 │   ├── db/                   Drizzle schema + postgres-js client
 │   ├── llm/                  LlmClient interface + Bedrock implementation
 │   ├── messaging/            MessagePublisher interface + SQS implementation
-│   ├── storage/              ObjectStore interface + GCS implementation
+│   ├── storage/              ObjectStore interface + S3 implementation
 │   ├── scoring/              Brand Perception Index: decay, dimensions, topic clusters
 │   └── source-adapters/      Adapter interface + 5 implementations
 ├── infra/
@@ -94,7 +94,7 @@ project-signal/
 order (which `scripts/build-libs.sh` hard-codes):
 
 ```
-config → shared-types → db → storage → scoring → gemini → messaging → source-adapters
+config → shared-types → db → storage → scoring → llm → messaging → source-adapters
 ```
 
 No app imports another app. Workers talk to Postgres **directly** via `libs/db` rather than
@@ -632,7 +632,7 @@ here**; doing so previously made a model outage silently drop every signal in th
 
 ### `scoreSignal(text)` — `src/scorer.ts`
 
-Prompts the scorer model for **strict JSON only**:
+Calls `getLlmClient().structured<…>()` with `SENTIMENT_SCHEMA`, which declares:
 
 ```json
 { "label": "positive|negative|neutral|mixed",
@@ -641,9 +641,21 @@ Prompts the scorer model for **strict JSON only**:
   "topics": ["≤5 short strings"] }
 ```
 
-Response handling: pull `candidates[0].content.parts[0].text`, trim, strip ` ```json `
-fences, `JSON.parse`, and stamp `modelVersion` from `getScorerModel()`. `PROMPT_TEMPLATE` is
-exported so tests can assert on it.
+**That schema is not a hint in a prompt — it is the input schema of a Bedrock tool, with
+`toolChoice` forcing the model to call it**, so the provider returns an already-parsed object.
+`scoreSignal` does nothing to the result but stamp `modelVersion` from `getScorerModel()`.
+`PROMPT_TEMPLATE` and `SENTIMENT_SCHEMA` are both exported so tests can assert on them.
+
+> **There is no JSON parsing, no ` ```json ` fence-stripping and no "return ONLY valid JSON"
+> instruction anywhere in this path, and reintroducing any of them is a regression.** All three
+> existed in the retired Vertex/Gemini implementation to salvage prose, and all three could
+> fail: a model that wrapped its answer in a sentence raised `PermanentScoringError`, **which
+> acks the message**, so the signal was dropped permanently and silently (KNOWN-GAPS #9). The
+> failure class is not handled now — it is absent. See `HANDOVER.md` §4.2 and `libs/llm`.
+>
+> _This section described the Gemini fence-and-parse behaviour until 2026-08-08, months after
+> the code changed. An agent trusting it would have "restored" the exact defect the rewrite
+> removed._
 
 ---
 
@@ -868,15 +880,16 @@ Region **`eu-west-2`** (London). Compute **ECS Fargate**, database **RDS Postgre
 
 **Phase 1 (guardrails) is written; Phases 2–7 do not exist yet.** What is there:
 
-| Path                      | What                                                                                                                                                                                         |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bootstrap/`              | S3 remote-state bucket — versioned, encrypted, TLS-only, `prevent_destroy`. Local state, because it creates the backend everything else uses                                                 |
-| `stack/`                  | Cost allocation tag activation and the tag-filtered monthly budget. S3 remote state with native locking (`use_lockfile`); **no DynamoDB lock table** — that mechanism is deprecated upstream |
-| `envs/dev.tfvars`         | Tag values, shared by **both** root modules so they cannot drift. `dev.stack.tfvars` holds budget-only values                                                                                |
-| `scripts/00-discover.sh`  | Phase 0 discovery, read-only, already run — findings in [`HANDOVER.md`](HANDOVER.md) §3                                                                                                      |
-| `scripts/10-preflight.sh` | Pre-apply checks: account, cost allocation tag status, prefix collisions                                                                                                                     |
-| `scripts/99-teardown.sh`  | Reversal, dry-run by default, verifying by **independent tag inventory** rather than Terraform state — which is what catches a resource orphaned by a failed apply                           |
-| `CONVENTIONS.md`          | The proposed cross-repo standard for the shared account                                                                                                                                      |
+| Path                      | What                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bootstrap/`              | S3 remote-state bucket — versioned, encrypted, TLS-only, `prevent_destroy`. Local state, because it creates the backend everything else uses                                                                                                                                                                                                          |
+| `account/`                | **ACCOUNT-GLOBAL, not ours.** Activates the six mandatory tag keys as cost allocation tags — one switch per key for the _whole_ account, shared with every co-tenant project. Separate state (`account/terraform.tfstate`), `prevent_destroy` on each key, applied deliberately by the owner or platform team and **never by CI or a project deploy** |
+| `stack/`                  | The tag-filtered monthly budget. S3 remote state with native locking (`use_lockfile`); **no DynamoDB lock table** — that mechanism is deprecated upstream                                                                                                                                                                                             |
+| `envs/dev.tfvars`         | Tag values, shared by `bootstrap/` and `stack/` so they cannot drift. `dev.stack.tfvars` holds budget-only values; `account.tfvars` feeds the account module                                                                                                                                                                                          |
+| `scripts/00-discover.sh`  | Phase 0 discovery, read-only, already run — findings in [`HANDOVER.md`](HANDOVER.md) §3. **Sources `_guard.sh` like every other AWS-calling script**                                                                                                                                                                                                  |
+| `scripts/10-preflight.sh` | Pre-apply checks: account, cost allocation tag status, prefix collisions                                                                                                                                                                                                                                                                              |
+| `scripts/99-teardown.sh`  | Reversal, dry-run by default, verifying by **independent tag inventory** rather than Terraform state — which is what catches a resource orphaned by a failed apply                                                                                                                                                                                    |
+| `CONVENTIONS.md`          | The proposed cross-repo standard for the shared account                                                                                                                                                                                                                                                                                               |
 
 The account is **shared with other projects**, so the build is designed to be _separable_: own
 VPC, `psignal-<env>-*` naming, mandatory tags applied as Terraform provider `default_tags` (so a
@@ -891,6 +904,18 @@ should follow.
 > tags are activated by exact key, so applying one casing and activating another produces six
 > tags that attribute nothing. A budget filtered on an inactive tag reports **$0 forever** — the
 > failure is completely silent, which is why `scripts/10-preflight.sh` checks for it explicitly.
+
+> **Account-global resources live in `account/`, never in `stack/`.** Cost allocation tag
+> activation is one switch per key for the entire AWS account, not a per-project setting. While
+> it lived in `stack/budget.tf`, `terraform destroy` — which `scripts/99-teardown.sh --execute`
+> runs — would have deactivated all six keys **for every other project in the shared sandbox**,
+> and because activation does not backfill, their lost attribution would have been permanent.
+> `CONVENTIONS.md` §7 also tells the next repo to copy `stack/`, which would have given two
+> states ownership of the same six global switches.
+>
+> **The rule: if a resource is account-scoped, it does not belong in a project's state file.**
+> Anything added to `account/` must clear that bar, and co-tenant repos **reference** the module
+> rather than copying it.
 
 ### `infra/` — GCP, superseded, kept as reference
 
@@ -968,7 +993,19 @@ Pub/Sub modules.
 
 ## 13. CI/CD
 
-Four GitHub Actions workflows. All GCP auth is keyless via Workload Identity Federation.
+**Two GitHub Actions workflows, and neither authenticates to any cloud.** There is no deploy
+pipeline: AWS CI/CD is Phase 6 (GitHub OIDC → IAM role), and until it exists nothing in this
+repository can reach an account from CI.
+
+> **The two GCP deploy workflows were removed on 2026-08-08.** `deploy-staging.yml` and
+> `deploy-production.yml` built images to Artifact Registry and ran `terraform apply` against
+> the `infra/` GCP stack — a platform the owner decided on 2026-08-06 never to build
+> ([`HANDOVER.md`](HANDOVER.md) §2). They could not have succeeded: there is no GCP project and
+> no `WIF_PROVIDER` secret. Both carried `workflow_dispatch`, so they remained manually
+> triggerable, and `deploy-staging.yml` also triggered on a `staging` branch that deliberately
+> does not exist (KNOWN-GAPS #15). Dead deploy pipelines pointed at an abandoned platform are
+> not harmless in an audited repository. **When AWS deploy workflows are written in Phase 6,
+> write them fresh against ECR and ECS — do not resurrect these from git history.**
 
 ### `ci.yml` — PRs and pushes to `main`/`staging`
 
@@ -979,28 +1016,31 @@ Four GitHub Actions workflows. All GCP auth is keyless via Workload Identity Fed
 | `test`         | `nx run-many -t test -- --coverage`                                                                                                               |
 | `docker-check` | Matrix over changed apps: build each Dockerfile with GHA layer cache, **no push**                                                                 |
 
-### `deploy-staging.yml` — push to the `staging` branch (or manual)
+### `terraform-plan.yml` — PRs and pushes to `main` touching `infra-aws/**`
 
-1. `build-push` matrix over all five apps → build and push to Artifact Registry tagged both
-   `staging-<short-sha>` and `staging`.
-2. `deploy` → `terraform init` with `prefix=env/staging` → `terraform apply -auto-approve`
-   with `-var="image_tag=staging-<short-sha>"`.
+Static validation of the AWS Terraform tree. **It makes zero AWS API calls**, deliberately:
+`init -backend=false` skips backend configuration and state entirely, so nothing authenticates
+and nothing is read from the account. `permissions` is `contents: read` with no `id-token`.
 
-Because Terraform owns the image, that single apply deploys code and infrastructure together.
+| Job        | Does                                                                                                                                                                                          |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validate` | `terraform fmt -check -recursive -diff`, then `init -backend=false` + `validate` on each of the three root modules — `bootstrap`, `account`, `stack`. **A module not listed is not checked.** |
+| `scripts`  | `bash -n` and `shellcheck -S warning` over `infra-aws/scripts/*.sh`, then asserts that **every script invoking the AWS CLI sources `_guard.sh` and calls `assert_sandbox_account`**           |
 
-### `deploy-production.yml`
+That last check is the important one. The sandbox rule is enforced by a guard a script has to
+remember to source, and `00-discover.sh` had silently not sourced it — running ~20 `describe`
+and `list` calls against whatever account the credentials happened to resolve to, in a
+repository whose own documentation stated that every AWS-calling script was guarded. **A
+control that depends on remembering is not a control.** The next such omission now fails a PR
+instead of reaching an account.
 
-A structural mirror of staging, tagging `prod-<sha>` / `production` and using
-`prefix=env/production`. The `push` trigger is **commented out** — currently
-`workflow_dispatch` only — and both jobs are pinned to the `production` GitHub environment for
-required-reviewer gating. The header comments list the three steps needed to enable it.
-
-### `terraform-plan.yml` — PRs touching `infra/**`
-
-Runs `terraform plan` for staging, tees output to a file, and posts (or **updates**, matching
-on the heading) a collapsible plan comment on the PR. Output over 60,000 chars is truncated.
-`continue-on-error` on the plan step plus a final explicit fail step means a broken plan still
-gets commented before the job goes red.
+> **This workflow replaced a GCP one of the same name.** The previous version filtered on
+> `infra/stack/**` and `infra/modules/**` — the superseded GCP tree — so `infra-aws/**` had no
+> CI coverage whatsoever. `ci.yml` never reads a `.tf` file.
+>
+> **When Phase 6 lands**, add a real `terraform plan` job here using the GitHub OIDC role, and
+> leave the credential-free `validate` job as the gate that always runs. A gate that cannot
+> authenticate cannot itself become a route into the account.
 
 ### Docker images
 
@@ -1039,15 +1079,15 @@ has no thresholds by design.
 Each project's config uses `vite-tsconfig-paths` so `@project-signal/*` aliases resolve in tests
 without building the libs.
 
-| Area           | Files                                                                                 | Approach                                                                                                                                                                                                                                                 |
-| -------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| API routes     | `admin`, `aliases`, `brands`, `integrations`, `keyset`, `scores`, `signals`, `users`  | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers `@fastify/sensible` and stubs `request.user` in an `onRequest` hook — **Firebase is never involved**. `DEFAULT_ADMIN` / `DEFAULT_OWNER` / `DEFAULT_PINNED_USER` presets. |
-| API plugins    | `plugins/auth.test.ts`                                                                | Token parsing, public-prefix bypass, `requireRole` and `requireBrandAccess` behaviour                                                                                                                                                                    |
-| API migrations | `migrate.test.ts`                                                                     | Advisory-lock and no-op-when-absent behaviour                                                                                                                                                                                                            |
-| Ingestion      | `handler.test.ts`, `rollup.test.ts`                                                   | `vi.hoisted` mock chain impersonating the Drizzle fluent builder with a queue of result sets; adapters, storage and the SQS publisher mocked                                                                                                             |
-| Sentiment      | `handler`, `scorer`                                                                   | Permanent-vs-transient classification, upsert-on-conflict, prompt shape, fence-stripping, JSON parsing                                                                                                                                                   |
-| Web            | `test/brand-data.test.ts`                                                             | The API→presentation mapping, which is where view correctness is proven while `AuthGate` blocks browser verification                                                                                                                                     |
-| Libs           | `config`, `gemini`, `messaging`, `scoring`, `storage`, all 5 adapters + `apifyClient` | `fetch` mocked; RSS tests cover both RSS and Atom shapes; `scoring` is pure and needs no mocks                                                                                                                                                           |
+| Area           | Files                                                                                | Approach                                                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API routes     | `admin`, `aliases`, `brands`, `integrations`, `keyset`, `scores`, `signals`, `users` | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers `@fastify/sensible` and stubs `request.user` in an `onRequest` hook — **Firebase is never involved**. `DEFAULT_ADMIN` / `DEFAULT_OWNER` / `DEFAULT_PINNED_USER` presets. |
+| API plugins    | `plugins/auth.test.ts`                                                               | Token parsing, public-prefix bypass, `requireRole` and `requireBrandAccess` behaviour                                                                                                                                                                    |
+| API migrations | `migrate.test.ts`                                                                    | Advisory-lock and no-op-when-absent behaviour                                                                                                                                                                                                            |
+| Ingestion      | `handler.test.ts`, `rollup.test.ts`                                                  | `vi.hoisted` mock chain impersonating the Drizzle fluent builder with a queue of result sets; adapters, storage and the SQS publisher mocked                                                                                                             |
+| Sentiment      | `handler`, `scorer`                                                                  | Permanent-vs-transient classification, upsert-on-conflict, prompt shape, fence-stripping, JSON parsing                                                                                                                                                   |
+| Web            | `test/brand-data.test.ts`                                                            | The API→presentation mapping, which is where view correctness is proven while `AuthGate` blocks browser verification                                                                                                                                     |
+| Libs           | `config`, `llm`, `messaging`, `scoring`, `storage`, all 5 adapters + `apifyClient`   | `fetch` mocked; RSS tests cover both RSS and Atom shapes; `scoring` is pure and needs no mocks                                                                                                                                                           |
 
 **`test/routes/keyset.test.ts` is the one to copy for any new raw SQL.** It renders the keyset
 condition through the real `PgDialect`, which is what catches a JS `Date` interpolated into a

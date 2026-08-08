@@ -72,6 +72,15 @@ their consequences are in [`HANDOVER.md`](HANDOVER.md) §3. Summary:
 
 ## Phase 0 — discovery (read-only)
 
+> **Read-only is not a reason to skip the account guard.** Since 2026-08-08 `00-discover.sh`
+> sources `_guard.sh` and aborts before its first `describe`/`list`, like every other
+> AWS-calling script. It previously did not: it ran all ~20 calls and only then printed
+> _"confirm this is YOUR sandbox account"_ — asking a human to check **after** the traffic had
+> already left. Under the sandbox rule a `list` against a sibling account is still unauthorised
+> access to it, so "it only reads" is exactly the reasoning that produces an incident. To point
+> it at a different account you legitimately hold, name that account explicitly:
+> `EXPECTED_ACCOUNT=<12 digits> bash infra-aws/scripts/00-discover.sh`.
+
 **Nothing is created. Nothing costs anything.** This establishes which account you are in, what
 you are permitted to do, and which services are genuinely available, before any design is
 committed to.
@@ -157,7 +166,7 @@ cross-repo standard this account now follows.
 | Mandatory tags as provider defaults — a resource _cannot_ be created untagged | `infra-aws/*/versions.tf`, `default_tags`                           |
 | Account guard — aborts before the first API call on the wrong account         | `allowed_account_ids`, plus `stack/guard.tf` for a readable message |
 | Name prefix `psignal-dev-*`, single-sourced                                   | `stack/locals.tf`                                                   |
-| Cost allocation tag activation                                                | `stack/budget.tf`                                                   |
+| Cost allocation tag activation — **account-global, separate state**           | `account/`                                                          |
 | Tag-filtered monthly budget, `ACTUAL` at 50/90/100% and `FORECASTED` at 100%  | `stack/budget.tf`                                                   |
 | Remote state, S3 native locking, no DynamoDB table                            | `bootstrap/`, `stack/backend.tf`                                    |
 | Preflight and teardown scripts                                                | `scripts/10-preflight.sh`, `scripts/99-teardown.sh`                 |
@@ -171,10 +180,25 @@ reason it happens before the first billable resource rather than after.
 
 `scripts/10-preflight.sh` §3 checks this explicitly, because it is invisible from the budget.
 
-**Activation may be denied.** In an AWS Organization it is normally reserved to the management
-account. If the apply fails on `ce:UpdateCostAllocationTagsStatus`, set
-`manage_cost_allocation_tags = false` in `infra-aws/envs/dev.stack.tfvars` and ask the platform
-team to activate the six keys centrally — once, benefiting every project in the account.
+**Activation may be denied, and that is a normal outcome.** In an AWS Organization it is
+normally reserved to the management account. If the apply fails on
+`ce:UpdateCostAllocationTagsStatus`, **do not work around it** — ask the platform team to
+activate the six keys centrally, once, benefiting every project in the account, and never apply
+`infra-aws/account/` at all. The budget deploys either way.
+
+> ### ⚠️ Activation is account-global, so it is not part of this project's stack
+>
+> Corrected 2026-08-08. `aws_ce_cost_allocation_tag` originally sat in `stack/budget.tf`. It is
+> **one switch per tag key for the whole account**, so a `terraform destroy` on the stack — which
+> `scripts/99-teardown.sh --execute` runs — would have deactivated all six keys **for every
+> co-tenant project in the sandbox**. Activation does not backfill, so their lost attribution
+> would have been permanent rather than restored on the next apply.
+>
+> It now lives in [`../infra-aws/account/`](../infra-aws/account/): its own state
+> (`account/terraform.tfstate`), `prevent_destroy` on every key, applied deliberately by the
+> owner or the platform team, **never by CI and never by a project deploy**. Read that module's
+> header before running it, and tell the sandbox's other tenants first — an account-wide change
+> is one they can see.
 
 ### Decisions taken at Phase 1 (owner, 2026-08-07)
 
