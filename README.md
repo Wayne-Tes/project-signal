@@ -4,7 +4,7 @@ AI-powered brand intelligence platform by Wayne Strydom.
 
 Project Signal ingests public brand signals (reviews, app-store feedback, YouTube comments, RSS),
 scores them for sentiment with **Claude on Amazon Bedrock**, and surfaces a Brand Perception
-Index, an "Achilles Heel" analysis and an action roadmap — with a full audit trail, multi-tenant
+Index, a "Brand impact" analysis and an action roadmap — with a full audit trail, multi-tenant
 and role-scoped.
 
 > ### Status: code-complete on AWS libraries, verified locally, **deployed nowhere**
@@ -168,7 +168,7 @@ guard is opt-in and nothing fails when a new route omits it — which is exactly
 ## Current state
 
 Epics 0–8, 10 and part of 11 are built. Four of the six analytical views (Dashboard, Trends,
-Achilles, Competitors) read the live API; **Roadmap and Report still render mock data** from
+Brand impact, Competitors) read the live API; **Roadmap and Report still render mock data** from
 `apps/web/src/lib/data.ts`, deferred by owner decision until AWS is running — no new code may
 depend on that file.
 

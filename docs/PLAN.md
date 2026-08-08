@@ -3,7 +3,7 @@
 ## Context
 
 Project Signal is an agency-managed, multi-tenant brand-intelligence SaaS:
-ingest public brand signals → score perception → surface an "Achilles Heel" + action
+ingest public brand signals → score perception → surface a "Brand impact" + action
 roadmap with a full audit trail. The repo is greenfield.
 
 The goal is a **working MVP**: a real user can sign in, see live brand signals for their
@@ -26,23 +26,23 @@ is scaffolded but deliberately not provisioned yet.
 > [`KNOWN-GAPS.md`](KNOWN-GAPS.md). The epic descriptions below are preserved as written —
 > this table is the reality check over them.
 
-| Epic                                | State                       | Notes                                                                                                                                                                                                                                                           |
-| ----------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 — Repo & tooling                  | ✅ Done                     | Nx 20, Yarn 4, strict TS, ESLint 9, husky + commitlint                                                                                                                                                                                                          |
-| 1 — Infrastructure (Terraform)      | 🟡 Code done, unprovisioned | All 8 modules written and previously applied in the contractor's test project. That environment was abandoned at handover; `staging.tfvars` / `production.tfvars` now hold `REPLACE_ME` and `bootstrap/` must be re-run against a new GCP project               |
-| 2 — CI/CD                           | ✅ Done                     | 4 workflows, WIF keyless auth, 80% coverage gate. **Deploy triggers on the `staging` branch, not `main`** — the plan text below predates that change                                                                                                            |
-| 3 — Database & migrations           | ✅ Done                     | 8 tables, **7 migrations**, advisory-locked startup migration                                                                                                                                                                                                   |
-| 4 — Shared libs & skeletons         | ✅ Done                     | **All 8 libs.** `storage`, `scoring` added during the burn-down; `gemini` became `llm` in the AWS port. All 4 backend services build and serve health checks                                                                                                    |
-| 5 — Auth & RBAC                     | ✅ Done                     | Token verification, `requireRole`, `requireBrandAccess` on every `/brands/:id...` route, admin routes and Swagger. Role gating on `POST`/`PATCH /admin/users` fixed, and user rows + claims now write in one transaction (#5, #12, #18)                         |
-| 6 — Web deploy + live data          | 🟡 Partial                  | Dashboard, Trends, Achilles and Competitors are on the live API; Admin, BrandManager and UserManager too. **Roadmap and Report remain on `lib/data.ts`**, so the file survives and Epic 6's exit criterion is unmet (#13). Nothing is deployed anywhere (#16)   |
-| 7 — Ingestion: Google Reviews       | ✅ Done                     | Adapter, dispatcher, dedup, raw-payload storage to S3 and SQS publish all implemented, with the queue URL resolved from the environment — and **four more sources shipped early** (Epic 10). Cloud Tasks dispatch was dissolved rather than built (#3)          |
-| 8 — Sentiment scoring               | ✅ Done                     | Worker scores the **stored raw text**, upserts idempotently, and classifies permanent vs transient failures so the DLQ can fire (#1, #4, #9). Proven against a real bucket and queue locally (LocalStack, 2026-08-07); **never exercised against a real model** |
-| 9 — Observability & cost guardrails | ❌ Not started              | Log/metric writer IAM is granted, but no uptime checks, dashboards or budget alert exist                                                                                                                                                                        |
-| 10 — Additional sources             | ✅ Done early               | App Store, Play Store, RSS/Atom and YouTube adapters are all implemented alongside Google Reviews — this epic is no longer deferred                                                                                                                             |
-| 11 — Full scoring engine            | 🟡 Partial                  | `libs/scoring` + `POST /rollup` write `dimension_scores` daily; `/score`, `/achilles`, `/strengths`, `/stats` read them (#10). Clusters are computed on read, not persisted, so there is no cluster history; the action roadmap has no producer at all          |
-| 12 — Reporting                      | ❌ Deferred                 | `report-worker` is a health-check skeleton                                                                                                                                                                                                                      |
-| 13 — Alerts & anomaly detection     | ❌ Deferred                 | —                                                                                                                                                                                                                                                               |
-| 14 — Enterprise SSO                 | ❌ Deferred                 | Customer-driven                                                                                                                                                                                                                                                 |
+| Epic                                | State                       | Notes                                                                                                                                                                                                                                                             |
+| ----------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 — Repo & tooling                  | ✅ Done                     | Nx 20, Yarn 4, strict TS, ESLint 9, husky + commitlint                                                                                                                                                                                                            |
+| 1 — Infrastructure (Terraform)      | 🟡 Code done, unprovisioned | All 8 modules written and previously applied in the contractor's test project. That environment was abandoned at handover; `staging.tfvars` / `production.tfvars` now hold `REPLACE_ME` and `bootstrap/` must be re-run against a new GCP project                 |
+| 2 — CI/CD                           | ✅ Done                     | 4 workflows, WIF keyless auth, 80% coverage gate. **Deploy triggers on the `staging` branch, not `main`** — the plan text below predates that change                                                                                                              |
+| 3 — Database & migrations           | ✅ Done                     | 8 tables, **7 migrations**, advisory-locked startup migration                                                                                                                                                                                                     |
+| 4 — Shared libs & skeletons         | ✅ Done                     | **All 8 libs.** `storage`, `scoring` added during the burn-down; `gemini` became `llm` in the AWS port. All 4 backend services build and serve health checks                                                                                                      |
+| 5 — Auth & RBAC                     | ✅ Done                     | Token verification, `requireRole`, `requireBrandAccess` on every `/brands/:id...` route, admin routes and Swagger. Role gating on `POST`/`PATCH /admin/users` fixed, and user rows + claims now write in one transaction (#5, #12, #18)                           |
+| 6 — Web deploy + live data          | 🟡 Partial                  | Dashboard, Trends, Brand impact and Competitors are on the live API; Admin, BrandManager and UserManager too. **Roadmap and Report remain on `lib/data.ts`**, so the file survives and Epic 6's exit criterion is unmet (#13). Nothing is deployed anywhere (#16) |
+| 7 — Ingestion: Google Reviews       | ✅ Done                     | Adapter, dispatcher, dedup, raw-payload storage to S3 and SQS publish all implemented, with the queue URL resolved from the environment — and **four more sources shipped early** (Epic 10). Cloud Tasks dispatch was dissolved rather than built (#3)            |
+| 8 — Sentiment scoring               | ✅ Done                     | Worker scores the **stored raw text**, upserts idempotently, and classifies permanent vs transient failures so the DLQ can fire (#1, #4, #9). Proven against a real bucket and queue locally (LocalStack, 2026-08-07); **never exercised against a real model**   |
+| 9 — Observability & cost guardrails | ❌ Not started              | Log/metric writer IAM is granted, but no uptime checks, dashboards or budget alert exist                                                                                                                                                                          |
+| 10 — Additional sources             | ✅ Done early               | App Store, Play Store, RSS/Atom and YouTube adapters are all implemented alongside Google Reviews — this epic is no longer deferred                                                                                                                               |
+| 11 — Full scoring engine            | 🟡 Partial                  | `libs/scoring` + `POST /rollup` write `dimension_scores` daily; `/score`, `/brand-impact`, `/strengths`, `/stats` read them (#10). Clusters are computed on read, not persisted, so there is no cluster history; the action roadmap has no producer at all        |
+| 12 — Reporting                      | ❌ Deferred                 | `report-worker` is a health-check skeleton                                                                                                                                                                                                                        |
+| 13 — Alerts & anomaly detection     | ❌ Deferred                 | —                                                                                                                                                                                                                                                                 |
+| 14 — Enterprise SSO                 | ❌ Deferred                 | Customer-driven                                                                                                                                                                                                                                                   |
 
 **Net position.** The vertical slice is built and **connected end to end** — ingest → object
 storage → queue → score → rollup → read → dashboard. 17 of the 19 items in `KNOWN-GAPS.md` are
@@ -280,7 +280,7 @@ Migrations applied by the API on startup (advisory lock guards concurrent boots)
 - Replace `apps/web/src/lib/data.ts` mock data with live API calls, scoped to the
   authenticated user's tenant + brand.
 - Gate the entire app behind Identity Platform sign-in (Sign in with Microsoft / Google).
-- All six dashboard views (Dashboard, Achilles, Roadmap, Report, Trends, Competitors) fetch
+- All six dashboard views (Dashboard, Brand impact, Roadmap, Report, Trends, Competitors) fetch
   from the API; empty-state UI where data is not yet populated (e.g. reports).
 - **Admin/Owner area** (role-gated via token claims; hidden from `user` role) backing the
   Epic 5 `/admin/users` endpoints:
@@ -336,7 +336,7 @@ X and Trustpilot remain deferred as planned.
 
 ### Epic 11 — Full scoring engine — **partially delivered**
 
-5-dimension Brand Perception Index with 90-day recency decay, topic clustering → Achilles
+5-dimension Brand Perception Index with 90-day recency decay, topic clustering → Brand impact
 Heel identification, daily dimension rollups written to `dimension_scores`.
 
 **Delivered:** `libs/scoring` implements decay, per-dimension scoring, the weighted composite
@@ -346,7 +346,7 @@ and topic-cluster damage scoring. `POST /rollup` on ingestion writes daily rollu
 `brand_entities.dimension_weights`.
 
 Read endpoints follow in `apps/api/src/routes/scores.ts`: `GET /brands/:id/score` (composite +
-breakdown + week-earlier comparison), `GET /brands/:id/achilles` (damage-ranked clusters), and
+breakdown + week-earlier comparison), `GET /brands/:id/brand-impact` (damage-ranked clusters), and
 a date-ranged `GET /brands/:id/dimension-scores`.
 
 **Outstanding:** topic clusters are computed on read rather than persisted, so there is no

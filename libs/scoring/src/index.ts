@@ -1,5 +1,5 @@
 export {
-  ACHILLES_TOP_N,
+  BRAND_IMPACT_TOP_N,
   DEFAULT_DIMENSION_WEIGHTS,
   DIMENSIONS,
   HALF_LIFE_DAYS,
@@ -9,7 +9,7 @@ export {
 } from './types.js';
 
 export {
-  achillesHeels,
+  brandImpact,
   clusterTopics,
   compositeScore,
   recencyWeight,

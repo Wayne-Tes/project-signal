@@ -145,7 +145,7 @@ describe('GET /brands/:id/score', () => {
   });
 });
 
-describe('GET /brands/:id/achilles', () => {
+describe('GET /brands/:id/brand-impact', () => {
   const scored = (over: Record<string, unknown> = {}) => ({
     signalId: 's1',
     publishedAt: new Date(),
@@ -164,7 +164,7 @@ describe('GET /brands/:id/achilles', () => {
       scored({ signalId: 'c', topics: ['queues'], score: -0.3 }),
     ];
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/achilles' });
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/brand-impact' });
 
     const body = JSON.parse(res.body);
     expect(body[0].topic).toBe('fees');
@@ -177,7 +177,7 @@ describe('GET /brands/:id/achilles', () => {
       scored({ signalId: t, topics: [t], score: -1 + i * 0.1 }),
     );
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/achilles' });
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/brand-impact' });
 
     expect(JSON.parse(res.body)).toHaveLength(3);
   });
@@ -187,7 +187,7 @@ describe('GET /brands/:id/achilles', () => {
       scored({ signalId: t, topics: [t], score: -1 + i * 0.1 }),
     );
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/achilles?limit=2' });
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/brand-impact?limit=2' });
 
     expect(JSON.parse(res.body)).toHaveLength(2);
   });
@@ -196,14 +196,14 @@ describe('GET /brands/:id/achilles', () => {
   it('omits clusters with no negativity', async () => {
     _rows = [scored({ score: 1, topics: ['praise'] })];
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/achilles' });
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/brand-impact' });
 
     expect(JSON.parse(res.body)).toEqual([]);
   });
 
   it('is brand-scoped', async () => {
     const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/achilles' });
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/brand-impact' });
     expect(res.statusCode).toBe(403);
   });
 });

@@ -8,7 +8,7 @@ import { TweaksPanel, TweakSection, TweakSelect, TweakRadio, TweakToggle } from 
 import { useBrand } from '@/lib/brand-context';
 import { Dashboard } from '@/views/Dashboard';
 import { TrendsView } from '@/views/Trends';
-import { AchillesView } from '@/views/Achilles';
+import { BrandImpactView } from '@/views/BrandImpact';
 import { RoadmapView } from '@/views/Roadmap';
 import { CompetitorsView } from '@/views/Competitors';
 import { ReportView } from '@/views/Report';
@@ -18,7 +18,7 @@ import { useAuth } from '@/lib/auth';
 const ICONS: Record<string, string> = {
   dashboard: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
   trends: 'M3 17l5-6 4 4 7-9M21 6h-4M21 6v4',
-  achilles: 'M12 2l9 16H3z M12 9v4 M12 16v.5',
+  'brand-impact': 'M12 2l9 16H3z M12 9v4 M12 16v.5',
   roadmap: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
   competitors: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
   report: 'M6 2h9l5 5v15H6zM15 2v5h5M9 13h7M9 17h7',
@@ -115,7 +115,7 @@ const FONTS: Record<string, { display: string; body: string; mono: string }> = {
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', group: 'Brand' },
   { id: 'trends', label: 'Trends & history', group: 'Brand' },
-  { id: 'achilles', label: 'Achilles heel', group: 'Intelligence', badge: '3' },
+  { id: 'brand-impact', label: 'Brand impact', group: 'Intelligence', badge: '3' },
   { id: 'roadmap', label: 'Action roadmap', group: 'Intelligence' },
   { id: 'competitors', label: 'Competitors', group: 'Intelligence' },
   { id: 'report', label: 'Weekly report', group: 'Delivery' },
@@ -124,7 +124,7 @@ const NAV = [
 const TITLES: Record<string, string> = {
   dashboard: 'Cadence',
   trends: 'Trends & history',
-  achilles: 'Achilles heel',
+  'brand-impact': 'Brand impact',
   roadmap: 'Action roadmap',
   competitors: 'Competitive set',
   report: 'Weekly report',
@@ -305,7 +305,7 @@ export function App() {
             <Dashboard key={`d${play}${tweaks.scoreAnim}`} nav={nav} hero={tweaks.scoreAnim} />
           )}
           {view === 'trends' && <TrendsView key={`t${play}`} nav={nav} />}
-          {view === 'achilles' && <AchillesView nav={nav} />}
+          {view === 'brand-impact' && <BrandImpactView nav={nav} />}
           {view === 'roadmap' && <RoadmapView nav={nav} />}
           {view === 'competitors' && <CompetitorsView key={`c${play}`} />}
           {view === 'report' && <ReportView />}

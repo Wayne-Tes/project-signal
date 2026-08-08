@@ -48,7 +48,7 @@ is precisely the failure mode DEVRULES exists to prevent.
 An **agency-managed, multi-tenant brand-intelligence SaaS**. It ingests public brand signals
 (Google/App Store/Play reviews, YouTube comments, RSS), scores each with an LLM for sentiment
 across five fixed dimensions — **trust, quality, service, value, experience** — and surfaces a
-composite Brand Perception Index, an "Achilles Heel" weakness ranking, and competitor
+composite Brand Perception Index, a "Brand impact" weakness ranking, and competitor
 benchmarking.
 
 One `tenant` per customer. A tenant owns `brand_entities` (its own brands, plus competitors it

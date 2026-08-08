@@ -47,7 +47,7 @@ The loop it implements:
 2. **Score** each signal with Claude on Bedrock: sentiment label, score (−1…1), confidence, which
    of the five brand dimensions it touches, and topic tags.
 3. **Surface** the result in a dashboard: a composite Brand Perception Index, per-dimension
-   breakdown, an "Achilles Heel" ranking of the weaknesses doing the most damage, a
+   breakdown, a "Brand impact" ranking of the weaknesses doing the most damage, a
    prioritised action roadmap, competitor benchmarking, and a printable weekly report.
 
 The five perception dimensions are fixed across the codebase: **trust, quality, service,
@@ -385,7 +385,7 @@ recencyWeight(publishedAt, asOf); // 2^(-age/90d) — spec's 90-day half-life
 scoreDimension(items, dimension, asOf); // weighted by recency × confidence → 0–100
 compositeScore(rollups, weights); // the BPI; per-brand weights, renormalised
 clusterTopics(items, asOf); // damage = volume × negativity × recency
-achillesHeels(clusters); // top 3 by damage, zero-damage excluded
+brandImpact(clusters); // top 3 by damage, zero-damage excluded
 ```
 
 Two decisions worth knowing before you change them. A dimension with no items scores `null`,
@@ -518,8 +518,8 @@ difference.
 | `GET /brands/:id/sentiment-summary`       | any          | object               | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results.    |
 | `GET /brands/:id/dimension-scores`        | any          | bare array           | Dimension history from `dimension_scores`, `from`/`to` optional, default last 90 days. Lives in `routes/scores.ts`.     |
 | `GET /brands/:id/score`                   | any          | object               | Brand Perception Index for the latest rollup, its per-dimension breakdown, and the comparison point ≥7 days earlier.    |
-| `GET /brands/:id/achilles`                | any          | bare array           | Top topic clusters by damage, computed on read from `sentiment_results`. `limit` defaults to 3.                         |
-| `GET /brands/:id/strengths`               | any          | bare array           | The mirror of `/achilles`, ranked by `volume × positivity × recency`. `limit` defaults to 3.                            |
+| `GET /brands/:id/brand-impact`            | any          | bare array           | Top topic clusters by damage, computed on read from `sentiment_results`. `limit` defaults to 3.                         |
+| `GET /brands/:id/strengths`               | any          | bare array           | The mirror of `/brand-impact`, ranked by `volume × positivity × recency`. `limit` defaults to 3.                        |
 | `GET /brands/:id/stats`                   | any          | object               | Dashboard stat row: this/previous week signal counts, total, scored (pipeline coverage), active/configured sources.     |
 | `GET /brands/:id/integrations`            | admin, owner | `{status,data}`      | List `source_configs` for the brand.                                                                                    |
 | `POST /brands/:id/integrations`           | admin, owner | `{status,data}`      | **Upsert** on `(brand_entity_id, source)`.                                                                              |
@@ -735,15 +735,15 @@ and passed as a Docker build arg by the deploy workflows — see
 
 ### Views (`src/views/`)
 
-| View          | Data     | Contents                                                                                                                                     |
-| ------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Dashboard`   | live     | Hero score (radial gauge or bars), dimension bars, sparklines, stat row → `/score`, `/dimension-scores`, `/stats`, `/achilles`, `/strengths` |
-| `Trends`      | live     | Dimension history line chart → `/score`, `/dimension-scores`                                                                                 |
-| `Achilles`    | live     | Top weakness cards ranked by damage → `/achilles`                                                                                            |
-| `Competitors` | live     | Benchmark bars → `/brands` plus one `/score` per brand                                                                                       |
-| `Roadmap`     | **mock** | Prioritised actions. **No producer exists** — nothing in Epics 11–13 generates recommendations.                                              |
-| `Report`      | **mock** | Print-styled weekly report. Epic 12.                                                                                                         |
-| `Admin`       | live     | Tenant creation, `BrandManager`, `UserManager`                                                                                               |
+| View          | Data     | Contents                                                                                                                                         |
+| ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Dashboard`   | live     | Hero score (radial gauge or bars), dimension bars, sparklines, stat row → `/score`, `/dimension-scores`, `/stats`, `/brand-impact`, `/strengths` |
+| `Trends`      | live     | Dimension history line chart → `/score`, `/dimension-scores`                                                                                     |
+| `BrandImpact` | live     | Top weakness cards ranked by damage → `/brand-impact`                                                                                            |
+| `Competitors` | live     | Benchmark bars → `/brands` plus one `/score` per brand                                                                                           |
+| `Roadmap`     | **mock** | Prioritised actions. **No producer exists** — nothing in Epics 11–13 generates recommendations.                                                  |
+| `Report`      | **mock** | Print-styled weekly report. Epic 12.                                                                                                             |
+| `Admin`       | live     | Tenant creation, `BrandManager`, `UserManager`                                                                                                   |
 
 ### Charts and motion
 
@@ -863,7 +863,7 @@ Docker Postgres and LocalStack only.
 ```
 BrandProvider → apiFetch('/brands')                 → selects the brand
 Dashboard     → useApi(`/brands/${id}/score`)       → composite + breakdown + week-earlier delta
-              → useApi(`/brands/${id}/dimension-scores`), `/stats`, `/achilles`, `/strengths`
+              → useApi(`/brands/${id}/dimension-scores`), `/stats`, `/brand-impact`, `/strengths`
               → brand-data.ts maps API rows into presentation shapes
               → ViewState renders loading | error | empty | data
 ```

@@ -110,7 +110,7 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
   const score = useApi<ApiBrandScore>(brandId ? `/brands/${brandId}/score` : null);
   const history = useApi<ApiDimensionRow[]>(brandId ? `/brands/${brandId}/dimension-scores` : null);
   const stats = useApi<BrandStats>(brandId ? `/brands/${brandId}/stats` : null);
-  const heels = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/achilles` : null);
+  const heels = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/brand-impact` : null);
   const strengths = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/strengths` : null);
 
   const cards = score.data ? toDimensionCards(score.data) : [];

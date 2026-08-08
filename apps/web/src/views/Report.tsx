@@ -3,7 +3,7 @@ import {
   PS_BRAND,
   PS_DIMENSIONS,
   PS_HISTORY,
-  PS_ACHILLES,
+  PS_BRAND_IMPACT,
   PS_ROADMAP,
   PS_SIGNALS,
   PS_SOURCES,
@@ -157,8 +157,8 @@ export function ReportView() {
           </div>
 
           <div className="rep-section" style={{ marginTop: 28 }}>
-            <h2>Achilles heel · where the damage is</h2>
-            {PS_ACHILLES.map((c, i) => {
+            <h2>Brand impact · where the damage is</h2>
+            {PS_BRAND_IMPACT.map((c, i) => {
               const sig = heelSignals(c.id);
               return (
                 <div className="rep-heel" key={c.id}>

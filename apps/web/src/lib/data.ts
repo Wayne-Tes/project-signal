@@ -504,7 +504,7 @@ export function signalsFor(clusterId: string, mix?: Record<string, number>): Sig
   }));
 }
 
-export const PS_ACHILLES: Cluster[] = [
+export const PS_BRAND_IMPACT: Cluster[] = [
   { ...PS_CLUSTERS['service']![0]!, dimension: 'service', dimensionLabel: 'Service' },
   { ...PS_CLUSTERS['quality']![0]!, dimension: 'quality', dimensionLabel: 'Quality' },
   { ...PS_CLUSTERS['trust']![0]!, dimension: 'trust', dimensionLabel: 'Trust' },

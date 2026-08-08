@@ -161,7 +161,7 @@ conversions from KNOWN-GAPS #19 and the users UI from #12 remain visually unveri
 they were.
 
 **When you are back**, either reconnect the extension and tell me, or click through it yourself:
-sign in, set a password, and confirm the Dashboard, Trends, Achilles and Competitors views
+sign in, set a password, and confirm the Dashboard, Trends, Brand impact and Competitors views
 render. This is the checkpoint those two gaps have been waiting on since before AWS existed.
 
 ---

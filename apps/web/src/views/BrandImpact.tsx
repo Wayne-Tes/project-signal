@@ -5,17 +5,17 @@ import { toHeelCards, type ApiCluster } from '@/lib/brand-data';
 import { ViewState } from '@/components/ViewState';
 import type { NavActions } from '@/lib/types';
 
-export function AchillesView({ nav }: { nav: NavActions }) {
+export function BrandImpactView({ nav }: { nav: NavActions }) {
   const { brandId, error: brandError } = useBrand();
   const { data, loading, error } = useApi<ApiCluster[]>(
-    brandId ? `/brands/${brandId}/achilles` : null,
+    brandId ? `/brands/${brandId}/brand-impact` : null,
   );
   const heels = data ? toHeelCards(data) : [];
 
   return (
     <div className="content view-enter">
       <div style={{ maxWidth: 720, marginBottom: 24 }}>
-        <p className="kicker">Achilles Heel report</p>
+        <p className="kicker">Brand impact report</p>
         <h2
           style={{
             fontFamily: 'var(--font-display)',

@@ -90,7 +90,7 @@ The Brand Perception Score is a composite of five dimension scores: trust, quali
 
 ## **5.3 Topic clustering**
 
-Topic tags from individual items are aggregated into clusters. Clusters with high negative sentiment concentration and high recency are surfaced as Achilles Heel candidates. The top three clusters by damage score (volume x negative sentiment x recency weight) are presented as the Achilles Heel report.
+Topic tags from individual items are aggregated into clusters. Clusters with high negative sentiment concentration and high recency are surfaced as Brand impact candidates. The top three clusters by damage score (volume x negative sentiment x recency weight) are presented as the Brand impact report.
 
 ## **5.4 Competitor benchmarking**
 
@@ -102,7 +102,7 @@ A Cloud Tasks job runs on a configurable cadence (default: hourly) per brand. It
 
 ## **5.6 Weekly report generation**
 
-A Cloud Scheduler job fires weekly per brand, targeting the report Pub/Sub topic. The report worker pulls the last 7 days of processed data from Firestore, constructs a structured prompt, and calls Gemini Pro. The model returns structured JSON: key themes, sentiment trend narrative, Achilles Heel summary, and action recommendations. A PDF renderer converts this to a branded report stored in Cloud Storage. Clients receive a signed URL by email.
+A Cloud Scheduler job fires weekly per brand, targeting the report Pub/Sub topic. The report worker pulls the last 7 days of processed data from Firestore, constructs a structured prompt, and calls Gemini Pro. The model returns structured JSON: key themes, sentiment trend narrative, Brand impact summary, and action recommendations. A PDF renderer converts this to a branded report stored in Cloud Storage. Clients receive a signed URL by email.
 
 # **6\. Storage model**
 
@@ -134,7 +134,7 @@ A ranked list of recommended fixes, each with: a plain-English description, the 
 
 ## **7.4 Reports**
 
-Weekly PDF reports are generated per brand and delivered by email via SendGrid. Reports are also accessible from the dashboard with a full history. Report sections: executive summary, Brand Perception Score trend, Achilles Heel findings with verbatim evidence, action roadmap, and data source coverage summary.
+Weekly PDF reports are generated per brand and delivered by email via SendGrid. Reports are also accessible from the dashboard with a full history. Report sections: executive summary, Brand Perception Score trend, Brand impact findings with verbatim evidence, action roadmap, and data source coverage summary.
 
 ## **7.5 Alerts**
 

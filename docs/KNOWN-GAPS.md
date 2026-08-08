@@ -301,7 +301,7 @@ than invented:
   `brand_entities.dimension_weights` jsonb, migration `0006`), defaulting to equal. Weights are
   **renormalised over dimensions that actually have data**, so a brand with no `value` signals
   is not penalised as though its value score were zero.
-- `clusterTopics` / `achillesHeels` — the spec's `volume × negative sentiment × recency` damage
+- `clusterTopics` / `brandImpact` — the spec's `volume × negative sentiment × recency` damage
   score, top three, zero-damage clusters excluded rather than padding the list with topics
   nobody complained about.
 
@@ -322,7 +322,7 @@ Cloud Run service for a nightly aggregation.
 
 **Read endpoints added.** `GET /brands/:id/score` returns the composite for the latest rollup
 with its per-dimension breakdown and the comparison point at least seven days earlier;
-`GET /brands/:id/achilles` returns the top damage-ranked topic clusters, computed on read;
+`GET /brands/:id/brand-impact` returns the top damage-ranked topic clusters, computed on read;
 `GET /brands/:id/dimension-scores` now takes `from`/`to` and defaults to 90 days, which it
 needed once the table started growing daily. All three live in `apps/api/src/routes/scores.ts`.
 
@@ -334,7 +334,7 @@ Verified live against real Postgres with per-brand weights `{trust: 0.75, qualit
 | `/score` comparison         | picked the 9-day-old rollup, correctly skipping a 5-day-old one     |
 | `/dimension-scores`         | 4 rows across 2 dates, ordered by date then dimension               |
 | `/dimension-scores?from&to` | narrowed to the requested day only                                  |
-| `/achilles`                 | `fees` damage `3.969` = `volume 5 × negativity 0.8 × recency 0.992` |
+| `/brand-impact`             | `fees` damage `3.969` = `volume 5 × negativity 0.8 × recency 0.992` |
 
 ---
 
@@ -389,9 +389,9 @@ before it is complete.
 
 **Wired to live data:**
 
-- **Dashboard** → `/score`, `/dimension-scores`, `/stats`, `/achilles`, `/strengths`
+- **Dashboard** → `/score`, `/dimension-scores`, `/stats`, `/brand-impact`, `/strengths`
 - **Trends** → `/score`, `/dimension-scores`
-- **Achilles** → `/achilles`
+- **Brand impact** → `/brand-impact`
 - **Competitors** → `/brands` plus one `/score` per brand
 
 Supporting work:
@@ -404,7 +404,7 @@ Supporting work:
   states.
 - `components/charts.tsx` — structural `ChartRow` instead of the mock's fixed `HistoryRow`.
 - New API endpoints for the Dashboard: `/brands/:id/stats` (weekly signal counts, source
-  counts, scoring coverage) and `/brands/:id/strengths` (the mirror of `/achilles`, ranked by
+  counts, scoring coverage) and `/brands/:id/strengths` (the mirror of `/brand-impact`, ranked by
   `volume × positivity × recency`).
 
 **Removed from the Dashboard, by decision:**
@@ -711,7 +711,7 @@ Remaining, in dependency order:
 7. ~~**#17** — `apps/web` build failure.~~ ✅ local Node 24; pinned to 20.
 8. ~~**#18** — user row and Firebase claims atomicity.~~ ✅ one transaction.
 9. ~~**#10** — `dimension_scores` never written.~~ ✅ Epic 11 rollup + read endpoints.
-10. ~~**#13** — Dashboard, Trends, Achilles and Competitors.~~ ✅ Four of six views on live
+10. ~~**#13** — Dashboard, Trends, Brand impact and Competitors.~~ ✅ Four of six views on live
     data; the volume and alert panels were dropped by decision rather than built on nothing.
 11. **#13 (remainder)** — Roadmap needs prioritised recommendations to be **specified** before
     anything can generate them, and nothing in Epics 11–13 produces them; Report is Epic 12.

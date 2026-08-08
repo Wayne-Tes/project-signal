@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { db, brandEntities, dimensionScores, signals, sentimentResults } from '@project-signal/db';
 import {
-  achillesHeels,
+  brandImpact,
   clusterTopics,
   compositeScore,
   HALF_LIFE_DAYS,
@@ -24,7 +24,7 @@ const DEFAULT_HISTORY_DAYS = 90;
 const COMPARISON_DAYS = 7;
 
 /** Items older than four half-lives carry under 1/16th weight; reading further is waste. */
-const ACHILLES_LOOKBACK_DAYS = HALF_LIFE_DAYS * 4;
+const BRAND_IMPACT_LOOKBACK_DAYS = HALF_LIFE_DAYS * 4;
 
 function toDateKey(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -196,7 +196,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   /**
-   * Achilles Heel: the topic clusters doing the most damage.
+   * Brand impact: the topic clusters doing the most damage.
    *
    * Computed on read rather than persisted. Clusters have no table, and deriving them from
    * `sentiment_results` keeps the topic taxonomy free to change without a migration — the model
@@ -204,7 +204,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
    * shifted. Bounded by the same four-half-life lookback the rollup uses.
    */
   fastify.get(
-    '/brands/:id/achilles',
+    '/brands/:id/brand-impact',
     {
       preHandler: requireBrandAccess,
       schema: {
@@ -223,11 +223,11 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
       const asOf = new Date();
       const items = await readScoredItems(request.user.tenantId, id, asOf);
 
-      return achillesHeels(clusterTopics(items, asOf), limit);
+      return brandImpact(clusterTopics(items, asOf), limit);
     },
   );
 
-  /** The mirror of /achilles: what is working, ranked by the same construction. */
+  /** The mirror of /brand-impact: what is working, ranked by the same construction. */
   fastify.get(
     '/brands/:id/strengths',
     {
@@ -333,7 +333,7 @@ async function readScoredItems(
   brandEntityId: string,
   asOf: Date,
 ): Promise<ScoredItem[]> {
-  const since = new Date(asOf.getTime() - ACHILLES_LOOKBACK_DAYS * MS_PER_DAY);
+  const since = new Date(asOf.getTime() - BRAND_IMPACT_LOOKBACK_DAYS * MS_PER_DAY);
   const rows = await db
     .get()
     .select({

@@ -1,6 +1,6 @@
 import type { Dimension } from '@project-signal/shared-types';
 import {
-  ACHILLES_TOP_N,
+  BRAND_IMPACT_TOP_N,
   DEFAULT_DIMENSION_WEIGHTS,
   DIMENSIONS,
   HALF_LIFE_DAYS,
@@ -167,20 +167,20 @@ export function clusterTopics(
 }
 
 /**
- * The Achilles Heel: the top clusters by damage.
+ * Brand impact: the top clusters by damage.
  *
  * Clusters with zero damage are excluded — a topic nobody is negative about is not a weakness,
  * and padding the list to three would present neutral topics as problems.
  */
-export function achillesHeels(
+export function brandImpact(
   clusters: readonly TopicCluster[],
-  topN: number = ACHILLES_TOP_N,
+  topN: number = BRAND_IMPACT_TOP_N,
 ): TopicCluster[] {
   return clusters.filter((c) => c.damage > 0).slice(0, topN);
 }
 
 /**
- * The mirror of the Achilles Heel: the clusters doing the most good.
+ * The mirror of Brand impact: the clusters doing the most good.
  *
  * Ranked by `strength` rather than by taking the least-damaging clusters, which would surface
  * topics nobody mentioned. Zero-strength clusters are excluded for the same reason their
@@ -188,7 +188,7 @@ export function achillesHeels(
  */
 export function topStrengths(
   clusters: readonly TopicCluster[],
-  topN: number = ACHILLES_TOP_N,
+  topN: number = BRAND_IMPACT_TOP_N,
 ): TopicCluster[] {
   return clusters
     .filter((c) => c.strength > 0)

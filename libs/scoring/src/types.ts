@@ -27,8 +27,8 @@ export const DEFAULT_DIMENSION_WEIGHTS: Readonly<Record<Dimension, number>> = {
   experience: 0.2,
 };
 
-/** How many Achilles Heel clusters the spec surfaces. */
-export const ACHILLES_TOP_N = 3;
+/** How many Brand impact clusters the spec surfaces. */
+export const BRAND_IMPACT_TOP_N = 3;
 
 /** One scored signal, as the rollup reads it out of `sentiment_results` joined to `signals`. */
 export interface ScoredItem {
@@ -66,7 +66,7 @@ export interface TopicCluster {
   /**
    * volume × positivity × recency — the mirror of damage.
    *
-   * Not in the product spec, which only defines the Achilles Heel. Added deliberately as the
+   * Not in the product spec, which only defines Brand impact. Added deliberately as the
    * symmetric counterpart so "what is working" is ranked by the same construction as "what is
    * hurting", rather than by an ad-hoc rule invented in the view.
    */

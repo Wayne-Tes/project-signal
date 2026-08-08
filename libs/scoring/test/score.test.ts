@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Dimension } from '@project-signal/shared-types';
 import {
-  achillesHeels,
+  brandImpact,
   clusterTopics,
   compositeScore,
   DEFAULT_DIMENSION_WEIGHTS,
@@ -185,7 +185,7 @@ describe('clusterTopics', () => {
     expect(clusterTopics([item({ topics: ['', '  '] })], ASOF)).toHaveLength(0);
   });
 
-  // Spec § Achilles Heel: damage = volume × negative sentiment × recency weight.
+  // Spec § Brand impact: damage = volume × negative sentiment × recency weight.
   it('computes damage as volume x negativity x recency', () => {
     const [cluster] = clusterTopics(
       [
@@ -242,7 +242,7 @@ describe('clusterTopics', () => {
   });
 });
 
-describe('achillesHeels', () => {
+describe('brandImpact', () => {
   it('returns the top three by damage', () => {
     const clusters = clusterTopics(
       [
@@ -253,7 +253,7 @@ describe('achillesHeels', () => {
       ],
       ASOF,
     );
-    expect(achillesHeels(clusters).map((c) => c.topic)).toEqual(['a', 'b', 'c']);
+    expect(brandImpact(clusters).map((c) => c.topic)).toEqual(['a', 'b', 'c']);
   });
 
   // Padding to three would present topics nobody complained about as weaknesses.
@@ -262,12 +262,12 @@ describe('achillesHeels', () => {
       [item({ score: -1, topics: ['real'] }), item({ score: 1, topics: ['praise'] })],
       ASOF,
     );
-    expect(achillesHeels(clusters).map((c) => c.topic)).toEqual(['real']);
+    expect(brandImpact(clusters).map((c) => c.topic)).toEqual(['real']);
   });
 
   it('returns nothing when there is no negativity at all', () => {
     const clusters = clusterTopics([item({ score: 0.5, topics: ['good'] })], ASOF);
-    expect(achillesHeels(clusters)).toEqual([]);
+    expect(brandImpact(clusters)).toEqual([]);
   });
 });
 
