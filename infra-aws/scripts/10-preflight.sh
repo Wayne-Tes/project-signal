@@ -103,10 +103,19 @@ hr "6. The condition this whole phase exists to prevent"
 # cannot see. The budget will report a healthy $0 while billing accrues, and because cost
 # allocation tags do not backfill, that attribution is lost permanently rather than deferred.
 if [ "$project_tag_active" = "0" ] && [ "$tagged_resource_count" -gt 0 ]; then
-  bad "The Project tag is INACTIVE but $tagged_resource_count resource(s) already carry it."
-  echo "       The budget is reporting \$0 while those resources bill. Activation does not"
-  echo "       backfill, so every hour in this state is attribution lost for good."
-  echo "       Fix: activate the tag keys (or have the platform team do it), then re-run."
+  # WARN, not FAIL. Owner decision 2026-08-08: cost allocation tags are a nice-to-have, not a
+  # core requirement, and they are NOT a gate on delivery. Activation is impossible from this
+  # linked account anyway (payer-only), so failing here would block every apply indefinitely on
+  # something we cannot fix — see docs/AWS-SETUP.md.
+  #
+  # Attribution is not lost meanwhile: the sandbox has no VPC, RDS, ECS or ECR outside this
+  # project, so Cost Explorer's SERVICE grouping attributes all of it to us without tags. Only
+  # S3, SQS, Secrets Manager and Bedrock are shared with the co-tenant workload.
+  warn "The Project tag is INACTIVE but $tagged_resource_count resource(s) already carry it."
+  echo "       The budget will report \$0 regardless of spend until the keys are Active, which"
+  echo "       only the payer account can do. Track spend by SERVICE in Cost Explorer meanwhile:"
+  echo "         aws ce get-cost-and-usage --granularity MONTHLY --metrics UnblendedCost \\"
+  echo "           --group-by Type=DIMENSION,Key=SERVICE --time-period Start=<d>,End=<d>"
 elif [ "$project_tag_active" = "0" ]; then
   warn "Project tag not yet active, but nothing carries it either — expected before the first apply."
   echo "       Activate it by applying infra-aws/account/ (ACCOUNT-GLOBAL — read its header first,"

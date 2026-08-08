@@ -31,3 +31,50 @@ output "budget_tag_filter" {
 #   bash infra-aws/scripts/10-preflight.sh    # §3 does exactly this, and interprets it
 #
 # See infra-aws/account/ for the module that activates them.
+
+# ── Phase 2 ──────────────────────────────────────────────────────────────────────────────────
+
+output "vpc_id" {
+  description = "The project VPC. Phase 4's Fargate services and ALB attach here."
+  value       = aws_vpc.main.id
+}
+
+output "public_subnet_ids" {
+  description = "Public subnets — ALB in Phase 4. Nothing is placed here by default."
+  value       = aws_subnet.public[*].id
+}
+
+output "private_subnet_ids" {
+  description = "Private subnets — RDS today, Fargate tasks in Phase 4. No default route to the internet; see the NAT decision in vpc.tf."
+  value       = aws_subnet.private[*].id
+}
+
+output "app_security_group_id" {
+  description = "Attach to Fargate tasks. It is what the database's ingress rule permits, so a task outside this group cannot reach Postgres."
+  value       = aws_security_group.app.id
+}
+
+output "db_endpoint" {
+  description = "RDS endpoint, host:port. Not a secret; the instance is not publicly accessible and only the app security group may reach it."
+  value       = aws_db_instance.main.endpoint
+}
+
+output "db_secret_arn" {
+  description = "Secrets Manager ARN holding the DB credentials as JSON, including a ready-made `url` for DATABASE_URL. Grant the ECS task role read access to THIS arn only."
+  value       = aws_secretsmanager_secret.db.arn
+}
+
+output "raw_bucket" {
+  description = "RAW_BUCKET for ingestion and sentiment-worker. getObjectStore() throws a named error if unset."
+  value       = aws_s3_bucket.raw.id
+}
+
+output "reports_bucket" {
+  description = "REPORTS_BUCKET. Unused until Epic 12."
+  value       = aws_s3_bucket.reports.id
+}
+
+output "ecr_repository_urls" {
+  description = "Push targets per service, keyed by app name. Phase 6's CI pushes here; Terraform owns which tag is deployed."
+  value       = { for k, r in aws_ecr_repository.app : k => r.repository_url }
+}

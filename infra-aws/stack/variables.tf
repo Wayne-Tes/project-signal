@@ -96,3 +96,92 @@ variable "budget_notification_emails" {
 # `infra-aws/account/`, which has its own state so that destroying this stack cannot deactivate
 # tags for co-tenant projects. The escape hatch went with it — a module you simply choose not
 # to apply needs no flag to disable it.
+
+# ── Phase 2: network ─────────────────────────────────────────────────────────────────────────
+
+variable "vpc_cidr" {
+  description = "CIDR for this project's VPC. Registered in infra-aws/CONVENTIONS.md §6 — add a row there BEFORE applying a new one, because overlapping ranges make future peering impossible without renumbering."
+  type        = string
+
+  validation {
+    condition     = can(cidrhost(var.vpc_cidr, 0))
+    error_message = "vpc_cidr must be a valid IPv4 CIDR block."
+  }
+}
+
+# ── Phase 2: database ────────────────────────────────────────────────────────────────────────
+
+variable "db_engine_version" {
+  description = "RDS Postgres version. VERIFY IT EXISTS before changing: `aws rds describe-db-engine-versions --engine postgres --region eu-west-2`. The same rule that applies to Bedrock model ids applies here — a version written from memory fails the apply."
+  type        = string
+}
+
+variable "db_instance_class" {
+  description = "RDS instance class. Verify with `aws rds describe-orderable-db-instance-options` that the class supports the engine version AND gp3 in this region."
+  type        = string
+}
+
+variable "db_allocated_storage" {
+  description = "Initial storage in GB. gp3 has a 20GB floor."
+  type        = number
+
+  validation {
+    condition     = var.db_allocated_storage >= 20
+    error_message = "db_allocated_storage must be at least 20 GB for gp3."
+  }
+}
+
+variable "db_max_allocated_storage" {
+  description = "Ceiling for RDS storage autoscaling. Set above allocated_storage to enable it; growth is automatic and irreversible, so this is the real cost control."
+  type        = number
+}
+
+variable "db_name" {
+  description = "Initial database name. Matches the local docker-compose database so connection strings differ only in host."
+  type        = string
+}
+
+variable "db_username" {
+  description = "Master username. Matches the local docker-compose user for the same reason."
+  type        = string
+}
+
+variable "db_multi_az" {
+  description = "Multi-AZ standby. Roughly doubles instance cost for a dev environment whose data is reproducible by re-ingesting. Off in dev, on in prod."
+  type        = bool
+}
+
+variable "db_backup_retention_days" {
+  description = "Automated backup retention. 0 disables backups entirely — never do that in an environment holding anything you would miss."
+  type        = number
+
+  validation {
+    condition     = var.db_backup_retention_days >= 1
+    error_message = "Keep at least one day of backups; 0 disables automated backups completely."
+  }
+}
+
+variable "db_deletion_protection" {
+  description = "Blocks `terraform destroy` on the instance. Off in dev so 99-teardown.sh genuinely tears down; ON in any environment with data worth keeping."
+  type        = bool
+}
+
+variable "db_skip_final_snapshot" {
+  description = "Skip the final snapshot on destroy. True in dev — a snapshot of reproducible data is storage nobody will ever restore. Must be false anywhere real."
+  type        = bool
+}
+
+variable "db_apply_immediately" {
+  description = "Apply modifications at once rather than in the maintenance window. True in dev to avoid waiting; false in prod, where an unexpected restart is an outage."
+  type        = bool
+}
+
+variable "secret_recovery_window_days" {
+  description = "Secrets Manager recovery window. 0 deletes immediately, which is what dev wants — otherwise the name is held for 7-30 days and the next apply collides with a secret scheduled for deletion."
+  type        = number
+
+  validation {
+    condition     = var.secret_recovery_window_days == 0 || (var.secret_recovery_window_days >= 7 && var.secret_recovery_window_days <= 30)
+    error_message = "secret_recovery_window_days must be 0, or between 7 and 30."
+  }
+}

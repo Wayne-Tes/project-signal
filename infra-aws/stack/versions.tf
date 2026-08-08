@@ -8,6 +8,12 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+    # Generates the RDS master password. The value lands in Terraform state, which is why the
+    # state bucket is encrypted, versioned and TLS-only — see infra-aws/bootstrap.
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 }
 
