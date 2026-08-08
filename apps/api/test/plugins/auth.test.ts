@@ -211,9 +211,10 @@ describe('auth plugin', () => {
       headers: { authorization: 'Bearer bootstrap-owner-token' },
     });
     expect(res.statusCode).toBe(200);
-    // Empty, not undefined: every query filters on tenant_id, and an empty string matches no
-    // row — so a tenant-less owner can see nothing until they create one.
-    expect(JSON.parse(res.body).user.tenantId).toBe('');
+    // A VALID uuid, not the empty string. tenant_id is a uuid column and Postgres rejects '' as
+    // a type error, so an empty string turned every tenant-scoped read into a 500 instead of an
+    // empty list. The nil uuid matches no row, which is the behaviour actually wanted.
+    expect(JSON.parse(res.body).user.tenantId).toBe('00000000-0000-0000-0000-000000000000');
   });
 
   it('rejects a tenant-less admin or user — only owner may bootstrap', async () => {

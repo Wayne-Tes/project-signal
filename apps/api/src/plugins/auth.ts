@@ -32,6 +32,20 @@ const CLAIM_ROLE = 'custom:role';
 const CLAIM_BRAND = 'custom:brandEntityId';
 
 /**
+ * Stand-in tenant for a bootstrap owner who has no tenant yet.
+ *
+ * It must be a SYNTACTICALLY VALID uuid, not the empty string. `tenant_id` is a `uuid` column,
+ * and Postgres rejects `''` as a type error rather than treating it as a value that matches
+ * nothing — so an empty string turned every tenant-scoped read into a 500 rather than an empty
+ * list. Found by calling GET /brands as a real bootstrap owner against the deployed API.
+ *
+ * The nil uuid is valid, is guaranteed not to collide with `gen_random_uuid()`, and matches no
+ * row — which is the intended behaviour: a tenant-less owner can see nothing until they create
+ * a tenant.
+ */
+const NO_TENANT = '00000000-0000-0000-0000-000000000000';
+
+/**
  * Parse a development-only token of the form `dev:<role>:<tenantId>[:<brandEntityId>]`.
  *
  * The delimiter is `:` rather than `-` precisely because tenant and brand ids are UUIDs,
@@ -136,11 +150,10 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       // 401'd on the very endpoint that would have given them a tenant, so a fresh environment
       // could never be bootstrapped at all. Found by signing in as a real bootstrap owner.
       //
-      // Allowing it is safe rather than a hole. `tenantId` falls through as the empty string,
-      // and every query in this codebase filters on `tenant_id` — an empty string matches no
-      // row, so a tenant-less owner can see nothing. The only thing they can usefully do is
-      // create a tenant, which is exactly the intent. Any other role without a tenant is still
-      // rejected.
+      // Allowing it is safe rather than a hole. `tenantId` falls through as NO_TENANT, and
+      // every query in this codebase filters on `tenant_id` — the nil uuid matches no row, so a
+      // tenant-less owner can see nothing. The only thing they can usefully do is create a
+      // tenant, which is exactly the intent. Any other role without a tenant is still rejected.
       if (!hasTenant && role !== 'owner') {
         return reply.unauthorized('Token is missing the tenant claim');
       }
@@ -149,7 +162,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
 
       request.user = {
         uid: payload.sub,
-        tenantId: hasTenant ? tenantId : '',
+        tenantId: hasTenant ? tenantId : NO_TENANT,
         role: role as UserRole,
         // An unpinned user must be `undefined`, not `''`. requireBrandAccess treats a falsy pin
         // as tenant-wide access, and an empty string would compare unequal to every brand id and
