@@ -117,18 +117,39 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       const tenantId = payload[CLAIM_TENANT];
       const role = payload[CLAIM_ROLE];
 
-      // A validly signed token from a user who has not been provisioned carries no tenant or
-      // role. Rejecting is the only safe reading: defaulting a role would grant access on the
-      // strength of a signature alone.
-      if (typeof tenantId !== 'string' || typeof role !== 'string') {
-        return reply.unauthorized('Token is missing tenant or role claims');
+      // A validly signed token from a user who has not been provisioned carries no role.
+      // Rejecting is the only safe reading: defaulting one would grant access on the strength
+      // of a signature alone.
+      if (typeof role !== 'string') {
+        return reply.unauthorized('Token is missing the role claim');
+      }
+
+      const hasTenant = typeof tenantId === 'string' && tenantId !== '';
+
+      // ── The bootstrap owner is the one legitimate tenant-less identity ────────────────────
+      //
+      // scripts/bootstrap-owner.ts sets `custom:role = owner` and deliberately NO tenant,
+      // because POST /admin/tenants creates the tenant and writes the claims in one
+      // transaction — pre-seeding a tenant id would produce a claim pointing at nothing.
+      //
+      // Requiring a tenant from everyone therefore deadlocked the system: the first owner was
+      // 401'd on the very endpoint that would have given them a tenant, so a fresh environment
+      // could never be bootstrapped at all. Found by signing in as a real bootstrap owner.
+      //
+      // Allowing it is safe rather than a hole. `tenantId` falls through as the empty string,
+      // and every query in this codebase filters on `tenant_id` — an empty string matches no
+      // row, so a tenant-less owner can see nothing. The only thing they can usefully do is
+      // create a tenant, which is exactly the intent. Any other role without a tenant is still
+      // rejected.
+      if (!hasTenant && role !== 'owner') {
+        return reply.unauthorized('Token is missing the tenant claim');
       }
 
       const brandEntityId = payload[CLAIM_BRAND];
 
       request.user = {
         uid: payload.sub,
-        tenantId,
+        tenantId: hasTenant ? tenantId : '',
         role: role as UserRole,
         // An unpinned user must be `undefined`, not `''`. requireBrandAccess treats a falsy pin
         // as tenant-wide access, and an empty string would compare unequal to every brand id and

@@ -181,7 +181,7 @@ describe('auth plugin', () => {
     expect(mockVerifyIdToken).toHaveBeenCalledWith('real-cognito-token');
   });
 
-  it('returns 401 when the token verifies but carries no tenant or role', async () => {
+  it('returns 401 when the token verifies but carries no role', async () => {
     process.env['NODE_ENV'] = 'production';
     // A real, correctly signed token from a user who exists in the pool but was never
     // provisioned by the API. Defaulting a role here would grant access on the strength of a
@@ -195,6 +195,39 @@ describe('auth plugin', () => {
       headers: { authorization: 'Bearer unprovisioned-token' },
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it('admits a tenant-less OWNER, because that is the bootstrap state', async () => {
+    process.env['NODE_ENV'] = 'production';
+    // bootstrap-owner.ts sets role and deliberately no tenant: POST /admin/tenants creates the
+    // tenant and the claims together. Rejecting this deadlocked a fresh environment — the first
+    // owner was 401'd on the one endpoint that could give them a tenant.
+    mockVerifyIdToken.mockResolvedValue({ sub: 'cognito-sub', 'custom:role': 'owner' });
+
+    const app = await buildAuthApp();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      headers: { authorization: 'Bearer bootstrap-owner-token' },
+    });
+    expect(res.statusCode).toBe(200);
+    // Empty, not undefined: every query filters on tenant_id, and an empty string matches no
+    // row — so a tenant-less owner can see nothing until they create one.
+    expect(JSON.parse(res.body).user.tenantId).toBe('');
+  });
+
+  it('rejects a tenant-less admin or user — only owner may bootstrap', async () => {
+    process.env['NODE_ENV'] = 'production';
+    for (const role of ['admin', 'user']) {
+      mockVerifyIdToken.mockResolvedValue({ sub: 'cognito-sub', 'custom:role': role });
+      const app = await buildAuthApp();
+      const res = await app.inject({
+        method: 'GET',
+        url: '/protected',
+        headers: { authorization: 'Bearer tenantless-token' },
+      });
+      expect(res.statusCode, `role=${role} must be rejected without a tenant`).toBe(401);
+    }
   });
 
   it('returns 401 when token verification fails', async () => {
