@@ -101,12 +101,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               resolve({ newPasswordRequired: false });
             },
             onFailure: (err) => reject(err),
-            newPasswordRequired: (attributes: Record<string, string>) => {
+            newPasswordRequired: () => {
               pendingUser = cognitoUser;
-              // Cognito rejects these as unmodifiable if echoed back in the challenge response.
-              delete attributes['email_verified'];
-              delete attributes['email'];
-              pendingAttributes = attributes;
+
+              // Send back NOTHING. The challenge response may only carry attributes the app
+              // client is permitted to WRITE, and Terraform grants this client
+              // `write_attributes = ["email"]` alone — so echoing the callback's userAttributes
+              // back (which include sub, email_verified, custom:role and custom:tenantId) fails
+              // the whole password change with:
+              //
+              //   Input attributes include non-writable attributes for the client <id>
+              //
+              // Deleting the two obvious ones was not enough; the custom attributes are the
+              // ones that actually break it, and they are exactly the attributes a client must
+              // never be able to rewrite — a user who could set their own custom:role would be
+              // able to promote themselves.
+              //
+              // An empty object is correct rather than merely expedient: email is already set
+              // and verified by the admin-create path, and the pool marks no attribute as
+              // required, so there is nothing legitimate left to supply.
+              pendingAttributes = {};
               resolve({ newPasswordRequired: true });
             },
           },
