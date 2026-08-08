@@ -60,9 +60,10 @@ hr "3. Cost allocation tags — are the mandatory keys ACTIVE?"
 CAT_JSON="$(aws ce list-cost-allocation-tags --status Active --output json 2>&1)"
 if echo "$CAT_JSON" | grep -qi 'AccessDenied\|not authorized'; then
   warn "Denied. In an AWS Organization, cost allocation tags are usually managed only from the"
-  echo "       management account. Set manage_cost_allocation_tags = false in"
-  echo "       infra-aws/envs/dev.stack.tfvars and ask the platform team to activate these keys:"
+  echo "       management account. Do NOT work around this — ask the platform team to activate"
+  echo "       these six keys centrally, once, for every project in the account:"
   echo "         Project, Owner, CostCentre, Environment, ManagedBy, Expires"
+  echo "       Then skip applying infra-aws/account/ entirely; it exists only to do this."
   echo "       The budget still deploys — but it reports \$0 until they are Active."
 else
   for key in Project Owner CostCentre Environment ManagedBy Expires; do
@@ -108,7 +109,9 @@ if [ "$project_tag_active" = "0" ] && [ "$tagged_resource_count" -gt 0 ]; then
   echo "       Fix: activate the tag keys (or have the platform team do it), then re-run."
 elif [ "$project_tag_active" = "0" ]; then
   warn "Project tag not yet active, but nothing carries it either — expected before the first apply."
-  echo "       The stack activates it; re-run this script afterwards to confirm."
+  echo "       Activate it by applying infra-aws/account/ (ACCOUNT-GLOBAL — read its header first,"
+  echo "       and tell the sandbox's other tenants), or have the platform team do it. Then"
+  echo "       re-run this script to confirm before applying the stack."
 else
   ok "Project tag is active, so anything tagged from now on is attributable."
 fi

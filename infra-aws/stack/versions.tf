@@ -20,8 +20,10 @@ provider "aws" {
 
   # The mandatory tag set from docs/HANDOVER.md §3.2, applied as provider defaults so a
   # resource CANNOT be created without them. Keys are PascalCase — AWS tag keys are
-  # case-sensitive and cost allocation tags are activated by exact key, so this must match
-  # aws_ce_cost_allocation_tag in budget.tf character for character.
+  # case-sensitive and cost allocation tags are activated by exact key, so these must match
+  # `mandatory_tag_keys` in infra-aws/account/variables.tf CHARACTER FOR CHARACTER. That module
+  # activates these same keys account-wide; a mismatch produces tags that attribute nothing and
+  # a budget that reports $0 forever, with no error anywhere.
   default_tags {
     tags = {
       Project     = var.project

@@ -21,8 +21,11 @@ monthly_budget_usd = 150
 
 budget_notification_emails = ["wayne.strydom@tes.com"]
 
-# Terraform activates the six mandatory tag keys as cost allocation tags. If this account is a
-# member of an Organization, that call may be denied — activation is usually reserved to the
-# management account. Flip to false and request activation from the platform team if so; the
-# budget still deploys, but its filter matches nothing until the Project key is Active.
-manage_cost_allocation_tags = true
+# `manage_cost_allocation_tags` used to be set here. Cost allocation tag activation is
+# ACCOUNT-GLOBAL and has moved to its own root module with its own state — see
+# infra-aws/account/ and infra-aws/envs/account.tfvars. It is applied deliberately, by the
+# account owner or the platform team, and never as part of a project deploy.
+#
+# The budget below still needs the `Project` key to be Active or it matches nothing and reports
+# $0 forever. That precondition is checked by infra-aws/scripts/10-preflight.sh §3, which you
+# run before applying.

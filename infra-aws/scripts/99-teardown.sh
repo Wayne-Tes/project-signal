@@ -42,7 +42,7 @@ for arg in "$@"; do
   esac
 done
 
-RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
+GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
 hr() { printf '\n== %s\n' "$1"; }
 
 command -v aws >/dev/null 2>&1       || { echo "FATAL: aws CLI not found on PATH."; exit 1; }
@@ -63,6 +63,16 @@ if [ "$EXECUTE" = "0" ]; then
 fi
 
 hr "2. What Terraform believes it manages"
+# SCOPE: infra-aws/stack ONLY. infra-aws/account is deliberately NEVER destroyed from here.
+#
+# That module holds ACCOUNT-GLOBAL settings — the six cost allocation tag keys — which are
+# shared with every other project in the sandbox. Destroying it would deactivate them for all of
+# those projects, and because activation does not backfill, their lost attribution would be
+# permanent rather than restored on the next apply. Tearing down OUR project must not degrade
+# somebody else's cost reporting.
+#
+# Each tag additionally carries prevent_destroy, so this is belt and braces. Do not "fix" that
+# by adding account/ to the loop below.
 if [ "$EXECUTE" = "1" ]; then
   ( cd "$REPO_ROOT/infra-aws/stack" \
     && terraform destroy -auto-approve -var-file="$ENV_FILE" -var-file="$STACK_VARS" )

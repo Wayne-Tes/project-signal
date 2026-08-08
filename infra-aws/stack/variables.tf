@@ -91,16 +91,8 @@ variable "budget_notification_emails" {
   }
 }
 
-variable "manage_cost_allocation_tags" {
-  description = <<-EOT
-    Whether Terraform activates the mandatory tag keys as cost allocation tags.
-
-    In an AWS Organization, user-defined cost allocation tags can normally only be activated
-    from the MANAGEMENT account. If this account is a member and the apply fails with
-    AccessDenied on ce:UpdateCostAllocationTagsStatus, set this to false and ask the platform
-    team to activate the six keys instead. The budget still deploys either way — but until the
-    keys are active its cost filter matches nothing, so it will silently report zero spend.
-  EOT
-  type        = bool
-  default     = true
-}
+# `manage_cost_allocation_tags` used to live here. It is gone, along with the resource it
+# gated: cost allocation tag activation is account-global and now lives in
+# `infra-aws/account/`, which has its own state so that destroying this stack cannot deactivate
+# tags for co-tenant projects. The escape hatch went with it — a module you simply choose not
+# to apply needs no flag to disable it.

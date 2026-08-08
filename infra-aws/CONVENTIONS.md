@@ -107,6 +107,22 @@ forward only. Do it before the first billable resource, not after.
 > `ce:UpdateCostAllocationTagsStatus` is denied, the platform team must activate the keys
 > centrally — once, for all six, benefiting every project in the account.
 
+> ### ⚠️ Activation is ACCOUNT-GLOBAL. No project may own it.
+>
+> There is one activation switch per tag key **for the whole account**, not one per project.
+> A project that manages `aws_ce_cost_allocation_tag` in its own Terraform state creates three
+> problems, all of which hit _other_ teams rather than the one that caused them:
+>
+> - **`terraform destroy` deactivates the keys for everybody.** A project tearing itself down
+>   silently breaks cost attribution for every co-tenant workload.
+> - **The damage is permanent, not temporary.** Activation applies forward only, so spend
+>   incurred while a key was inactive is unattributable for good.
+> - **Two projects managing it will fight**, each apply reverting the other's view of reality.
+>
+> **The rule: an account-scoped resource never lives in a project-scoped state file.** Project
+> Signal implements this as a separate root module, `infra-aws/account/`, with its own state
+> and `prevent_destroy` on every key. **Reference it; do not copy it** — see §7.
+
 ---
 
 ## 4. Isolation
@@ -167,8 +183,15 @@ network that commonly occupies `10.0.x`.
 
 1. Copy `infra-aws/bootstrap/` and `infra-aws/stack/versions.tf`; change `project`,
    `project_prefix` and the CIDR.
-2. Register the prefix and CIDR in §6 above.
-3. Run `infra-aws/scripts/10-preflight.sh` — it checks the account, the cost allocation tags and
+2. **Do NOT copy `infra-aws/account/`.** It is account-global and already applied — copying it
+   would give two Terraform states ownership of the same six switches, and they would fight.
+   Assume the six keys are already Active and verify with step 4; if they are not, ask, rather
+   than activating them from your project.
+3. Copy `infra-aws/scripts/` — including `_guard.sh`, which **every** script that calls the AWS
+   CLI must source, read-only ones included.
+4. Register the prefix and CIDR in §6 above.
+5. Run `infra-aws/scripts/10-preflight.sh` — it checks the account, the cost allocation tags and
    prefix collisions before anything is created.
-4. Apply bootstrap, then the stack's budget, **then** everything else.
-5. Ship the teardown script in the same change as the first billable resource, not later.
+6. Apply bootstrap, then your budget, **then** everything else.
+7. Ship the teardown script in the same change as the first billable resource, not later — and
+   scope it to your own prefix and state, never to anything account-global.

@@ -1,31 +1,30 @@
 # Cost controls, created BEFORE anything billable exists (rule 4, docs/AWS-SETUP.md).
 #
-# Two halves, and both are required for either to be useful:
-#   1. Activate the mandatory tag keys as cost allocation tags, so AWS attributes spend to them.
-#   2. A budget filtered to THIS project's tag, so the alarm is ours and not the account's.
+# This file creates ONE thing: a budget filtered to THIS project's tag, so the alarm is ours and
+# not the account's. The account already has `monthly_tesai-dev-sandbox` covering total spend
+# (docs/HANDOVER.md §3.3). That one belongs to whoever runs the sandbox — it is not touched
+# here, and this budget sits alongside it rather than replacing it.
 #
-# The account already has `monthly_tesai-dev-sandbox` covering total spend (docs/HANDOVER.md
-# §3.3). That one belongs to whoever runs the sandbox — it is not touched here, and this budget
-# sits alongside it rather than replacing it.
-
-# --- 1. Cost allocation tags -------------------------------------------------------------
+# ── THE HALF THAT IS NO LONGER HERE, AND WHY ────────────────────────────────────────────────
 #
-# Until a tag key is ACTIVE, Cost Explorer and Budgets cannot see it, and a budget filtered on
-# it matches nothing while reporting a perfectly healthy $0. That failure is silent, which is
-# what makes it worth the extra resource rather than a line in a runbook.
+# This file used to also activate the six mandatory tag keys as cost allocation tags, via
+# `aws_ce_cost_allocation_tag`. That has moved to `infra-aws/account/`, which has its own state
+# and its own lifecycle. It was moved because tag activation is ACCOUNT-GLOBAL, not
+# project-scoped, and owning an account-global resource from a project's state file meant:
 #
-# Newly activated keys can take up to 24 hours to start attributing spend, and they only apply
-# from activation forward — they do not backfill. Activating now, before the first billable
-# resource, is therefore not merely tidy: it is the only moment it can be done without losing
-# attribution for the resources created in between.
-resource "aws_ce_cost_allocation_tag" "mandatory" {
-  for_each = var.manage_cost_allocation_tags ? toset(local.mandatory_tag_keys) : toset([])
-
-  tag_key = each.value
-  status  = "Active"
-}
-
-# --- 2. The project budget ---------------------------------------------------------------
+#   - `terraform destroy` here — which `scripts/99-teardown.sh --execute` runs — would have
+#     deactivated those keys FOR EVERY PROJECT IN THE SHARED ACCOUNT. Tearing down Project
+#     Signal would have silently broken cost attribution for unrelated workloads.
+#   - Activation does not backfill, so that breakage would have been permanent, not temporary.
+#   - CONVENTIONS.md §7 tells the next repo to copy this tree; two copies would have given two
+#     states ownership of the same six global switches.
+#
+# THE DEPENDENCY IS NOW A PRECONDITION, NOT A `depends_on`. The budget below is useless until
+# the `Project` key is Active — it will match nothing and cheerfully report $0. Terraform can no
+# longer express that ordering across state boundaries, so it is enforced by
+# `scripts/10-preflight.sh` §3, which checks activation status independently and is the thing
+# you run before applying. That is a fair trade: a check that reads the real account beats an
+# ordering edge that only proves one Terraform run happened before another.
 
 resource "aws_budgets_budget" "project" {
   name         = "${local.name_prefix}-monthly"
@@ -82,8 +81,4 @@ resource "aws_budgets_budget" "project" {
     notification_type          = "FORECASTED"
     subscriber_email_addresses = var.budget_notification_emails
   }
-
-  # The tag filter is meaningless until the keys are active. Ordering them makes the dependency
-  # explicit rather than incidental.
-  depends_on = [aws_ce_cost_allocation_tag.mandatory]
 }

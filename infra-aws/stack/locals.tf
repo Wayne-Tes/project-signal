@@ -5,17 +5,15 @@ locals {
   # own prefix — see infra-aws/CONVENTIONS.md.
   name_prefix = "${var.project_prefix}-${var.environment}"
 
-  # The mandatory tag KEYS, single-sourced here and consumed by both the cost allocation tag
-  # activation and the teardown script's documentation. These must match the keys in the
-  # provider's default_tags block in versions.tf exactly — AWS tag keys are case-sensitive.
-  mandatory_tag_keys = [
-    "Project",
-    "Owner",
-    "CostCentre",
-    "Environment",
-    "ManagedBy",
-    "Expires",
-  ]
+  # The canonical list of mandatory tag KEYS is NOT here. It lives in
+  # `infra-aws/account/variables.tf`, next to the resource that activates them as cost
+  # allocation tags, because that is an account-global concern rather than a project one.
+  # Keeping a second copy here would be two homes for one fact — the exact pattern
+  # KNOWN-GAPS #11 was closed to avoid, and doubly dangerous when the fact is a set of
+  # case-sensitive strings that must match character for character.
+  #
+  # The keys still appear once in this module, as they must: the `default_tags` block in
+  # versions.tf, which is what actually applies them.
 
   # AWS Budgets expresses a tag filter as "user:<Key>$<Value>" for customer-defined tags
   # ("aws:" is reserved for AWS-generated ones). Verified against the provider documentation

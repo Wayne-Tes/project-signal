@@ -23,7 +23,11 @@ output "budget_tag_filter" {
   value       = local.budget_tag_filter
 }
 
-output "cost_allocation_tags_managed" {
-  description = "Whether Terraform activated the cost allocation tags. False means the platform team must activate them from the Organization management account."
-  value       = var.manage_cost_allocation_tags
-}
+# There is deliberately no `cost_allocation_tags_managed` output. Whether the keys are Active is
+# a fact about the ACCOUNT, not about this stack's state, and reporting it from here would be
+# reporting an intention rather than a reality. Read it from the account itself:
+#
+#   aws ce list-cost-allocation-tags --status Active
+#   bash infra-aws/scripts/10-preflight.sh    # §3 does exactly this, and interprets it
+#
+# See infra-aws/account/ for the module that activates them.

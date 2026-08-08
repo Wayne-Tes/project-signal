@@ -21,16 +21,18 @@ and [`../docs/HANDOVER.md`](../docs/HANDOVER.md) §6 for the phase plan.
 
 ## What exists today
 
-| Path                      | What                                                                     |
-| ------------------------- | ------------------------------------------------------------------------ |
-| `bootstrap/`              | The S3 remote-state bucket. Local state, run once, creates nothing else  |
-| `stack/`                  | The tag-filtered budget and cost allocation tag activation. Remote state |
-| `envs/dev.tfvars`         | Tag values shared by **both** root modules, so they cannot drift         |
-| `envs/dev.stack.tfvars`   | Budget-only values                                                       |
-| `scripts/00-discover.sh`  | Phase 0 discovery, read-only. Already run — findings in HANDOVER §3      |
-| `scripts/10-preflight.sh` | Run before any apply. Checks account, cost allocation tags, collisions   |
-| `scripts/99-teardown.sh`  | Reverses everything and proves the account is clean. Dry run by default  |
-| `CONVENTIONS.md`          | The proposed cross-repo standard for this shared account                 |
+| Path                      | What                                                                                                                                                                                                                                                                 |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bootstrap/`              | The S3 remote-state bucket. Local state, run once, creates nothing else                                                                                                                                                                                              |
+| `account/`                | ⚠️ **ACCOUNT-GLOBAL — shared with every project in the sandbox, and not ours.** Activates the six mandatory tag keys as cost allocation tags. Own state, `prevent_destroy` on every key, applied deliberately and never by CI. **Read its header before running it** |
+| `stack/`                  | The tag-filtered budget. Remote state                                                                                                                                                                                                                                |
+| `envs/dev.tfvars`         | Tag values shared by `bootstrap/` and `stack/`, so they cannot drift                                                                                                                                                                                                 |
+| `envs/dev.stack.tfvars`   | Budget-only values                                                                                                                                                                                                                                                   |
+| `envs/account.tfvars`     | Values for the account-global module. Separate because nothing in it is per-environment                                                                                                                                                                              |
+| `scripts/00-discover.sh`  | Phase 0 discovery, read-only. Already run — findings in HANDOVER §3                                                                                                                                                                                                  |
+| `scripts/10-preflight.sh` | Run before any apply. Checks account, cost allocation tags, collisions                                                                                                                                                                                               |
+| `scripts/99-teardown.sh`  | Reverses everything and proves the account is clean. Dry run by default                                                                                                                                                                                              |
+| `CONVENTIONS.md`          | The proposed cross-repo standard for this shared account                                                                                                                                                                                                             |
 
 **No VPC, RDS, ECR, Secrets Manager, ECS or Cognito yet** — those are Phases 2–5.
 
@@ -53,12 +55,24 @@ terraform -chdir=infra-aws/bootstrap apply -var-file=../envs/dev.tfvars
 # 3. Wire the stack to that bucket. The bootstrap prints this command with the name filled in:
 terraform -chdir=infra-aws/bootstrap output -raw backend_config
 
-# 4. The budget.
+# 4. ACCOUNT-GLOBAL cost allocation tags. STOP AND READ infra-aws/account/main.tf FIRST.
+#    This changes a setting for the WHOLE account, shared with other projects — tell the
+#    sandbox's other tenants before you run it. Skip this step entirely if the platform team
+#    activates the six keys centrally instead (which is the better outcome).
+terraform -chdir=infra-aws/account init \
+  -backend-config="bucket=$BUCKET" \
+  -backend-config="key=account/terraform.tfstate" \
+  -backend-config="region=eu-west-2" \
+  -backend-config="use_lockfile=true"
+terraform -chdir=infra-aws/account plan  -var-file=../envs/account.tfvars   # read it in full
+terraform -chdir=infra-aws/account apply -var-file=../envs/account.tfvars
+
+# 5. The budget. Needs the Project key Active (step 4) or it matches nothing and reports $0.
 terraform -chdir=infra-aws/stack init -backend-config=... # from step 3
 terraform -chdir=infra-aws/stack apply \
   -var-file=../envs/dev.tfvars -var-file=../envs/dev.stack.tfvars
 
-# 5. Confirm the guardrail actually guards something.
+# 6. Confirm the guardrail actually guards something.
 bash infra-aws/scripts/10-preflight.sh
 ```
 
@@ -79,11 +93,20 @@ perfectly healthy zero. `scripts/10-preflight.sh` §3 checks this explicitly. Ac
 **does not backfill** — it applies forward only, which is why it happens before the first
 billable resource rather than after.
 
-**Cost allocation tag activation may be denied.** In an AWS Organization it is usually reserved
-to the management account. If `terraform apply` fails on
-`ce:UpdateCostAllocationTagsStatus`, set `manage_cost_allocation_tags = false` in
-`envs/dev.stack.tfvars` and ask the platform team to activate the six keys. The budget still
-deploys; it just cannot attribute anything until they do.
+**Cost allocation tag activation is ACCOUNT-GLOBAL, and that is why it has its own module.**
+It is one switch per tag key for the entire account, not a per-project setting. While it lived
+in `stack/budget.tf`, `terraform destroy` — which `scripts/99-teardown.sh --execute` runs —
+would have deactivated all six keys **for every other project in this sandbox**, permanently,
+since activation does not backfill. Tearing down our project must not degrade somebody else's
+cost reporting. It now lives in `account/`, with separate state and `prevent_destroy`, and
+`99-teardown.sh` never touches it.
+
+**Activation may be denied, and that is a normal outcome.** In an AWS Organization it is usually
+reserved to the management account. If `terraform apply` fails on
+`ce:UpdateCostAllocationTagsStatus`, **do not work around it** — ask the platform team to
+activate the six keys centrally, once, for every project in the account, and simply never apply
+`account/`. The budget still deploys; it just cannot attribute anything until they do, which
+`scripts/10-preflight.sh` §3 will tell you.
 
 **Tag key casing is load-bearing.** PascalCase — `Project`, not `project`. AWS tag keys are
 case-sensitive and cost allocation tags are activated by exact key.
@@ -117,3 +140,10 @@ lost `.tfstate` is a `terraform import` rather than a stranded resource.
 `stack/` uses **S3 remote state with native locking** (`use_lockfile = true`). There is no
 DynamoDB lock table anywhere in this tree — DynamoDB-based locking is deprecated upstream and
 slated for removal.
+
+`account/` uses remote state too, keyed `account/terraform.tfstate` — deliberately **not**
+`env/<environment>/`, because there is one set of cost allocation tags per AWS account, not one
+per environment. Keying it beside the project environments would imply a per-environment
+lifecycle that does not exist and would invite a second copy. It currently shares Project
+Signal's state bucket because that is the only bucket in the account; if a platform-team bucket
+ever exists, migrate it there with `terraform init -migrate-state`.
