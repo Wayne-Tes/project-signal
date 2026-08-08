@@ -860,3 +860,13 @@
     transition: none;
   }
 }
+
+/* Entrance animations off by user preference. Kept separate from the
+   prefers-reduced-motion block: that is an accessibility requirement the user
+   cannot override, this is a preference they can. */
+[data-animate='off'] .ds-enter,
+[data-animate='off'] .ds-enter-fade {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}

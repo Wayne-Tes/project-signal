@@ -1,13 +1,14 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { LogOut } from 'lucide-react';
+import { Download, LogOut } from 'lucide-react';
 import type { NavActions, NavLevel } from '@/lib/types';
-import { AppShell, Badge, Button, Row } from '@/design-system';
+import { AppShell, Badge, Button, Row, useAppearance } from '@/design-system';
 import { allowedViews, navForRole, type ViewId } from '@/config/navigation';
 import { DrillDown } from './DrillDown';
 import { useBrand } from '@/lib/brand-context';
 import { useAuth } from '@/lib/auth';
+import { PS_BRAND } from '@/lib/data';
 import { Dashboard } from '@/views/Dashboard';
 import { TrendsView } from '@/views/Trends';
 import { BrandImpactView } from '@/views/BrandImpact';
@@ -33,6 +34,7 @@ import { AdminView } from '@/views/Admin';
 export function App() {
   const { user, role, signOut } = useAuth();
   const { selected: selectedBrand } = useBrand();
+  const { hero, animate } = useAppearance();
 
   const [view, setView] = useState<ViewId>('dashboard');
   const [path, setPath] = useState<NavLevel[]>([]);
@@ -91,7 +93,38 @@ export function App() {
           ? `${selectedBrand.name} · ${selectedBrand.isOwned ? 'Owned brand' : 'Competitor'}`
           : 'No brand selected',
       }}
-      actions={role ? <Badge tone="info">{role}</Badge> : null}
+      actions={
+        <>
+          {/* Period. Reads PS_BRAND, the prototype's mock data — the API exposes
+              no reporting window yet. STUB: docs/STUBS.md #3. */}
+          <span className="ds-eyebrow">{PS_BRAND.period}</span>
+
+          {role ? <Badge tone="info">{role}</Badge> : null}
+
+          {/* STUB: never had a handler, in the prototype or now. Left visible and
+              disabled rather than removed — docs/STUBS.md #1. */}
+          <Button
+            variant="ghost"
+            disabled
+            title="Export is not implemented yet"
+            icon={<Download size={17} strokeWidth={1.8} aria-hidden="true" />}
+          >
+            Export
+          </Button>
+
+          {activeView === 'report' ? (
+            <Button variant="primary" onClick={() => window.print()}>
+              Download PDF
+            </Button>
+          ) : (
+            // The only entry point to the top-level drill-down. Removing it made
+            // DrillDown reachable only by clicking into a dimension or cluster.
+            <Button variant="primary" onClick={drill.openOverview}>
+              Dig into score
+            </Button>
+          )}
+        </>
+      }
       footer={
         <Row gap="var(--s-2)">
           <div style={{ flex: '1 1 auto', minWidth: 0 }}>
@@ -120,7 +153,15 @@ export function App() {
       }
     >
       <div className="ds-content">
-        {activeView === 'dashboard' && <Dashboard nav={drill} />}
+        {activeView === 'dashboard' && (
+          // key remounts the view so entrance animations replay when the hero
+          // style or the animate preference changes — the prototype behaviour.
+          <Dashboard
+            key={`dashboard-${hero}-${animate}`}
+            nav={drill}
+            hero={hero === 'bars' ? 'Bars' : 'Radial gauge'}
+          />
+        )}
         {activeView === 'trends' && <TrendsView nav={drill} />}
         {activeView === 'brand-impact' && <BrandImpactView nav={drill} />}
         {activeView === 'roadmap' && <RoadmapView nav={drill} />}

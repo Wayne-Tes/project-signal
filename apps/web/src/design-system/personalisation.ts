@@ -40,14 +40,31 @@ export type ThemeChoice = SurfaceTheme | 'system';
 export type SidebarTheme = 'light' | 'navy';
 export type AccentKey = 'lime' | 'blue' | 'teal' | 'orange' | 'purple';
 
+/** Dashboard hero presentation. Restored from the prototype Tweaks panel. */
+export type HeroStyle = 'gauge' | 'bars';
+
+/**
+ * Typeface pairing. RETAINED FROM THE PROTOTYPE and in tension with the design
+ * system, which mandates Poppins + Open Sans as the house style. Kept because
+ * removing a working control unasked is not a decision this layer gets to make;
+ * flagged in docs/STUBS.md for the owner to settle.
+ */
+export type FontPair = 'house' | 'grotesk' | 'plex' | 'sora';
+
 export const THEME_CHOICES: ThemeChoice[] = ['light', 'dark', 'system'];
 export const SIDEBAR_THEMES: SidebarTheme[] = ['light', 'navy'];
 export const ACCENT_KEYS: AccentKey[] = ['lime', 'blue', 'teal', 'orange', 'purple'];
+export const HERO_STYLES: HeroStyle[] = ['gauge', 'bars'];
+export const FONT_PAIRS: FontPair[] = ['house', 'grotesk', 'plex', 'sora'];
 
 /** Follow the OS until told otherwise; lime and a light sidebar per Aurora. */
 export const DEFAULT_THEME: ThemeChoice = 'system';
 export const DEFAULT_SIDEBAR: SidebarTheme = 'light';
 export const DEFAULT_ACCENT: AccentKey = 'lime';
+export const DEFAULT_HERO: HeroStyle = 'gauge';
+export const DEFAULT_FONT_PAIR: FontPair = 'house';
+/** Entrance animations on by default, as the prototype had them. */
+export const DEFAULT_ANIMATE = true;
 
 /** The OS preference right now. SSR-safe: assumes light where unknowable. */
 export function systemTheme(): SurfaceTheme {
@@ -63,6 +80,9 @@ export function resolveTheme(choice: ThemeChoice): SurfaceTheme {
 const LS_THEME = 'ps_theme';
 const LS_SIDEBAR = 'ps_sidebar';
 const LS_ACCENT = 'ps_accent';
+const LS_HERO = 'ps_hero';
+const LS_FONT = 'ps_font';
+const LS_ANIMATE = 'ps_animate';
 
 /** British English labels — no emoji, sentence case. */
 export const THEME_LABEL: Record<ThemeChoice, string> = {
@@ -74,6 +94,32 @@ export const THEME_LABEL: Record<ThemeChoice, string> = {
 export const SIDEBAR_LABEL: Record<SidebarTheme, string> = {
   light: 'Light',
   navy: 'Navy',
+};
+
+export const HERO_LABEL: Record<HeroStyle, string> = {
+  gauge: 'Radial gauge',
+  bars: 'Bars',
+};
+
+export const FONT_PAIR_LABEL: Record<FontPair, string> = {
+  house: 'House (Poppins + Open Sans)',
+  grotesk: 'Space Grotesk + Plex',
+  plex: 'Plex everywhere',
+  sora: 'Sora + Plex',
+};
+
+/** The families each pairing writes onto --font-display / --font-body. */
+export const FONT_PAIR_STACK: Record<FontPair, { display: string; body: string }> = {
+  house: {
+    display: "'Poppins', 'Segoe UI', sans-serif",
+    body: "'Open Sans', system-ui, sans-serif",
+  },
+  grotesk: {
+    display: "'Space Grotesk', sans-serif",
+    body: "'IBM Plex Sans', system-ui, sans-serif",
+  },
+  plex: { display: "'IBM Plex Sans', sans-serif", body: "'IBM Plex Sans', system-ui, sans-serif" },
+  sora: { display: "'Sora', sans-serif", body: "'IBM Plex Sans', system-ui, sans-serif" },
 };
 
 export const ACCENT_LABEL: Record<AccentKey, string> = {
@@ -89,12 +135,21 @@ export interface Appearance {
   theme: ThemeChoice;
   sidebar: SidebarTheme;
   accent: AccentKey;
+  /** Dashboard hero presentation. Restored from the prototype Tweaks panel. */
+  hero: HeroStyle;
+  /** Typeface pairing — see the note on FontPair. */
+  fontPair: FontPair;
+  /** Entrance animations. Off also suppresses the remount that replays them. */
+  animate: boolean;
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
   theme: DEFAULT_THEME,
   sidebar: DEFAULT_SIDEBAR,
   accent: DEFAULT_ACCENT,
+  hero: DEFAULT_HERO,
+  fontPair: DEFAULT_FONT_PAIR,
+  animate: DEFAULT_ANIMATE,
 };
 
 /** The solid accent token for a key — drives swatches and the active nav bar. */
@@ -141,6 +196,19 @@ export function readAppearance(): Appearance {
 
     const accent = window.localStorage.getItem(LS_ACCENT);
     if (isAccent(accent)) next.accent = accent;
+
+    const hero = window.localStorage.getItem(LS_HERO);
+    if (hero === 'gauge' || hero === 'bars') next.hero = hero;
+
+    const font = window.localStorage.getItem(LS_FONT);
+    if ((FONT_PAIRS as string[]).includes(font ?? '')) next.fontPair = font as FontPair;
+
+    // Stored as '0'/'1' rather than JSON: a boolean is the one value where a
+    // parse failure silently yields `false`, which would disable animations for
+    // anyone with a corrupt key rather than falling back to the default.
+    const animate = window.localStorage.getItem(LS_ANIMATE);
+    if (animate === '0') next.animate = false;
+    if (animate === '1') next.animate = true;
   } catch {
     // localStorage unavailable — defaults stand.
   }
@@ -154,6 +222,11 @@ export function persistAppearance(patch: Partial<Appearance>): void {
     if (patch.theme) window.localStorage.setItem(LS_THEME, patch.theme);
     if (patch.sidebar) window.localStorage.setItem(LS_SIDEBAR, patch.sidebar);
     if (patch.accent) window.localStorage.setItem(LS_ACCENT, patch.accent);
+    if (patch.hero) window.localStorage.setItem(LS_HERO, patch.hero);
+    if (patch.fontPair) window.localStorage.setItem(LS_FONT, patch.fontPair);
+    // Explicit undefined check — `if (patch.animate)` would never persist false.
+    if (patch.animate !== undefined)
+      window.localStorage.setItem(LS_ANIMATE, patch.animate ? '1' : '0');
   } catch {
     // Preference is still applied for this session; only persistence is lost.
   }

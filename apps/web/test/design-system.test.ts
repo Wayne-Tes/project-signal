@@ -3,6 +3,9 @@ import { cx } from '../src/design-system/cx';
 import {
   ACCENT_KEYS,
   DEFAULT_APPEARANCE,
+  FONT_PAIRS,
+  FONT_PAIR_STACK,
+  HERO_STYLES,
   accentTintVar,
   accentVar,
   resolveTheme,
@@ -78,7 +81,37 @@ describe('resolveTheme', () => {
 });
 
 describe('appearance defaults', () => {
-  it('follows the system theme and defaults to the Aurora light sidebar and lime', () => {
-    expect(DEFAULT_APPEARANCE).toEqual({ theme: 'system', sidebar: 'light', accent: 'lime' });
+  /**
+   * Asserts the WHOLE object rather than individual keys, deliberately. Adding a
+   * preference without a default would otherwise pass silently and ship as
+   * `undefined` — which for `animate` would mean animations off for everyone.
+   * This test failing when a setting is added is the point, not a nuisance.
+   */
+  it('defaults every setting: system theme, Aurora sidebar, lime, gauge, house type, animated', () => {
+    expect(DEFAULT_APPEARANCE).toEqual({
+      theme: 'system',
+      sidebar: 'light',
+      accent: 'lime',
+      hero: 'gauge',
+      fontPair: 'house',
+      animate: true,
+    });
+  });
+
+  /**
+   * REGRESSION. The hero style, typeface pairing and animations toggle were
+   * working controls in the prototype Tweaks panel and were removed during the
+   * shell migration without being recorded. They are restored as persisted
+   * settings; this pins them so a future refactor cannot quietly drop them again.
+   */
+  it('keeps the controls restored from the Tweaks panel', () => {
+    expect(HERO_STYLES).toEqual(['gauge', 'bars']);
+    expect(FONT_PAIRS).toEqual(['house', 'grotesk', 'plex', 'sora']);
+    // Every pairing must resolve to a real stack — a missing entry would write
+    // `undefined` onto --font-display and render the app in the browser default.
+    for (const pair of FONT_PAIRS) {
+      expect(FONT_PAIR_STACK[pair].display).toMatch(/\S/);
+      expect(FONT_PAIR_STACK[pair].body).toMatch(/\S/);
+    }
   });
 });

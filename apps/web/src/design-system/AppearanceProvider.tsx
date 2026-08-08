@@ -18,6 +18,9 @@ import {
   type AccentKey,
   type Appearance,
   type SidebarTheme,
+  FONT_PAIR_STACK,
+  type FontPair,
+  type HeroStyle,
   type SurfaceTheme,
   type ThemeChoice,
 } from './personalisation';
@@ -47,6 +50,9 @@ interface AppearanceContextValue extends Appearance {
   setTheme: (choice: ThemeChoice) => void;
   setSidebar: (theme: SidebarTheme) => void;
   setAccent: (accent: AccentKey) => void;
+  setHero: (hero: HeroStyle) => void;
+  setFontPair: (pair: FontPair) => void;
+  setAnimate: (on: boolean) => void;
 }
 
 const AppearanceContext = createContext<AppearanceContextValue | null>(null);
@@ -85,7 +91,25 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     root.setAttribute('data-sidebar', appearance.sidebar);
     root.style.setProperty('--accent', `var(--accent-${appearance.accent})`);
     root.style.setProperty('--accent-tint', `var(--accent-${appearance.accent}-tint)`);
-  }, [resolvedTheme, appearance.sidebar, appearance.accent]);
+
+    // The font pairing overrides the design system's typography tokens at the
+    // root, so legacy views reading var(--font-display) follow it too.
+    const stack = FONT_PAIR_STACK[appearance.fontPair];
+    root.style.setProperty('--font-display', stack.display);
+    root.style.setProperty('--font-body', stack.body);
+
+    // Gates every `.ds-enter` entrance animation. Distinct from
+    // prefers-reduced-motion, which the stylesheet honours independently — this
+    // is a preference, that is an accessibility requirement, and a user turning
+    // animations back on must not override the OS setting.
+    root.setAttribute('data-animate', appearance.animate ? 'on' : 'off');
+  }, [
+    resolvedTheme,
+    appearance.sidebar,
+    appearance.accent,
+    appearance.fontPair,
+    appearance.animate,
+  ]);
 
   const update = useCallback((patch: Partial<Appearance>) => {
     setAppearance((prev) => ({ ...prev, ...patch }));
@@ -99,6 +123,9 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       setTheme: (theme) => update({ theme }),
       setSidebar: (sidebar) => update({ sidebar }),
       setAccent: (accent) => update({ accent }),
+      setHero: (hero) => update({ hero }),
+      setFontPair: (fontPair) => update({ fontPair }),
+      setAnimate: (animate) => update({ animate }),
     }),
     [appearance, resolvedTheme, update],
   );
