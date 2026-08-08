@@ -51,7 +51,15 @@ assert_sandbox_account() {
     printf '  ================================================================\n' >&2
     printf '%s' "$reset" >&2
     printf '   Credentials resolve to : %s\n' "$account_id" >&2
-    printf '   This script permits    : %s (tesai-dev-sandbox)\n' "$EXPECTED_ACCOUNT" >&2
+    # The alias belongs to 290304998906 and to nothing else. Printing it unconditionally meant
+    # that an overridden EXPECTED_ACCOUNT was labelled "tesai-dev-sandbox" in the abort — the
+    # message asserted a decoy account WAS the sandbox. This is the text somebody reads while
+    # working out what just went wrong, so it must not state something false.
+    if [ "$EXPECTED_ACCOUNT" = "290304998906" ]; then
+      printf '   This script permits    : %s (tesai-dev-sandbox)\n' "$EXPECTED_ACCOUNT" >&2
+    else
+      printf '   This script permits    : %s (via EXPECTED_ACCOUNT override)\n' "$EXPECTED_ACCOUNT" >&2
+    fi
     printf '   Caller ARN             : %s\n\n' "${caller_arn:-<unknown>}" >&2
     printf '   This repository is in a TES enterprise organisation under active\n' >&2
     printf '   scrutiny. Nothing here may run against any other account — a\n' >&2

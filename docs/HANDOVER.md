@@ -85,20 +85,60 @@ clearest available specification of what each service needs. Do not treat them a
 
 ## 3. AWS: what was verified, and how
 
-All of this was executed live on **2026-08-07** via CloudShell. Commands and outputs are
+All of this was executed live on **2026-08-07** via CloudShell, and **re-verified on 2026-08-08
+from the local machine** through the `psignal-dev` SSO profile. Commands and outputs are
 reproducible; the discovery script in §3.5 re-runs them.
 
 ### 3.1 Account and identity
 
 ```
-Account   290304998906  (alias: tesai-dev-sandbox)
-Principal arn:aws:sts::290304998906:assumed-role/AWSReservedSSO_TesAiDevSandboxAdmin_.../Wayne.Strydom@tes.com
-Region    eu-west-2 (London)
+Account       290304998906
+Principal     arn:aws:sts::290304998906:assumed-role/
+              AWSReservedSSO_TesAiDevSandboxAdmin_31fa68d9bd45f53c/Wayne.Strydom@tes.com
+Client region eu-west-2 (London)   — where our resources live
+SSO region    eu-west-1            — where IAM Identity Center itself runs
 ```
 
+**The client region and the SSO region are different, and both are correct.** `eu-west-1` is
+only where Identity Center is hosted; storage, database and queues stay in `eu-west-2`. Getting
+this wrong during `aws configure sso` fails harmlessly at client registration without contacting
+any account.
+
+> **Correction (2026-08-08): there is no IAM account alias.** This block previously read
+> `290304998906 (alias: tesai-dev-sandbox)`. `aws iam list-account-aliases` returns `[]` —
+> `tesai-dev-sandbox` is the **Organizations account name**, not an IAM alias. Nothing depends
+> on this, but the guard's abort message prints the label, so it should be understood as a
+> human name rather than something resolvable from the account.
+
 Access is via **IAM Identity Center (SSO)**, so the working credential is a temporary session
-role. Two consequences: sessions expire (CloudShell refreshes automatically), and **this role
-cannot be reused for CI** — GitHub Actions needs its own IAM role.
+role. Three consequences:
+
+- Sessions expire. Re-authenticate with `aws sso login --profile psignal-dev`.
+- **This role cannot be reused for CI** — GitHub Actions needs its own IAM role (Phase 6).
+- **The session ARN is not an IAM principal ARN.** `iam:SimulatePrincipalPolicy` rejects it with
+  `InvalidInput`, which silently broke §5 of the discovery script until 2026-08-08. Resolve the
+  real role with `aws iam get-role --role-name AWSReservedSSO_…`; the SSO path embeds the
+  **SSO** region and cannot be reconstructed by string manipulation.
+
+#### The permission set is scoped to this account alone
+
+`aws configure sso` reported, verbatim:
+
+```
+The only AWS account available to you is: 290304998906
+The only role available to you is: TesAiDevSandboxAdmin
+```
+
+**This is a stronger guarantee than anything in this repository.** The sandbox rule is enforced
+in our tooling by `_guard.sh`, `allowed_account_ids` and `check` blocks — but the permission set
+means no other account is _offered_ in the first place. The risk the rule exists to prevent is
+structurally closed at the identity layer, not merely policed.
+
+The tooling still earns its place: it catches a stale `AWS_PROFILE`, credentials injected
+through environment variables from somewhere else, and any future widening of the permission
+set. Defence in depth, not redundancy — and **do not relax the guards on the strength of this**,
+because a permission set is a configuration somebody else controls and can change without
+telling us.
 
 ### 3.2 The account is shared — this shapes the design
 
@@ -152,16 +192,52 @@ not silently).
 
 ### 3.3 Existing state in the account
 
-| Fact                    | Value                                           | Why it matters                                                                                                                                                      |
-| ----------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| VPCs in `eu-west-2`     | **none**, not even a default                    | We create our own, no collisions. Region caps at 5                                                                                                                  |
-| OIDC providers          | **`gitlab.com` only**                           | GitHub's does not exist — we can create it. **An account allows only one provider per URL**, so if one appears later, reference it rather than creating a duplicate |
-| Budgets                 | `monthly_tesai-dev-sandbox` (account-wide)      | Do not touch it. Add a **tag-filtered** budget for this project alongside                                                                                           |
-| Spend at time of survey | ~$44 month-to-date, ~$182 forecast, both rising | Not compute (there are no VPCs) — most likely Bedrock. **Our Fargate tasks would be the first persistent compute spend in the account**                             |
+| Fact | Value | Why it matters |
+| ---- | ----- | -------------- |
+
+Re-verified 2026-08-08. Unchanged from the 2026-08-07 survey except where noted.
+
+| Fact                                                     | Value                                                                               | Why it matters                                                                                                                                                      |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| VPCs in `eu-west-2`                                      | **none**, not even a default                                                        | We create our own, no collisions. Region caps at 5                                                                                                                  |
+| ECS clusters / RDS instances / Cognito pools / ECR repos | **none**                                                                            | Nothing of ours, and nothing of anybody else's, to collide with                                                                                                     |
+| SQS queues                                               | **none**                                                                            | Same                                                                                                                                                                |
+| S3 buckets                                               | **two, not ours** — `bedrock-bda-eu-west-2-…` and `bedrock-bda-eu-west-2-logging-…` | **New finding, 2026-08-08.** Bedrock Data Automation, belonging to another tenant of the sandbox. Confirms the account is shared _in practice_, and see spend below |
+| OIDC providers                                           | **`gitlab.com` only**                                                               | GitHub's does not exist — we can create it. **An account allows only one provider per URL**, so if one appears later, reference it rather than creating a duplicate |
+| IAM account alias                                        | **none** (`list-account-aliases` → `[]`)                                            | `tesai-dev-sandbox` is the Organizations account _name_, not an IAM alias — see §3.1                                                                                |
+| Budgets                                                  | `monthly_tesai-dev-sandbox`, **$1,600/month**                                       | Do not touch it. Add a **tag-filtered** budget alongside. The limit was not recorded before; our $150 project budget is ~9% of it                                   |
+| Spend at time of survey                                  | ~$44 month-to-date, ~$182 forecast, both rising                                     | Not compute — there are no VPCs. **The Bedrock buckets above confirm the earlier guess that this is Bedrock.** Our Fargate would be the first persistent compute    |
 
 The presence of a `gitlab.com` OIDC provider suggests the department's CI standard is GitLab
 while this repo is on GitHub. **Owner has confirmed: stay on GitHub.** Phase 6 therefore creates
 GitHub's OIDC provider in the account.
+
+#### Organisation context — new, 2026-08-08
+
+The 2026-08-07 survey expected `AccessDenied` here. `describe-organization` in fact **succeeds**:
+
+```
+Organization        o-czz6h8lnm0
+Management account  857154590661  (awsbillingroot@tesglobal.com)
+Feature set         ALL
+Policy types        SERVICE_CONTROL_POLICY — ENABLED
+```
+
+`describe-account` and `list-parents` remain `AccessDenied`, which is normal and expected from a
+member account.
+
+**Two things follow, and both matter.**
+
+**SCPs are enabled above us.** That is the concrete reason `iam:SimulatePrincipalPolicy` is
+necessary-but-not-sufficient: the simulator evaluates identity policies and does **not** evaluate
+SCPs, so an `allowed` verdict can still be denied at runtime. The reversible IAM probe in §3.5 is
+the only trustworthy test, and any Phase 2+ permission surprise should be read as a possible SCP
+before it is read as a bug in our Terraform.
+
+**The management account `857154590661` is the billing root for the whole of TES.** It is
+categorically out of bounds — it is not merely another account, it is _the_ account. Nothing in
+this repository may reference it, and the account-wide budget and cost allocation tag activation
+both ultimately belong to whoever operates it.
 
 ### 3.4 Bedrock — verified working, and the ID is not obvious
 
@@ -194,6 +270,43 @@ way the error does not explain:
 nothing reads it until Epic 12, and shipping an unverified default is exactly how the two bad
 Gemini ids got in.
 
+#### Re-verified live, 2026-08-08
+
+`aws bedrock list-inference-profiles --region eu-west-2` confirms the configured profile is real
+and usable — not merely listed in a document:
+
+```
+eu.anthropic.claude-haiku-4-5-20251001-v1:0   EU Anthropic Claude Haiku 4.5   ACTIVE  SYSTEM_DEFINED
+```
+
+**Nine EU Anthropic profiles are ACTIVE in this account**, including materially stronger models
+than the one configured:
+
+```
+eu.anthropic.claude-haiku-4-5-20251001-v1:0     <- SCORER_MODEL and REPORTER_MODEL today
+eu.anthropic.claude-sonnet-4-5-20250929-v1:0
+eu.anthropic.claude-sonnet-4-6
+eu.anthropic.claude-sonnet-5
+eu.anthropic.claude-opus-4-5-20251101-v1:0
+eu.anthropic.claude-opus-4-6-v1
+eu.anthropic.claude-opus-4-7
+eu.anthropic.claude-opus-4-8
+eu.anthropic.claude-opus-5
+```
+
+**This does not license changing either model id.** Haiku is the right choice for `SCORER_MODEL`:
+it runs once per signal, so it is the cost-sensitive slot, and the scoring task is
+classification against a fixed schema rather than reasoning. `REPORTER_MODEL` is the slot that
+would benefit from a stronger model, and it is still read by nothing until Epic 12 — so the
+decision belongs to whoever builds reporting, made against measured output quality rather than a
+list of what happens to be available. Recording the options here is the point; acting on them
+now would be exactly the unverified-default habit that shipped two bad Gemini ids.
+
+Note also that `list-foundation-models` shows `anthropic.claude-haiku-4-5-20251001-v1:0` without
+the `eu.` prefix. **That is the bare model id and it will be rejected at invoke time.** Being
+listed there is not the same as being usable; the inference profile list above is the one to
+copy from.
+
 ### 3.5 IAM — role creation is permitted
 
 Probed for real, because the IAM policy simulator does not reliably account for
@@ -209,9 +322,43 @@ Role creation and tagging both work; no SCP blocks them. **CI can therefore use 
 IAM role with no long-lived keys** — the direct equivalent of the Workload Identity Federation
 design the GCP side used.
 
+**The probe was NOT re-run on 2026-08-08, deliberately.** It is the one write in the discovery
+script, role creation was already proven in this same account, and re-running it would put two
+more IAM events in CloudTrail for no new information. Re-run it only when something changes that
+could plausibly have altered the answer — an SCP change, a new permission set — or immediately
+before Phase 6 needs the CI role.
+
+#### The simulator in §5 never worked from an SSO session — fixed 2026-08-08
+
+`iam:SimulatePrincipalPolicy` requires an IAM **principal** ARN. `sts:GetCallerIdentity` under
+Identity Center returns a **session** ARN
+(`arn:aws:sts::…:assumed-role/AWSReservedSSO_…/user@…`), which the API rejects outright with
+`InvalidInput`. The section therefore produced nothing but an error on every run — including the
+original Phase 0 run — and it went unnoticed because the script prints errors as findings rather
+than aborting.
+
+The script now resolves the real role with `aws iam get-role --role-name`, which works for SSO
+permission sets and ordinary roles alike. String surgery on the session ARN is not sufficient:
+the SSO role path is `role/aws-reserved/sso.amazonaws.com/<sso-region>/<name>` and embeds the
+**Identity Center** region (`eu-west-1`), not the client region.
+
+Result, 2026-08-08 — all twelve actions `allowed`:
+
+```
+iam:CreateRole  iam:AttachRolePolicy  iam:CreateOpenIDConnectProvider  ec2:CreateVpc
+ecs:CreateCluster  rds:CreateDBInstance  s3:CreateBucket  sqs:CreateQueue
+cognito-idp:CreateUserPool  ecr:CreateRepository  secretsmanager:CreateSecret
+bedrock:InvokeModel
+```
+
+**Treat that as necessary, not sufficient.** §3.3 confirms SCPs are enabled in `o-czz6h8lnm0`,
+and the simulator does not evaluate them. Every permission Phases 2–6 need is _identity-policy_
+clear; whether an SCP denies one is only knowable by attempting it.
+
 **To re-verify all of the above in a different account**, run
 [`infra-aws/scripts/00-discover.sh`](../infra-aws/scripts/00-discover.sh). It is read-only apart
-from one explicitly fenced, self-cleaning IAM probe behind `--test-iam`.
+from one explicitly fenced, self-cleaning IAM probe behind `--test-iam`, and it now aborts before
+its first call if the credentials are not the sandbox.
 
 ---
 

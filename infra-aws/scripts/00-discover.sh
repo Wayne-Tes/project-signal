@@ -97,11 +97,36 @@ try aws ecr describe-repositories --region "$REGION" --query 'repositories[].rep
 hr "5. IAM — can I create the roles this deployment needs?"
 try aws iam list-open-id-connect-providers
 try aws iam list-account-aliases
-# Permission boundaries and SCPs are the usual enterprise blockers. The simulator does not
-# model SCPs reliably, so treat a PASS here as necessary-but-not-sufficient; §8 is the real test.
-if [ -n "${CALLER_ARN:-}" ]; then
+# simulate-principal-policy needs an IAM PRINCIPAL arn — a role or user — not the STS session
+# arn that get-caller-identity returns. Under IAM Identity Center the session arn is
+#   arn:aws:sts::<acct>:assumed-role/AWSReservedSSO_<permission-set>_<hash>/<email>
+# and the API rejects it outright with InvalidInput, so this whole section produced nothing but
+# an error every time it was run from an SSO session. Verified against 290304998906 on
+# 2026-08-08 — the original Phase 0 run had the same failure and it went unnoticed because the
+# script prints errors as findings rather than aborting.
+#
+# Resolve the underlying role by name instead. get-role is used rather than string surgery
+# because the SSO role path — role/aws-reserved/sso.amazonaws.com/<sso-region>/<name> — embeds
+# the Identity Center region (eu-west-1 here, NOT the client region), which cannot be
+# reconstructed from the session arn.
+POLICY_SOURCE_ARN=""
+case "${CALLER_ARN:-}" in
+  *:assumed-role/*)
+    ROLE_NAME="$(printf '%s' "$CALLER_ARN" | cut -d/ -f2)"
+    echo "  Resolving IAM role arn for assumed-role session '$ROLE_NAME'"
+    POLICY_SOURCE_ARN="$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text 2>/dev/null)"
+    ;;
+  *:user/* | *:role/*)
+    POLICY_SOURCE_ARN="$CALLER_ARN"
+    ;;
+esac
+
+# Permission boundaries and SCPs are the usual enterprise blockers, and SCPs are ENABLED in this
+# organisation (§2 shows SERVICE_CONTROL_POLICY on o-czz6h8lnm0). The simulator does NOT evaluate
+# SCPs, so treat a PASS here as necessary-but-not-sufficient; §8 is the only reliable test.
+if [ -n "$POLICY_SOURCE_ARN" ]; then
   try aws iam simulate-principal-policy \
-    --policy-source-arn "$CALLER_ARN" \
+    --policy-source-arn "$POLICY_SOURCE_ARN" \
     --action-names \
         iam:CreateRole \
         iam:AttachRolePolicy \
