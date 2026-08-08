@@ -10,7 +10,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "firebase": "^11.0.0",
+    "amazon-cognito-identity-js": "^6.3.20",
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

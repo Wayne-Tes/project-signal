@@ -165,7 +165,7 @@ export function UserManager() {
           style={inp}
           value={firebaseUid}
           onChange={(e) => setFirebaseUid(e.target.value)}
-          placeholder="firebase uid of the new user"
+          placeholder="Cognito sub of the new user"
           required
         />
         <label style={lbl} htmlFor="newUserEmail">

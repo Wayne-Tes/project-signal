@@ -13,16 +13,20 @@ COPY libs/ libs/
 RUN yarn install --immutable
 
 # NEXT_PUBLIC_* values are inlined into the client bundle by `next build`, so they must be
-# present HERE — setting them as Cloud Run runtime env vars has no effect. Declared after
+# present HERE — setting them as container runtime env vars has no effect. Declared after
 # `yarn install` so changing them doesn't invalidate the dependency layer.
-# The three Firebase values are required: lib/firebase.ts throws if any is empty.
-ARG NEXT_PUBLIC_FIREBASE_API_KEY
-ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID
+#
+# Both Cognito values are required: lib/cognito.ts throws at startup if either is empty, which is
+# deliberate — defaulting them would ship a bundle pointed at the wrong user pool, and a
+# build-time inlined mistake is invisible until someone tries to sign in.
+#
+# NEXT_PUBLIC_API_URL is the ALB origin. Web and API share it, so the browser makes same-origin
+# requests and no CORS allowlist is needed.
+ARG NEXT_PUBLIC_COGNITO_USER_POOL_ID
+ARG NEXT_PUBLIC_COGNITO_CLIENT_ID
 ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_FIREBASE_API_KEY=$NEXT_PUBLIC_FIREBASE_API_KEY \
-    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN \
-    NEXT_PUBLIC_FIREBASE_PROJECT_ID=$NEXT_PUBLIC_FIREBASE_PROJECT_ID \
+ENV NEXT_PUBLIC_COGNITO_USER_POOL_ID=$NEXT_PUBLIC_COGNITO_USER_POOL_ID \
+    NEXT_PUBLIC_COGNITO_CLIENT_ID=$NEXT_PUBLIC_COGNITO_CLIENT_ID \
     NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 RUN yarn workspace @project-signal/web run build

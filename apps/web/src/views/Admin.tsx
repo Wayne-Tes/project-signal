@@ -19,7 +19,7 @@ export function AdminView() {
   const { user } = useAuth();
   const [tenantName, setTenantName] = useState('');
   const [brandName, setBrandName] = useState('');
-  const [adminUid, setAdminUid] = useState(user?.uid ?? '');
+  const [adminUid, setAdminUid] = useState(user?.sub ?? '');
   const [result, setResult] = useState<CreatedTenant | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -88,7 +88,7 @@ export function AdminView() {
             style={inp}
             value={adminUid}
             onChange={(e) => setAdminUid(e.target.value)}
-            placeholder="firebase uid of the tenant admin"
+            placeholder="Cognito sub of the tenant admin"
             required
           />
           {error && <p style={{ color: 'var(--coral)', fontSize: 13, margin: '12px 0 0' }}>{error}</p>}
