@@ -1,11 +1,13 @@
 'use client';
+
 import { useEffect, useState } from 'react';
+import { BarChart3 } from 'lucide-react';
 import { useInView } from '@/hooks/useInView';
 import { apiFetch } from '@/lib/api';
 import { useBrand } from '@/lib/brand-context';
 import { toCompetitorRows, type ApiBrandScore, type CompetitorRow } from '@/lib/brand-data';
-import { Delta } from '@/components/primitives';
 import { ViewState } from '@/components/ViewState';
+import { Badge, Card, EmptyState, PageHeader, Stack, Trend } from '@/design-system';
 
 export function CompetitorsView() {
   const [ref, play] = useInView(0.1);
@@ -13,9 +15,9 @@ export function CompetitorsView() {
   const [rows, setRows] = useState<CompetitorRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // One /score call per brand: the comparison is the same pipeline run across the set, so
-  // there is no single endpoint for it. The competitive set is a handful of brands, not a
-  // list that grows unbounded.
+  // One /score call per brand: the comparison is the same pipeline run across the
+  // set, so there is no single endpoint for it. The competitive set is a handful
+  // of brands, not a list that grows unbounded.
   useEffect(() => {
     if (brands.length === 0) return;
     let cancelled = false;
@@ -44,68 +46,107 @@ export function CompetitorsView() {
   const owned = rows?.find((r) => r.isOwned);
 
   return (
-    <div className="content view-enter" ref={ref}>
-      <div style={{ maxWidth: 720, marginBottom: 24 }}>
-        <p className="kicker">Competitive set</p>
-        <h2
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 28,
-            fontWeight: 600,
-            margin: '8px 0 8px',
-          }}
-        >
-          {owned ? `How ${owned.name} stacks up` : 'How the set compares'}
-        </h2>
-        <p style={{ color: 'var(--t2)', fontSize: 14.5, lineHeight: 1.6 }}>
-          Same pipeline, same model, same five dimensions — run across every brand in the set for a
-          like-for-like benchmark.
-        </p>
-      </div>
+    <div ref={ref}>
+      <PageHeader
+        eyebrow="Competitive set"
+        title={owned ? `How ${owned.name} stacks up` : 'How the set compares'}
+        subtitle="Same pipeline, same model, same five dimensions — run across every brand in the set for a like-for-like benchmark."
+      />
 
       <ViewState
         loading={brandsLoading || (rows === null && !error && !brandsError)}
         error={error ?? brandsError}
-        empty={rows?.length === 0 ? 'No brands in this tenant yet.' : null}
+        empty={null}
       >
-        <div className="card" style={{ padding: '24px 26px' }}>
-          {rows?.map((c, i) => (
-            <div className="comp-row" key={c.id}>
-              <div className={`cn ${c.isOwned ? 'you' : ''}`}>
-                {c.isOwned ? '◆ ' : ''}
-                {c.name}
-              </div>
-              <div className="comp-track">
-                <i
+        {rows?.length === 0 ? (
+          <Card>
+            <EmptyState
+              icon={<BarChart3 size={22} strokeWidth={1.8} />}
+              title="No brands in this tenant yet"
+              body="Add a brand and its competitors from the Admin area to see a benchmark."
+            />
+          </Card>
+        ) : (
+          <Card>
+            <Stack gap="var(--s-4)">
+              {rows?.map((c, i) => (
+                <div
+                  key={c.id}
                   style={{
-                    width: play && c.score !== null ? `${c.score}%` : 0,
-                    background: c.isOwned ? 'var(--peri)' : 'var(--t3)',
-                    transition: `width 1.2s ${i * 0.12}s cubic-bezier(.2,.8,.2,1)`,
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(140px, 1fr) 3fr auto',
+                    alignItems: 'center',
+                    gap: 'var(--s-4)',
                   }}
-                />
-              </div>
-              <div
-                style={{
-                  textAlign: 'right',
-                  fontFamily: 'var(--font-display)',
-                  fontWeight: 600,
-                  fontSize: 18,
-                  color: c.isOwned ? 'var(--peri)' : 'var(--t1)',
-                }}
-              >
-                {c.score === null ? (
-                  // Not yet scored is not a score of zero — say so rather than draw a bar at 0.
-                  <span style={{ fontSize: 13, color: 'var(--t3)' }}>not yet scored</span>
-                ) : (
-                  <>
-                    {c.score}
-                    {c.previous !== null && <Delta value={c.score - c.previous} />}
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+                >
+                  <div className="ds-row" style={{ minWidth: 0 }}>
+                    <span
+                      style={{
+                        fontWeight: c.isOwned ? 'var(--fw-bold)' : 'var(--fw-regular)',
+                        color: 'var(--text-heading)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {c.name}
+                    </span>
+                    {/* The owned brand is marked with a word, not just a colour —
+                        "yours" survives greyscale and screen readers. */}
+                    {c.isOwned && <Badge tone="info">Yours</Badge>}
+                  </div>
+
+                  <div
+                    style={{
+                      height: 10,
+                      borderRadius: 'var(--radius-pill)',
+                      background: 'var(--surface-sunken)',
+                      border: '1px solid var(--border-hairline)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: '100%',
+                        width: play && c.score !== null ? `${c.score}%` : 0,
+                        background: c.isOwned ? 'var(--accent)' : 'var(--text-faint)',
+                        transition: `width 1.2s ${i * 0.12}s var(--ease)`,
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ textAlign: 'right', minWidth: 96 }}>
+                    {c.score === null ? (
+                      // Not yet scored is NOT a score of zero — say so rather than
+                      // draw a bar at zero, which reads as a terrible result.
+                      <span className="ds-hint">not yet scored</span>
+                    ) : (
+                      <div className="ds-row" style={{ justifyContent: 'flex-end' }}>
+                        <span
+                          className="ds-kpi__value"
+                          style={{
+                            fontSize: 'var(--fs-h2)',
+                            color: c.isOwned ? 'var(--accent)' : 'var(--text-heading)',
+                          }}
+                        >
+                          {c.score}
+                        </span>
+                        {c.previous !== null && (
+                          <Trend
+                            direction={
+                              c.score === c.previous ? 'flat' : c.score > c.previous ? 'up' : 'down'
+                            }
+                            value={Math.abs(c.score - c.previous).toFixed(0)}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </Stack>
+          </Card>
+        )}
       </ViewState>
     </div>
   );

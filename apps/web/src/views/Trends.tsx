@@ -1,5 +1,7 @@
 'use client';
+
 import { useState } from 'react';
+import { LineChart as LineChartIcon, TrendingUp } from 'lucide-react';
 import { useInView } from '@/hooks/useInView';
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
@@ -10,14 +12,23 @@ import {
   type ApiDimensionRow,
 } from '@/lib/brand-data';
 import { scoreColor } from '@/lib/utils';
-import { Delta } from '@/components/primitives';
 import { LineChart, Sparkline } from '@/components/charts';
 import { ViewState } from '@/components/ViewState';
+import {
+  Card,
+  EmptyState,
+  Grid,
+  PageHeader,
+  PanelHeader,
+  Row,
+  Stack,
+  Trend,
+} from '@/design-system';
 import type { NavActions } from '@/lib/types';
 
 export function TrendsView({ nav }: { nav: NavActions }) {
   const [ref, play] = useInView(0.1);
-  const [hl, setHl] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState<string | null>(null);
   const { brandId, error: brandError } = useBrand();
 
   const score = useApi<ApiBrandScore>(brandId ? `/brands/${brandId}/score` : null);
@@ -26,102 +37,128 @@ export function TrendsView({ nav }: { nav: NavActions }) {
   const cards = score.data ? toDimensionCards(score.data) : [];
   const points = history.data ? toHistory(history.data) : [];
 
-  // The chart takes a flat row per point; scores is a partial map, so a dimension missing on a
-  // given day is simply absent rather than plotted as zero.
+  // The chart takes a flat row per point; `scores` is a partial map, so a
+  // dimension missing on a given day is absent rather than plotted as zero.
   const chartRows = points.map((p) => ({ label: p.label, ...p.scores }));
 
   return (
-    <div className="content view-enter" ref={ref}>
+    <div ref={ref}>
+      <PageHeader
+        eyebrow="Trends & history"
+        title="How perception has moved"
+        subtitle="Daily rollups of the Brand Perception Index, recency-weighted with a 90-day half-life."
+      />
+
       <ViewState
         loading={score.loading || history.loading}
         error={score.error ?? history.error ?? brandError}
-        empty={
-          cards.length === 0
-            ? 'No dimension scores yet — the daily rollup has not produced results for this brand.'
-            : null
-        }
+        empty={null}
       >
-        <div className="card" style={{ padding: '22px 24px', marginBottom: 18 }}>
-          <div className="card-h" style={{ padding: 0, marginBottom: 16 }}>
-            <h3>Brand Perception Index · history</h3>
-            <span className="sub">
-              {points.length} {points.length === 1 ? 'day' : 'days'} · recency-weighted
-            </span>
-            <div className="spacer" />
-            <div className="legend" onMouseLeave={() => setHl(null)}>
-              {cards.map((d) => (
-                <span
-                  className="it"
-                  key={d.key}
-                  onMouseEnter={() => setHl(d.key)}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <span className="sw" style={{ background: scoreColor(d.score) }} />
-                  {d.label}
-                </span>
-              ))}
-            </div>
-          </div>
-          {points.length < 2 ? (
-            <p style={{ color: 'var(--t3)', fontSize: 13, margin: '8px 0 0' }}>
-              A trend needs at least two daily rollups. There{' '}
-              {points.length === 1 ? 'is one so far' : 'are none yet'}.
-            </p>
-          ) : (
-            <LineChart
-              data={chartRows}
-              width={1180}
-              height={340}
-              yMin={0}
-              yMax={100}
-              play={play}
-              highlight={hl}
-              series={cards.map((d) => ({ key: d.key, color: scoreColor(d.score), w: 1.5 }))}
-              showDots
+        {cards.length === 0 ? (
+          <Card>
+            <EmptyState
+              icon={<TrendingUp size={22} strokeWidth={1.8} />}
+              title="No dimension scores yet"
+              body="The daily rollup has not produced results for this brand. Scores appear after signals have been ingested and scored."
             />
-          )}
-        </div>
+          </Card>
+        ) : (
+          <Stack gap="var(--s-5)">
+            <Card>
+              <PanelHeader
+                icon={<LineChartIcon size={20} strokeWidth={1.8} />}
+                title="Brand Perception Index · history"
+                subtitle={`${points.length} ${points.length === 1 ? 'day' : 'days'} · recency-weighted`}
+                actions={
+                  <Row gap="var(--s-3)">
+                    {cards.map((d) => (
+                      <button
+                        key={d.key}
+                        type="button"
+                        className="ds-chip"
+                        onMouseEnter={() => setHighlight(d.key)}
+                        onMouseLeave={() => setHighlight(null)}
+                        onFocus={() => setHighlight(d.key)}
+                        onBlur={() => setHighlight(null)}
+                        onClick={() => nav.openDimension(d.key)}
+                      >
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 999,
+                            background: scoreColor(d.score),
+                          }}
+                        />
+                        {d.label}
+                      </button>
+                    ))}
+                  </Row>
+                }
+              />
 
-        <div className="grid" style={{ gridTemplateColumns: `repeat(${cards.length || 1},1fr)` }}>
-          {cards.map((d) => (
-            <button
-              key={d.key}
-              className="card clickable"
-              style={{ padding: '16px 16px 8px', textAlign: 'left', cursor: 'pointer' }}
-              onClick={() => nav.openDimension(d.key)}
-            >
-              <div className="lab kicker">{d.label}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '6px 0 2px' }}>
-                <span
-                  className="num"
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 30,
-                    fontWeight: 600,
-                    color: scoreColor(d.score),
-                  }}
-                >
-                  {d.score}
-                </span>
-                {/* No comparison rollup yet means no delta — not a delta of zero. */}
-                {d.previous !== null && <Delta value={d.score - d.previous} />}
-              </div>
-              {points.length >= 2 && (
-                <Sparkline
+              {points.length < 2 ? (
+                // Two rollups are genuinely required to draw a line. Saying so
+                // is more useful than an empty chart frame.
+                <p className="ds-hint" style={{ margin: 0 }}>
+                  A trend needs at least two daily rollups. There{' '}
+                  {points.length === 1 ? 'is one so far' : 'are none yet'}.
+                </p>
+              ) : (
+                <LineChart
                   data={chartRows}
-                  dkey={d.key}
-                  color={scoreColor(d.score)}
-                  width={180}
-                  height={44}
+                  width={1180}
+                  height={340}
+                  yMin={0}
+                  yMax={100}
                   play={play}
+                  highlight={highlight}
+                  series={cards.map((d) => ({ key: d.key, color: scoreColor(d.score), w: 1.5 }))}
+                  showDots
                 />
               )}
-              <div className="drill-hint" style={{ margin: '8px 0 6px' }}>
-                {d.signalCount.toLocaleString()} signals · dig in →
-              </div>
-            </button>
-          ))}
-        </div>
+            </Card>
+
+            <Grid min="220px">
+              {cards.map((d, i) => (
+                <Card key={d.key} stagger={i * 40} onClick={() => nav.openDimension(d.key)}>
+                  <div className="ds-kpi__label">{d.label}</div>
+                  <Row gap="var(--s-2)">
+                    <span
+                      className="ds-kpi__value"
+                      style={{ color: scoreColor(d.score), fontSize: 'var(--fs-h1)' }}
+                    >
+                      {d.score}
+                    </span>
+                    {/* No comparison rollup means NO delta — not a delta of zero. */}
+                    {d.previous !== null && (
+                      <Trend
+                        direction={
+                          d.score === d.previous ? 'flat' : d.score > d.previous ? 'up' : 'down'
+                        }
+                        value={Math.abs(d.score - d.previous).toFixed(0)}
+                      />
+                    )}
+                  </Row>
+                  {points.length >= 2 && (
+                    <div style={{ margin: 'var(--s-2) 0' }}>
+                      <Sparkline
+                        data={chartRows}
+                        dkey={d.key}
+                        color={scoreColor(d.score)}
+                        width={180}
+                        height={44}
+                        play={play}
+                      />
+                    </div>
+                  )}
+                  <div className="ds-hint">{d.signalCount.toLocaleString()} signals · dig in →</div>
+                </Card>
+              ))}
+            </Grid>
+          </Stack>
+        )}
       </ViewState>
     </div>
   );
