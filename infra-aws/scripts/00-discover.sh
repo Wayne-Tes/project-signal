@@ -11,6 +11,27 @@
 # enterprise environment the expensive mistake is building in the wrong place, and that mistake
 # is only preventable here, at step zero.
 #
+# ACCOUNT GUARD. This script is READ-ONLY, and that is NOT a reason to skip the guard.
+# Under the sandbox rule a `describe`/`list` against a sibling or production account is still
+# unauthorised access to it, so "it only reads" is precisely the reasoning that produces an
+# incident. Every one of the ~20 calls below is therefore fenced behind assert_sandbox_account.
+#
+# This was a real defect: until 2026-08-08 this script did not source the guard at all. It ran
+# every call first and only then printed "confirm this is YOUR sandbox account" — asking a human
+# to verify the account *after* the traffic had already left. Meanwhile CONVENTIONS.md §0,
+# infra-aws/README.md and DEVRULES.md all stated that every AWS-calling script sourced the
+# guard. The documentation was right about the intent and wrong about this file.
+#
+# The chicken-and-egg — "discovery is what tells you which account you are in" — is real but it
+# does not survive contact with the rule. The account is known and twice confirmed
+# (290304998906, docs/HANDOVER.md §3.1), so discovery is guarded like everything else. To point
+# this at a genuinely different sandbox you have legitimate access to, name it explicitly:
+#
+#   EXPECTED_ACCOUNT=<12 digits> bash infra-aws/scripts/00-discover.sh
+#
+# Naming the account is the point: it is a deliberate act, recorded in your shell history,
+# rather than whatever a stale AWS_PROFILE happened to resolve to.
+#
 # Usage:
 #   bash infra-aws/scripts/00-discover.sh                 # read-only
 #   bash infra-aws/scripts/00-discover.sh --test-iam      # adds the reversible IAM probe
@@ -31,7 +52,14 @@ try() { echo "\$ $*"; "$@" 2>&1 | sed 's/^/  /'; echo; }
 
 command -v aws >/dev/null 2>&1 || { echo "FATAL: aws CLI not found on PATH."; exit 1; }
 
-hr "0. Tooling"
+# Hard abort before the first describe/list. Nothing below this line runs in another account.
+# shellcheck source=infra-aws/scripts/_guard.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_guard.sh"
+
+hr "0. Account guard"
+assert_sandbox_account
+
+hr "0b. Tooling"
 try aws --version
 
 hr "1. WHO AM I — the answer that governs everything else"
@@ -42,8 +70,8 @@ CALLER_ARN="$(aws sts get-caller-identity --query Arn --output text 2>/dev/null)
 echo "  ACCOUNT_ID = ${ACCOUNT_ID:-<unresolved>}"
 echo "  CALLER_ARN = ${CALLER_ARN:-<unresolved>}"
 echo
-echo "  >> Confirm this is YOUR sandbox account before running anything in Phase 1."
-echo "  >> Every later script will hard-code this id and refuse to run against a different one."
+echo "  >> Already asserted against \$EXPECTED_ACCOUNT by the guard above — this section is the"
+echo "  >> full identity record for the report, not the check. The check has passed."
 
 hr "2. Organisation context — am I inside someone else's guardrails?"
 # Frequently AccessDenied outside the management account. Denied is a perfectly good answer.
@@ -108,11 +136,26 @@ echo "  >> this replaces, where idle cost was genuinely ~nil."
 
 hr "8. OPTIONAL reversible IAM probe"
 if [ "$TEST_IAM" = "1" ]; then
-  PROBE="psignal-discovery-probe-$$"
+  PROBE="psignal-dev-discovery-probe-$$"
   echo "  Creating throwaway role '$PROBE', then deleting it. This is the only write in this script."
+  # Tags are the SIX MANDATORY KEYS in PascalCase, exactly as infra-aws/*/versions.tf applies
+  # them as provider default_tags. This is the one resource in the repo created outside
+  # Terraform, so it is the one place the convention could silently diverge — and it had:
+  # until 2026-08-08 this probe used lower-case `project`/`purpose`/`ephemeral`, none of which
+  # are mandatory keys. AWS tag keys are case-sensitive, so in a shared account under review
+  # that produces a role attributable to nothing, created by the script whose whole job is to
+  # prove we can be trusted with the account.
+  #
+  # `Expires` is today's date: the role is deleted seconds later, and if the delete fails the
+  # teardown sweep should treat it as already stale rather than wait a year.
   try aws iam create-role --role-name "$PROBE" \
       --description "Project Signal discovery probe - safe to delete" \
-      --tags Key=project,Value=project-signal Key=purpose,Value=discovery-probe Key=ephemeral,Value=true \
+      --tags "Key=Project,Value=project-signal" \
+             "Key=Owner,Value=wayne.strydom@tes.com" \
+             "Key=CostCentre,Value=tesai-dev-sandbox" \
+             "Key=Environment,Value=dev" \
+             "Key=ManagedBy,Value=discovery-probe" \
+             "Key=Expires,Value=$(date -u +%Y-%m-%d)" \
       --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
   echo "  Cleaning up:"
   try aws iam delete-role --role-name "$PROBE"

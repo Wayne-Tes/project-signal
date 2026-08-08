@@ -24,11 +24,11 @@ set -uo pipefail
 
 # docs/HANDOVER.md §3.1, confirmed by the owner 2026-08-07.
 EXPECTED_ACCOUNT="${EXPECTED_ACCOUNT:-290304998906}"
-EXPECTED_REGION="${AWS_REGION:-eu-west-2}"
+EXPECTED_REGION="${EXPECTED_REGION:-eu-west-2}"
 
 assert_sandbox_account() {
-  local red green reset account_id caller_arn
-  red=$'\033[31m'; green=$'\033[32m'; reset=$'\033[0m'
+  local red green yellow reset account_id caller_arn
+  red=$'\033[31m'; green=$'\033[32m'; yellow=$'\033[33m'; reset=$'\033[0m'
 
   command -v aws >/dev/null 2>&1 || {
     printf '%sFATAL%s aws CLI not found on PATH.\n' "$red" "$reset" >&2
@@ -61,4 +61,17 @@ assert_sandbox_account() {
   fi
 
   printf '  %sACCOUNT OK%s  %s (%s)\n' "$green" "$reset" "$account_id" "${caller_arn:-unknown}"
+
+  # Region is a WARNING, never an abort. Being in the wrong region is not a rule breach — the
+  # sandbox rule is about accounts — but it is how resources end up scattered across regions in
+  # an account somebody else has to audit, and it is invisible until you go looking for them.
+  #
+  # Not fatal, because there are legitimate exceptions: Cost Explorer is a global service
+  # reached via us-east-1 (see infra-aws/account/main.tf). Storage, database and queues always
+  # stay in eu-west-2.
+  local active_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+  if [ -n "$active_region" ] && [ "$active_region" != "$EXPECTED_REGION" ]; then
+    printf '  %sREGION    %s  AWS_REGION is %s, expected %s. Resources would be created there.\n' \
+      "$yellow" "$reset" "$active_region" "$EXPECTED_REGION" >&2
+  fi
 }
