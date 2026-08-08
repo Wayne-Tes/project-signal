@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Palette } from 'lucide-react';
+import { Palette, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { Button } from '../primitives/controls';
+import { cx } from '../cx';
 import { AppearanceControls } from './AppearanceControls';
 
 /**
@@ -44,6 +45,8 @@ export interface AppShellProps {
   children: ReactNode;
 }
 
+const LS_COLLAPSED = 'ps_sidebar_collapsed';
+
 export function AppShell({
   nav,
   active,
@@ -56,9 +59,42 @@ export function AppShell({
 }: AppShellProps) {
   const activeLabel = nav.flatMap((g) => g.items).find((i) => i.id === active)?.label;
 
+  // Collapsed state is persisted like the other appearance choices — someone who
+  // wants the extra 180px of content width wants it on every visit, not just
+  // until the next reload.
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem(LS_COLLAPSED) === '1');
+    } catch {
+      /* private mode — default stands */
+    }
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(LS_COLLAPSED, next ? '1' : '0');
+      } catch {
+        /* preference still applies for this session */
+      }
+      return next;
+    });
+  };
+
   return (
-    <div className="ds-shell">
-      <Sidebar nav={nav} active={active} onNavigate={onNavigate} brand={brand} footer={footer} />
+    <div className={cx('ds-shell', collapsed && 'ds-shell--collapsed')}>
+      <Sidebar
+        nav={nav}
+        active={active}
+        onNavigate={onNavigate}
+        brand={brand}
+        footer={footer}
+        collapsed={collapsed}
+        onToggleCollapsed={toggleCollapsed}
+      />
       <main className="ds-main">
         <TopBar title={title ?? activeLabel ?? ''} actions={actions} />
         {children}
@@ -75,36 +111,55 @@ function Sidebar({
   onNavigate,
   brand,
   footer,
-}: Pick<AppShellProps, 'nav' | 'active' | 'onNavigate' | 'brand' | 'footer'>) {
+  collapsed,
+  onToggleCollapsed,
+}: Pick<AppShellProps, 'nav' | 'active' | 'onNavigate' | 'brand' | 'footer'> & {
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+}) {
   return (
     <nav className="ds-sidebar" aria-label="Main">
       <div className="ds-sidebar__brand">
         {brand.mark}
-        <div style={{ minWidth: 0 }}>
-          <div className="ds-sidebar__brand-name">{brand.name}</div>
-          {brand.sub && <div className="ds-sidebar__brand-sub">{brand.sub}</div>}
-        </div>
+        {/* The lockup is hidden rather than unmounted when collapsed, so the
+            sidebar's height and the nav's scroll position do not jump. */}
+        {!collapsed && (
+          <div style={{ minWidth: 0 }}>
+            <div className="ds-sidebar__brand-name">{brand.name}</div>
+            {brand.sub && <div className="ds-sidebar__brand-sub">{brand.sub}</div>}
+          </div>
+        )}
       </div>
 
       <div className="ds-sidebar__nav">
         {nav.map((group, gi) => (
           <div key={group.label ?? `group-${gi}`}>
-            {group.label && <div className="ds-sidebar__group">{group.label}</div>}
+            {/* A group heading is meaningless beside icon-only items, so it is
+                replaced by the hairline rule the collapsed stylesheet draws. */}
+            {group.label && !collapsed && <div className="ds-sidebar__group">{group.label}</div>}
             {group.items.map((item) => {
               const isActive = item.id === active;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  className={`ds-nav-item${isActive ? 'ds-nav-item--active' : ''}`}
+                  className={cx('ds-nav-item', isActive && 'ds-nav-item--active')}
                   // The accessible name is the label; `aria-current` is what
                   // conveys "you are here", not the colour of the accent bar.
                   aria-current={isActive ? 'page' : undefined}
+                  // Collapsed, the label is visually hidden but still read out —
+                  // and `title` gives sighted users a hover tooltip, without
+                  // which an icon-only rail is a guessing game.
+                  title={collapsed ? item.label : undefined}
                   onClick={() => onNavigate(item.id)}
                 >
                   {item.icon}
-                  <span style={{ flex: '1 1 auto', minWidth: 0 }}>{item.label}</span>
-                  {item.badge != null && <span className="ds-badge">{item.badge}</span>}
+                  <span className="ds-nav-item__label" style={{ flex: '1 1 auto', minWidth: 0 }}>
+                    {item.label}
+                  </span>
+                  {item.badge != null && !collapsed && (
+                    <span className="ds-badge">{item.badge}</span>
+                  )}
                 </button>
               );
             })}
@@ -112,7 +167,25 @@ function Sidebar({
         ))}
       </div>
 
-      {footer && <div className="ds-sidebar__footer">{footer}</div>}
+      <div className="ds-sidebar__footer">
+        {!collapsed && footer}
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          icon={
+            collapsed ? (
+              <PanelLeftOpen size={17} strokeWidth={1.8} aria-hidden="true" />
+            ) : (
+              <PanelLeftClose size={17} strokeWidth={1.8} aria-hidden="true" />
+            )
+          }
+          aria-expanded={!collapsed}
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        </Button>
+      </div>
     </nav>
   );
 }

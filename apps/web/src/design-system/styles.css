@@ -596,9 +596,14 @@
     color var(--dur) var(--ease);
 }
 
+/* A fixed 19px box for the glyph. Lucide icons differ slightly in intrinsic
+   width, so without this the labels sit at marginally different x positions
+   down the rail — visible as a ragged left edge once you notice it. */
 .ds-nav-item svg {
   color: var(--side-icon);
-  flex: 0 0 auto;
+  flex: 0 0 19px;
+  width: 19px;
+  height: 19px;
   transition: color var(--dur) var(--ease);
 }
 
@@ -775,4 +780,83 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---------- Collapsed sidebar ------------------------------------------------
+   Driven by `ds-shell--collapsed` on the shell root rather than by props on
+   every child, so the whole rail responds to one class and no component needs
+   a `collapsed` branch in its styling.
+
+   The label is hidden with the visually-hidden pattern, NOT display:none —
+   screen readers must still announce which item they are on, and the button
+   keeps its accessible name.
+------------------------------------------------------------------------------ */
+
+.ds-shell--collapsed {
+  --sidebar-w: 72px;
+}
+
+.ds-shell--collapsed .ds-nav-item {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.ds-shell--collapsed .ds-nav-item__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The active bar would sit under a centred icon at width 3px, so collapsed it
+   becomes a full tinted tile with the accent as a left edge — still the user's
+   highlight colour, still obviously "you are here". */
+.ds-shell--collapsed .ds-nav-item--active::before {
+  top: 4px;
+  bottom: 4px;
+}
+
+.ds-shell--collapsed .ds-sidebar__brand {
+  justify-content: center;
+  padding: var(--s-5) var(--s-2);
+}
+
+.ds-shell--collapsed .ds-sidebar__nav {
+  padding: var(--s-4) var(--s-2);
+}
+
+/* Group headings are hidden collapsed (they read as noise beside bare icons),
+   so a hairline stands in to keep the grouping legible. */
+.ds-shell--collapsed .ds-sidebar__nav > div + div {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--side-border);
+}
+
+.ds-shell--collapsed .ds-sidebar__footer {
+  display: flex;
+  justify-content: center;
+  padding: var(--s-3) var(--s-2);
+}
+
+/* The rail animates its width; `overflow: hidden` stops the labels smearing
+   across the content column mid-transition. */
+.ds-sidebar {
+  overflow: hidden;
+  transition:
+    width var(--dur) var(--ease),
+    flex-basis var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-sidebar {
+    transition: none;
+  }
 }

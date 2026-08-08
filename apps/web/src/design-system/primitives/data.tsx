@@ -144,7 +144,7 @@ export interface BadgeProps {
 
 export function Badge({ children, tone = 'neutral' }: BadgeProps) {
   return (
-    <span className={`ds-badge${tone === 'neutral' ? '' : ` ds-badge--${tone}`}`}>{children}</span>
+    <span className={cx('ds-badge', tone !== 'neutral' && `ds-badge--${tone}`)}>{children}</span>
   );
 }
 
@@ -174,7 +174,7 @@ export function Stack({
   className?: string;
 }) {
   return (
-    <div className={`ds-stack ${className ?? ''}`} style={{ '--ds-gap': gap } as CSSProperties}>
+    <div className={cx('ds-stack', className)} style={{ '--ds-gap': gap } as CSSProperties}>
       {children}
     </div>
   );
@@ -190,7 +190,7 @@ export function Row({
   className?: string;
 }) {
   return (
-    <div className={`ds-row ${className ?? ''}`} style={{ '--ds-gap': gap } as CSSProperties}>
+    <div className={cx('ds-row', className)} style={{ '--ds-gap': gap } as CSSProperties}>
       {children}
     </div>
   );
