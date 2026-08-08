@@ -154,7 +154,98 @@ Two results in particular will change the shape of the build:
 
 ## Phase 1 — guardrails
 
-**Status: written and validated; awaiting credentials to apply.**
+**Status: APPLIED 2026-08-08, except cost allocation tag activation, which this account cannot
+perform.** See "What actually happened" below before reading the rest of this section.
+
+### What actually happened — 2026-08-08
+
+Applied against `290304998906` as `psignal-dev`, plan reviewed and saved with `-out` so what
+applied was exactly what was read. **No `-auto-approve`.**
+
+| Step                     | Result                                                                                                                 |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `10-preflight.sh` before | Passed with 2 warnings — tags inactive, nothing tagged yet. Expected before a first apply                              |
+| `bootstrap`              | ✅ **6 added.** `psignal-dev-tfstate-290304998906` — versioned, AES256, all four public-access blocks, TLS-only policy |
+| `account`                | ⛔ **NOT APPLIED — impossible from this account.** See below                                                           |
+| `stack`                  | ✅ **1 added.** Budget `psignal-dev-monthly`, $150, filter `user:Project$project-signal`                               |
+| `10-preflight.sh` after  | **Exits 1, correctly blocking.** One resource carries `Project` while the key is inactive                              |
+| `99-teardown.sh` dry run | Sees both resources by independent tag inventory. Changed nothing                                                      |
+
+Verified by reading the resources back from AWS rather than from Terraform state: versioning
+`Enabled`, encryption `AES256`, public access blocks `True True True True`, bucket policy
+contains `DenyInsecureTransport`, and all six PascalCase tags present. Both budgets exist —
+ours alongside the untouched `monthly_tesai-dev-sandbox`.
+
+### ⛔ Cost allocation tags cannot be activated from this account
+
+This is a structural limit, not a permissions gap to be argued with:
+
+```
+$ aws ce list-cost-allocation-tags --status Active
+AccessDeniedException: Failed to list Cost Allocation Tags:
+Linked account doesn't have access to cost allocation tags.
+```
+
+**`infra-aws/account/` was therefore never applied.** The denial was established by a read-only
+call, so running the apply would only have added a failed apply to the audit log for information
+already in hand.
+
+> **This is also the clearest possible demonstration of why the policy simulator is not
+> evidence.** Simulated against the same role, at the same moment:
+>
+> ```
+> ce:UpdateCostAllocationTagsStatus  →  allowed
+> ce:ListCostAllocationTags          →  allowed
+> ```
+>
+> Both are denied in reality. The simulator evaluates identity policies; it does not model
+> Organizations-level restrictions or SCPs, and SCPs are enabled on `o-czz6h8lnm0`. **Treat every
+> `allowed` in §5 of the discovery script as necessary-but-not-sufficient.**
+
+**Consequence, and its real size.** The budget's filter matches nothing until the `Project` key
+is `Active`, so `psignal-dev-monthly` will report **$0 regardless of actual spend**. Right now
+the only tagged resource is an empty state bucket, so the attribution being lost is worth
+approximately nothing. **That changes at Phase 2**, when RDS and Fargate arrive — and because
+activation does not backfill, spend incurred before activation is unattributable permanently.
+
+`10-preflight.sh` now exits **1** on exactly this condition, so it blocks Phase 2 by design.
+That is the correct behaviour and the check should not be weakened to get past it.
+
+### Request for the platform team
+
+Send this to whoever operates management account `857154590661`. It is one action, it benefits
+every project in the sandbox, and it needs doing once.
+
+> **Request: activate six cost allocation tag keys for account `290304998906`**
+>
+> Please activate the following user-defined cost allocation tags from the Organizations
+> management account (Billing → Cost allocation tags), so that spend in the shared sandbox
+> `tesai-dev-sandbox` can be attributed per project:
+>
+> `Project` · `Owner` · `CostCentre` · `Environment` · `ManagedBy` · `Expires`
+>
+> **Keys are case-sensitive and must be created exactly as spelled above** — activating
+> `project` instead of `Project` attributes nothing while appearing to succeed.
+>
+> Why it is needed: the sandbox hosts several projects. Without these keys active, AWS Budgets
+> and Cost Explorer cannot separate one project's spend from another's, and every tag-filtered
+> budget in the account silently reports $0.
+>
+> Why we cannot do it ourselves: `ce:UpdateCostAllocationTagsStatus` is denied to linked
+> accounts — _"Linked account doesn't have access to cost allocation tags"_.
+>
+> Timing matters: cost allocation tags **do not backfill**. They attribute from activation
+> forward only, so any spend before activation is permanently unattributable. Our first
+> genuinely billable resources (RDS, ECS Fargate) are held until this is done.
+
+Once they confirm, re-run `bash infra-aws/scripts/10-preflight.sh`; §3 should report all six
+`Active` and §6 should pass. **`infra-aws/account/` then stays unapplied permanently** — it
+exists for an account where we do hold the permission, and applying it after the platform team
+has acted would only create a Terraform resource claiming ownership of something we do not own.
+
+---
+
+**Original Phase 1 description follows.**
 
 Created before anything billable exists, per rule 4. Everything lives in
 [`../infra-aws/`](../infra-aws/) — see its [`README.md`](../infra-aws/README.md) for the

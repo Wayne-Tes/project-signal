@@ -21,18 +21,18 @@ and [`../docs/HANDOVER.md`](../docs/HANDOVER.md) §6 for the phase plan.
 
 ## What exists today
 
-| Path                      | What                                                                                                                                                                                                                                                                 |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bootstrap/`              | The S3 remote-state bucket. Local state, run once, creates nothing else                                                                                                                                                                                              |
-| `account/`                | ⚠️ **ACCOUNT-GLOBAL — shared with every project in the sandbox, and not ours.** Activates the six mandatory tag keys as cost allocation tags. Own state, `prevent_destroy` on every key, applied deliberately and never by CI. **Read its header before running it** |
-| `stack/`                  | The tag-filtered budget. Remote state                                                                                                                                                                                                                                |
-| `envs/dev.tfvars`         | Tag values shared by `bootstrap/` and `stack/`, so they cannot drift                                                                                                                                                                                                 |
-| `envs/dev.stack.tfvars`   | Budget-only values                                                                                                                                                                                                                                                   |
-| `envs/account.tfvars`     | Values for the account-global module. Separate because nothing in it is per-environment                                                                                                                                                                              |
-| `scripts/00-discover.sh`  | Phase 0 discovery, read-only. Already run — findings in HANDOVER §3                                                                                                                                                                                                  |
-| `scripts/10-preflight.sh` | Run before any apply. Checks account, cost allocation tags, collisions                                                                                                                                                                                               |
-| `scripts/99-teardown.sh`  | Reverses everything and proves the account is clean. Dry run by default                                                                                                                                                                                              |
-| `CONVENTIONS.md`          | The proposed cross-repo standard for this shared account                                                                                                                                                                                                             |
+| Path                      | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bootstrap/`              | The S3 remote-state bucket. Local state, run once, creates nothing else                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `account/`                | ⚠️ **ACCOUNT-GLOBAL, and NOT APPLICABLE HERE.** Activates the six tag keys as cost allocation tags. **`290304998906` is a linked account and cannot do this** — verified 2026-08-08: _"Linked account doesn't have access to cost allocation tags"_. It stays **unapplied**; the platform team activates the keys from management account `857154590661` instead (request ready to send in `../docs/AWS-SETUP.md`). Kept because it is correct for an account that does hold the permission |
+| `stack/`                  | The tag-filtered budget. Remote state                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `envs/dev.tfvars`         | Tag values shared by `bootstrap/` and `stack/`, so they cannot drift                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `envs/dev.stack.tfvars`   | Budget-only values                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `envs/account.tfvars`     | Values for the account-global module. Separate because nothing in it is per-environment                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `scripts/00-discover.sh`  | Phase 0 discovery, read-only. Already run — findings in HANDOVER §3                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `scripts/10-preflight.sh` | Run before any apply. Checks account, cost allocation tags, collisions                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `scripts/99-teardown.sh`  | Reverses everything and proves the account is clean. Dry run by default                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `CONVENTIONS.md`          | The proposed cross-repo standard for this shared account                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 **No VPC, RDS, ECR, Secrets Manager, ECS or Cognito yet** — those are Phases 2–5.
 
@@ -55,19 +55,18 @@ terraform -chdir=infra-aws/bootstrap apply -var-file=../envs/dev.tfvars
 # 3. Wire the stack to that bucket. The bootstrap prints this command with the name filled in:
 terraform -chdir=infra-aws/bootstrap output -raw backend_config
 
-# 4. ACCOUNT-GLOBAL cost allocation tags. STOP AND READ infra-aws/account/main.tf FIRST.
-#    This changes a setting for the WHOLE account, shared with other projects — tell the
-#    sandbox's other tenants before you run it. Skip this step entirely if the platform team
-#    activates the six keys centrally instead (which is the better outcome).
-terraform -chdir=infra-aws/account init \
-  -backend-config="bucket=$BUCKET" \
-  -backend-config="key=account/terraform.tfstate" \
-  -backend-config="region=eu-west-2" \
-  -backend-config="use_lockfile=true"
-terraform -chdir=infra-aws/account plan  -var-file=../envs/account.tfvars   # read it in full
-terraform -chdir=infra-aws/account apply -var-file=../envs/account.tfvars
+# 4. SKIPPED IN THIS ACCOUNT — do not run infra-aws/account here.
+#    Cost allocation tag activation is denied to linked accounts. Verified 2026-08-08:
+#      AccessDeniedException: Linked account doesn't have access to cost allocation tags
+#    The platform team activates the six keys from management account 857154590661 instead.
+#    The ready-to-send request is in ../docs/AWS-SETUP.md § Phase 1.
+#
+#    Run the module ONLY in an account that genuinely holds ce:UpdateCostAllocationTagsStatus,
+#    and read infra-aws/account/main.tf in full first — it changes a setting for the WHOLE
+#    account, shared with every other project in it.
 
-# 5. The budget. Needs the Project key Active (step 4) or it matches nothing and reports $0.
+# 5. The budget. It deploys fine without step 4, but its filter matches nothing until the
+#    Project key is Active, so it reports $0 regardless of spend. 10-preflight.sh checks this.
 terraform -chdir=infra-aws/stack init -backend-config=... # from step 3
 terraform -chdir=infra-aws/stack apply \
   -var-file=../envs/dev.tfvars -var-file=../envs/dev.stack.tfvars
