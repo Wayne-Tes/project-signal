@@ -54,6 +54,32 @@ aws bedrock-runtime converse --region eu-west-2 \
 
 ---
 
+## 1b. 🟢 READY FOR YOU — sign in to the dashboard
+
+**The stack is live.** Your owner account exists and Cognito has emailed a temporary password to
+`wayne.strydom@tes.com`.
+
+```
+http://psignal-dev-alb-459312973.eu-west-2.elb.amazonaws.com
+```
+
+Sign in with the temporary password. Cognito will immediately require a new one — that is
+expected, not a fault: the pool is admin-create-only, so **every** user meets a forced password
+change on first sign-in, and the sign-in form has a step for it. Minimum 12 characters, upper and
+lower case, a number and a symbol.
+
+After that you have an `owner` role but **no tenant yet**, which is deliberate: the account
+carries `custom:role = owner` and nothing else, because inventing a tenant id would create a
+claim pointing at nothing. Create the tenant from the **Admin** view — it provisions the tenant,
+its owned brand and an admin user in one transaction.
+
+> ⚠️ **HTTP, not HTTPS.** An ALB's own DNS name cannot carry a TLS certificate. Fine for you to
+> test with, **not acceptable for sharing with the team** — the password would cross the network
+> in the clear. That is item 6 below, and it is the last thing between here and a URL you can
+> circulate.
+
+---
+
 ## 2. 🟠 Branch protection on `main`
 
 **What:** GitHub → repo → Settings → Branches → add a rule for `main`:
@@ -101,6 +127,32 @@ Manager entries Terraform creates for them.
 **Why it is not blocking:** the **RSS adapter needs no key at all**, which is why it is the
 source used for every end-to-end test. Without these two, Google Reviews, App Store, Play Store
 and YouTube ingestion cannot fetch — the rest of the system is unaffected.
+
+---
+
+## 5b. 🟠 Browser verification could not be done — Chrome extension not connected
+
+`DEVRULES.md` requires UI work to be exercised in a real browser. I could not: the
+claude-in-chrome extension reported **"Browser extension is not connected"**, so no click-through
+of the sign-in flow, the forced-password-change step, or any authed view has happened.
+
+**What WAS verified instead, and what it does and does not cover:**
+
+- The auth flow end to end **without a browser** — a real Cognito user authenticated, and the
+  resulting ID token was accepted by the live API through the ALB, returning `200` on `/brands`
+  and on the owner-only `/admin/users`. So the token path is proven.
+- The deployed bundle contains the correct pool id, client id and API URL, confirmed by grepping
+  inside the built image, and contains **no Firebase**.
+- The page serves `200` with the right `<title>`.
+
+**Not covered:** anything rendered. The dashboard is a client-side SPA behind `AuthGate`
+(`ssr: false`), so no view's markup exists until JavaScript runs — which means the 79 CSS token
+conversions from KNOWN-GAPS #19 and the users UI from #12 remain visually unverified, exactly as
+they were.
+
+**When you are back**, either reconnect the extension and tell me, or click through it yourself:
+sign in, set a password, and confirm the Dashboard, Trends, Achilles and Competitors views
+render. This is the checkpoint those two gaps have been waiting on since before AWS existed.
 
 ---
 

@@ -27,7 +27,7 @@ locals {
       memory      = 512
       public      = true
       health_path = "/"
-      desired     = 0 # Deployed once auth exists — see the note below.
+      desired     = 1
     }
     ingestion = {
       port        = 8081
