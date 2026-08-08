@@ -84,7 +84,21 @@ resource "aws_secretsmanager_secret_version" "db" {
     port     = aws_db_instance.main.port
     # Ready to drop straight into DATABASE_URL, so no service has to assemble it and get the
     # escaping wrong. libs/config takes DATABASE_URL or nothing on RDS.
-    url = "postgresql://${var.db_username}:${urlencode(random_password.db.result)}@${aws_db_instance.main.endpoint}/${var.db_name}"
+    #
+    # ⚠️ `sslmode=require` IS NOT OPTIONAL. RDS Postgres 15+ ships with rds.force_ssl = 1, so an
+    # unencrypted connection is refused — and the error names neither TLS nor the parameter:
+    #
+    #   PostgresError: no pg_hba.conf entry for host "10.20.11.181",
+    #   user "project_signal_app", database "project_signal", no encryption
+    #
+    # which reads like a network or credentials problem. It cost a deploy cycle to diagnose.
+    # **This cannot be caught locally**: the docker-compose Postgres does not force TLS, so
+    # every local run and every test passes without it. It is a deployed-only failure.
+    #
+    # `require` encrypts without verifying the server certificate. Verifying (`verify-full`)
+    # additionally needs the RDS CA bundle baked into each image — worth doing when the data is
+    # real, and noted in KNOWN-GAPS rather than done silently here.
+    url = "postgresql://${var.db_username}:${urlencode(random_password.db.result)}@${aws_db_instance.main.endpoint}/${var.db_name}?sslmode=require"
   })
 }
 

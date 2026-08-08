@@ -185,3 +185,33 @@ variable "secret_recovery_window_days" {
     error_message = "secret_recovery_window_days must be 0, or between 7 and 30."
   }
 }
+
+# ── Phase 4: services ────────────────────────────────────────────────────────────────────────
+
+variable "image_tag" {
+  description = <<-EOT
+    Container image tag deployed to every ECS service. REQUIRED, with no default, deliberately:
+    Terraform owns the deployed image, so an apply that forgot the tag would otherwise silently
+    roll every service back to whatever was last written. Pass it explicitly:
+
+      terraform apply -var="image_tag=$(git rev-parse --short HEAD)" ...
+
+    ECR repositories are IMMUTABLE, so a tag always identifies exactly one image.
+  EOT
+  type        = string
+
+  validation {
+    condition     = length(var.image_tag) > 0
+    error_message = "image_tag must not be empty — see the note above about silent rollbacks."
+  }
+}
+
+variable "scorer_model" {
+  description = "Bedrock inference profile for per-signal sentiment scoring. High volume: one call per signal. VERIFY IT EXISTS before changing — `aws bedrock list-inference-profiles --region eu-west-2`. This repo has shipped a retired model id and one that never existed."
+  type        = string
+}
+
+variable "reporter_model" {
+  description = "Bedrock inference profile for weekly narrative reports. Low volume, higher quality — the slot that justifies a stronger model. Unused until Epic 12, so it stays on the verified scorer model until someone measures the alternative."
+  type        = string
+}

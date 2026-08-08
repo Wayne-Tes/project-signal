@@ -67,3 +67,23 @@ db_apply_immediately     = true  # No waiting for a maintenance window while ite
 # the next apply collides with a secret scheduled for deletion — a confusing failure to hit
 # while iterating. Set to 7+ anywhere the credential loss would matter.
 secret_recovery_window_days = 0
+
+# ── Phase 4: Bedrock model routing ────────────────────────────────────────────────────────────
+# Named by USE CASE, not by provider, so the underlying model changes without touching a call
+# site. Both are EU inference profiles — the `eu.` prefix keeps inference inside the EU, and the
+# bare model id (no prefix) is rejected at invoke time with "on-demand throughput isn't
+# supported".
+#
+# Verified ACTIVE in 290304998906 on 2026-08-08 via `aws bedrock list-inference-profiles`.
+#
+# SCORER: Haiku 4.5. Runs once per signal, so it is the cost-sensitive slot, and the task is
+# classification against a fixed schema rather than reasoning — forced tool use does the
+# structuring, not the model's cleverness.
+scorer_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+# REPORTER: deliberately the SAME model, not a stronger one. Nine EU Anthropic profiles are
+# available including Sonnet 5 and Opus 5, and the reporter is the slot that would benefit — but
+# nothing reads it until Epic 12, and no output has been measured. Shipping an unverified
+# "better" default is exactly how this project came to ship gemini-2.0-pro-001, a model that
+# never existed. Change it when Epic 12 can compare two outputs.
+reporter_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"

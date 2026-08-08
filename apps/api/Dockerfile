@@ -15,12 +15,27 @@ RUN yarn install --immutable
 # Deterministic and Nx-independent.
 RUN sh scripts/build-libs.sh && ./node_modules/.bin/tsc -p apps/api/tsconfig.build.json
 
+# Production dependencies ONLY, resolved separately from the build.
+#
+# The runner used to copy node_modules from the builder, which meant every image shipped the
+# whole monorepo's devDependencies: the API image carried Next.js (174MB), @next (124MB),
+# Firebase (97MB), rspack (65MB), Nx (65MB) and TypeScript (23MB) — none of which it runs.
+# 1.1GB of node_modules in a 1.65GB image.
+#
+# `yarn workspaces focus <workspace> --production` installs that workspace's production
+# dependencies and its workspace siblings, and nothing else.
+FROM base AS prod-deps
+COPY package.json yarn.lock .yarnrc.yml ./
+COPY apps/ apps/
+COPY libs/ libs/
+RUN yarn workspaces focus @project-signal/api --production
+
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
 # Workspace libs are built to dist; node resolves @project-signal/* via node_modules -> libs/*/dist.
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/libs ./libs
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/migrations ./apps/api/migrations

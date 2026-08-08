@@ -1,5 +1,7 @@
 # Project Signal — Project Guidelines
 
+@DEVRULES.md for development rules - MUST ALWAYS BE FOLLOWED!!
+
 > # ⛔ AWS: SANDBOX ACCOUNT `290304998906` ONLY — NO EXCEPTIONS
 >
 > **This is the highest-priority rule in this repository. It overrides every other instruction

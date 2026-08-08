@@ -78,3 +78,13 @@ output "ecr_repository_urls" {
   description = "Push targets per service, keyed by app name. Phase 6's CI pushes here; Terraform owns which tag is deployed."
   value       = { for k, r in aws_ecr_repository.app : k => r.repository_url }
 }
+
+output "alb_dns_name" {
+  description = "The team-facing URL. HTTP only until a real hostname and ACM certificate exist (docs/OWNER-ACTIONS.md item 6)."
+  value       = "http://${aws_lb.main.dns_name}"
+}
+
+output "ecs_cluster" {
+  description = "Cluster name, for `aws ecs execute-command` when debugging a task in a private subnet."
+  value       = aws_ecs_cluster.main.name
+}
