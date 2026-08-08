@@ -1,112 +1,109 @@
-name: Terraform Plan
+name: Terraform Check — infra-aws
 
-# Runs on PRs that touch infrastructure files, posts the staging plan as a comment.
+# Static validation of the AWS Terraform tree on every PR that touches it.
+#
+# WHY THIS EXISTS: until this workflow, `infra-aws/**` had NO CI coverage at all. The previous
+# version of this file filtered on `infra/stack/**` and `infra/modules/**` — the superseded GCP
+# tree that will never be applied (docs/HANDOVER.md §8) — so the most scrutinised code in the
+# repository was the least checked. `ci.yml` runs lint/typecheck/test, none of which read a
+# `.tf` file.
+#
+# WHY THERE IS NO `terraform plan` HERE: a real plan requires credentials for account
+# 290304998906, and the GitHub OIDC role that would supply them is Phase 6 and does not exist
+# yet. This workflow therefore deliberately makes **zero AWS API calls** — `init -backend=false`
+# skips backend configuration and state entirely, so nothing authenticates and nothing is read
+# from the account. That is a feature, not a limitation: a credential-free gate cannot itself
+# become a way into the account.
+#
+# WHEN PHASE 6 LANDS, add a plan job here — `id-token: write`, OIDC into the psignal-dev CI
+# role, `plan -lock=false`, and post the output as a PR comment. Do not add credentials to the
+# validate job below; keep the credential-free gate as the thing that always runs.
+
 on:
   pull_request:
-    branches: [main, staging]
     paths:
-      - 'infra/stack/**'
-      - 'infra/modules/**'
-      - 'infra/envs/staging.tfvars'
+      - 'infra-aws/**'
+      - '.github/workflows/terraform-plan.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra-aws/**'
+      - '.github/workflows/terraform-plan.yml'
 
+# Read-only. No `id-token`, because nothing here authenticates to any cloud.
 permissions:
   contents: read
-  id-token: write
-  pull-requests: write
 
 jobs:
-  plan-staging:
-    name: Plan — Staging
+  validate:
+    name: fmt + validate
     runs-on: ubuntu-latest
-    environment: staging
-    defaults:
-      run:
-        working-directory: infra/stack
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - uses: hashicorp/setup-terraform@v3
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          # `use_lockfile` on the S3 backend needs >= 1.10; infra-aws/*/versions.tf pins that as
+          # required_version. Keep this in step with it.
+          terraform_version: '~> 1.10'
+          terraform_wrapper: false
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '~> 1.9'
+      # Formatting first: it is the cheapest check and the one most likely to fail, so failing
+      # here keeps the log short and the cause obvious.
+      - name: terraform fmt
+        run: terraform -chdir=infra-aws fmt -check -recursive -diff
 
-      - name: Terraform Init
+      # Each root module is validated independently. `-backend=false` is what keeps this
+      # credential-free: it initialises providers for validation without configuring the S3
+      # backend, so no state is read and no AWS call is made.
+      #
+      # Add new root modules to this list. A module that is not listed is not checked.
+      - name: terraform validate (bootstrap)
         run: |
-          terraform init \
-            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-            -backend-config="prefix=env/staging"
+          terraform -chdir=infra-aws/bootstrap init -backend=false -input=false
+          terraform -chdir=infra-aws/bootstrap validate
 
-      - name: Terraform Plan
-        id: plan
+      - name: terraform validate (account)
         run: |
-          terraform plan \
-            -var-file=../envs/staging.tfvars \
-            -var="image_tag=staging-$(git rev-parse --short HEAD)" \
-            -no-color \
-            -out=tfplan \
-            2>&1 | tee plan.txt
-          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-        continue-on-error: true
+          terraform -chdir=infra-aws/account init -backend=false -input=false
+          terraform -chdir=infra-aws/account validate
 
-      - name: Post plan as PR comment
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const raw = fs.readFileSync('infra/stack/plan.txt', 'utf8');
-            const plan = raw.length > 60000
-              ? raw.slice(0, 60000) + '\n\n...(output truncated — see full logs)'
-              : raw;
+      - name: terraform validate (stack)
+        run: |
+          terraform -chdir=infra-aws/stack init -backend=false -input=false
+          terraform -chdir=infra-aws/stack validate
 
-            const exitCode = '${{ steps.plan.outputs.exit_code }}';
-            const status = exitCode === '0' ? '✅ Plan succeeded' : '❌ Plan failed';
-            const body = [
-              `## Terraform Plan — Staging  ${status}`,
-              '',
-              '<details><summary>Show Plan</summary>',
-              '',
-              '```',
-              plan,
-              '```',
-              '',
-              '</details>',
-              '',
-              `*Triggered by @${context.actor} on \`${context.ref}\`*`,
-            ].join('\n');
+  # The account guard is the control the whole sandbox rule rests on. If a script that calls AWS
+  # forgets to source it, the rule silently stops being enforced — which is exactly what had
+  # happened to 00-discover.sh before this workflow existed. Checking it mechanically means the
+  # next such omission fails a PR instead of reaching the account.
+  scripts:
+    name: shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find(c =>
-              c.user.type === 'Bot' && c.body.includes('## Terraform Plan — Staging')
-            );
+      - name: Syntax-check every script
+        run: |
+          for f in infra-aws/scripts/*.sh; do
+            bash -n "$f" || exit 1
+          done
 
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+      - name: shellcheck
+        run: shellcheck -S warning infra-aws/scripts/*.sh
 
-      - name: Fail job if plan failed
-        if: steps.plan.outputs.exit_code != '0'
-        run: exit 1
+      - name: Every AWS-calling script must source the account guard
+        run: |
+          fail=0
+          for f in infra-aws/scripts/*.sh; do
+            # _guard.sh defines the guard; it does not source itself.
+            [ "$(basename "$f")" = "_guard.sh" ] && continue
+            # Only scripts that actually invoke the AWS CLI need it.
+            grep -qE '(^|[^[:alnum:]_])aws ' "$f" || continue
+            if ! grep -q '_guard.sh' "$f" || ! grep -q 'assert_sandbox_account' "$f"; then
+              echo "::error file=$f::calls the AWS CLI but does not source _guard.sh and call assert_sandbox_account"
+              echo "  Sandbox rule: account 290304998906 only, and read-only calls elsewhere still count."
+              fail=1
+            fi
+          done
+          exit "$fail"
