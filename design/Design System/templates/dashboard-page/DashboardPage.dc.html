@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Lighthouse dashboard page" description="A branded Lighthouse content page: page header + KPI row + two-up panels, built on the design system." -->
+<helmet>
+<script src="./ds-base.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--app-bg); font-family: var(--font-body); color: var(--text-body); -webkit-font-smoothing: antialiased; }
+</style>
+</helmet>
+
+<div style="max-width:1240px; width:100%; margin:0 auto; padding:40px 36px 72px;">
+
+  <!-- page header -->
+  <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:24px;">
+    <div>
+      <h1 style="font-family:var(--font-display); font-weight:800; font-size:26px; letter-spacing:-.02em; color:var(--tes-ink); margin:0;">Your dashboard</h1>
+      <p style="margin:5px 0 0; font-size:14px; color:var(--tes-n-500);">Live signals across 30 accounts · updated 4 min ago</p>
+    </div>
+    <x-import component-from-global-scope="LighthouseDesignSystem_68eba0.Button" variant="ghost" hint-size="120px,40px">Add metric</x-import>
+  </div>
+
+  <!-- KPI row -->
+  <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px;">
+    <x-import component-from-global-scope="LighthouseDesignSystem_68eba0.KpiCard" label="Critical accounts" value="1" unit="in critical band" accent="#C9275E" hint-size="100%,150px"></x-import>
+    <x-import component-from-global-scope="LighthouseDesignSystem_68eba0.KpiCard" label="Portfolio health" value="16" unit="healthy" accent="#5FB573" hint-size="100%,150px"></x-import>
+    <x-import component-from-global-scope="LighthouseDesignSystem_68eba0.KpiCard" label="Overdue tasks" value="13" unit="past due" accent="#E8843C" hint-size="100%,150px"></x-import>
+    <x-import component-from-global-scope="LighthouseDesignSystem_68eba0.KpiCard" label="Adoption" value="7,173" unit="req / week" accent="#3FB6A8" hint-size="100%,150px"></x-import>
+  </div>
+
+  <!-- two-up panels -->
+  <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:16px; margin-top:16px;">
+    <x-import component-from-global-scope="LighthouseDesignSystem_68eba0.Card" padding="0" hint-size="100%,220px">
+      <x-import component-from-global-scope="LighthouseDesignSystem_68eba0.PanelHeader" tone="blue" title="Accounts needing attention" subtitle="Sorted by health-score movement" hint-size="100%,76px"></x-import>
+      <p style="margin:0; padding:20px 22px; font-size:14px; color:var(--tes-n-500);">Drop an at-risk account list here — rows of avatar + name + score bar.</p>
+    </x-import>
+    <x-import component-from-global-scope="LighthouseDesignSystem_68eba0.Card" padding="0" hint-size="100%,220px">
+      <x-import component-from-global-scope="LighthouseDesignSystem_68eba0.PanelHeader" tone="lime" title="Your day" subtitle="3 of 4 remaining" hint-size="100%,76px"></x-import>
+      <p style="margin:0; padding:20px 22px; font-size:14px; color:var(--tes-n-500);">Drop a task checklist here.</p>
+    </x-import>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

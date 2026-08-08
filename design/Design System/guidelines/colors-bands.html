@@ -1,0 +1,26 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Health bands" subtitle="Account-health band colours: healthy / attention / critical / unscored" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; background: var(--surface-card); font-family: var(--font-body); padding: 24px; }
+  .row { display: flex; gap: 14px; }
+  .band { flex: 1; border-radius: var(--radius-lg); border: 1px solid var(--tes-n-200); overflow: hidden; box-shadow: var(--shadow-xs); }
+  .cap { height: 4px; }
+  .body { padding: 14px 16px; }
+  .lbl { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+  .fig { font-family: var(--font-display); font-weight: 800; font-size: 32px; color: var(--tes-ink); margin-top: 6px; }
+  .tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="band"><div class="cap" style="background:var(--band-healthy)"></div><div class="body"><div class="lbl">Healthy</div><div class="fig">16</div><div class="tok">--band-healthy</div></div></div>
+    <div class="band"><div class="cap" style="background:var(--band-attention)"></div><div class="body"><div class="lbl">Attention</div><div class="fig">4</div><div class="tok">--band-attention</div></div></div>
+    <div class="band"><div class="cap" style="background:var(--band-critical)"></div><div class="body"><div class="lbl">Critical</div><div class="fig">1</div><div class="tok">--band-critical</div></div></div>
+    <div class="band"><div class="cap" style="background:var(--band-unscored)"></div><div class="body"><div class="lbl">Unscored</div><div class="fig">9</div><div class="tok">--band-unscored</div></div></div>
+  </div>
+</body>
+</html>

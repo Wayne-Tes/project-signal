@@ -1,3 +1,23 @@
+/* ============================================================
+   Design system — the single entry point.
+
+   Token files first (they define the variables), then the
+   component styles that consume them. Order matters: a
+   component rule referencing a token defined later still works
+   in CSS, but keeping the dependency direction visible stops
+   anyone "tidying" the imports into the wrong order.
+
+   Everything below this block is the LEGACY stylesheet, kept
+   working while views migrate onto the design system. It is
+   deleted when the last view stops referencing it.
+   ============================================================ */
+@import '../design-system/tokens/colors.css';
+@import '../design-system/tokens/typography.css';
+@import '../design-system/tokens/spacing.css';
+@import '../design-system/tokens/sidebar.css';
+@import '../design-system/tokens/animations.css';
+@import '../design-system/styles.css';
+
 /* Project Signal — instrument-grade dark design system */
 :root {
   --bg:        #0b0c0f;
@@ -17,9 +37,14 @@
   --coral: #e2725b;
   --gold:  #d9b25f;
 
-  --font-display: "Space Grotesk", "IBM Plex Sans", sans-serif;
-  --font-body: "IBM Plex Sans", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* The font tokens are NOT redefined here. They come from
+     design-system/tokens/typography.css — Poppins for display, Open Sans for
+     body — and redeclaring them below the import would silently override the
+     house typeface with the old Space Grotesk stack.
+
+     Legacy views keep reading var(--font-display) / var(--font-body) and simply
+     render in the new faces, which is the intended outcome of the overhaul
+     rather than a side effect to be worked around. */
 
   --r-sm: 8px; --r: 14px; --r-lg: 20px;
   --shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 40px -16px rgba(0,0,0,0.6);

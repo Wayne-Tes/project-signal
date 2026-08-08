@@ -1,0 +1,38 @@
+<!-- @dsCard group="Components" viewport="700x230" name="KPI cards" subtitle="Metric figure + accent bar + trend pill + drawing sparkline" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; background: var(--app-bg); font-family: var(--font-body); padding: 26px; color: var(--text-body); }
+  .grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../_ds_bundle.js"></script>
+<script type="text/babel">
+  const { KpiCard } = window.LighthouseDesignSystem_68eba0;
+  function Demo() {
+    return (
+      <div className="grid">
+        <KpiCard label="Critical accounts" value="1" unit="in critical band"
+          accent="#C9275E" trend={{dir:'up',value:'1',tone:'critical'}}
+          spark={[0.2,0.32,0.28,0.5,0.46,0.72,0.9]} />
+        <KpiCard label="Portfolio health" value={<>16<span style={{fontSize:24,color:'var(--tes-n-400)'}}>/30</span></>} unit="healthy"
+          accent="#5FB573" trend={{dir:'up',value:'2',tone:'positive'}}
+          spark={[0.35,0.4,0.3,0.55,0.62,0.7,0.82]} />
+        <KpiCard label="Adoption" value="7,173" unit="req / week"
+          accent="#3FB6A8" trend={{dir:'up',value:'12%',tone:'teal'}}
+          spark={[0.15,0.28,0.26,0.45,0.4,0.68,0.92]} />
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>
+</body>
+</html>

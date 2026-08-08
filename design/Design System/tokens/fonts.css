@@ -1,0 +1,15 @@
+/* ============================================================
+   Lighthouse — Webfonts
+   ------------------------------------------------------------
+   Display face: the Tes product uses a proprietary geometric
+   sans (Museo Sans family). Poppins is the closest freely
+   licensable stand-in for headlines and large metric figures.
+   Body face: Open Sans (a neutral humanist sans).
+
+   SUBSTITUTION NOTE: Poppins stands in for the licensed Museo
+   Sans — swap if you hold the licence. Loaded from Google Fonts;
+   replace with self-hosted woff2 for production.
+   Weights used: Poppins 400/500/600/700/800 · Open Sans 400/600/700.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,600;0,700;1,400&family=Poppins:wght@400;500;600;700;800&display=swap');

@@ -1,0 +1,25 @@
+<!-- @dsCard group="Colors" viewport="700x160" name="Status & severity" subtitle="Pair colour with a word — never status by colour alone" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; background: var(--surface-card); font-family: var(--font-body); padding: 24px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .pill { display: inline-flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .badge { font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: var(--radius-pill); }
+  .tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="pill"><span class="badge" style="color:var(--status-positive);background:var(--status-positive-bg)">positive</span><span class="tok">--status-positive</span></div>
+    <div class="pill"><span class="badge" style="color:var(--status-info);background:var(--status-info-bg)">info</span><span class="tok">--status-info</span></div>
+    <div class="pill"><span class="badge" style="color:var(--status-warn);background:var(--status-warn-bg)">warn</span><span class="tok">--status-warn</span></div>
+    <div class="pill"><span class="badge" style="color:var(--status-critical);background:var(--status-critical-bg)">critical</span><span class="tok">--status-critical</span></div>
+    <div class="pill"><span class="badge" style="color:var(--status-neutral);background:var(--status-neutral-bg)">neutral</span><span class="tok">--status-neutral</span></div>
+    <div class="pill"><span class="badge" style="color:var(--status-teal);background:var(--status-teal-bg)">teal</span><span class="tok">--status-teal</span></div>
+  </div>
+</body>
+</html>

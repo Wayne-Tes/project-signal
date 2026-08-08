@@ -1,0 +1,42 @@
+<!-- @dsCard group="Shell" viewport="1440x600" name="App shell" subtitle="Sidebar + glassy top bar + assistant FAB — the whole chrome" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: var(--font-body); background: var(--app-bg); }
+  input::placeholder { color: var(--tes-n-400); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../_ds_bundle.js"></script>
+<script type="text/babel">
+  const { AppShell, PageHeader, KpiCard, Button, Icon } = window.LighthouseDesignSystem_68eba0;
+  function Demo() {
+    const [route, setRoute] = React.useState('Home');
+    return (
+      <AppShell active={route} onNav={setRoute}>
+        <div style={{ maxWidth: 1240, width: '100%', margin: '0 auto', padding: '40px 36px 72px' }}>
+          <PageHeader title="Your dashboard" subtitle="Live signals across 30 accounts · updated 4 min ago"
+            action={<Button variant="ghost" iconLeft={<Icon name="plus" size={16} strokeWidth={2} />}>Add metric</Button>} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginTop: 22 }}>
+            <KpiCard label="Critical accounts" value="1" unit="in critical band" accent="#C9275E" trend={{dir:'up',value:'1',tone:'critical'}} spark={[0.2,0.35,0.3,0.55,0.5,0.78,0.92]} />
+            <KpiCard label="Portfolio health" value="16" unit="healthy" accent="#5FB573" trend={{dir:'up',value:'2',tone:'positive'}} spark={[0.35,0.42,0.3,0.5,0.6,0.68,0.82]} />
+            <KpiCard label="Overdue tasks" value="13" unit="past due" accent="#E8843C" spark={[0.6,0.4,0.66,0.36,0.52,0.3,0.46]} />
+            <KpiCard label="Adoption" value="7,173" unit="req / week" accent="#3FB6A8" trend={{dir:'up',value:'12%',tone:'teal'}} spark={[0.15,0.28,0.26,0.48,0.42,0.7,0.92]} />
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>
+</body>
+</html>

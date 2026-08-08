@@ -1,0 +1,43 @@
+/* ============================================================
+   Project Signal — Spacing, radius, motion and layout tokens
+   Copied from the Lighthouse "Aurora" system. 4px base scale;
+   14px card radius is the house default.
+
+   Shadow tokens are NOT here — they live in colors.css because
+   they differ per surface theme (soft navy on light, near-black
+   on dark).
+   ============================================================ */
+
+:root {
+  /* ---------- SPACING (4px base) ---------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* ---------- RADIUS ---------- */
+  --radius-sm: 6px; /* chips, small controls */
+  --radius-md: 10px; /* buttons, inputs */
+  --radius-lg: 14px; /* cards, panels — the default */
+  --radius-xl: 18px; /* large surfaces */
+  --radius-pill: 999px;
+
+  /* ---------- MOTION ---------- */
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --dur: 150ms; /* hover / state transitions */
+  --dur-enter: 500ms; /* card entrance fade-up */
+
+  /* ---------- LAYOUT ---------- */
+  --sidebar-w: 252px;
+  --topbar-h: 68px;
+  --content-max: 1240px;
+  --content-pad-y: 40px;
+  --content-pad-x: 36px;
+  --content-pad-bottom: 72px;
+}

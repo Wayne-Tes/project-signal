@@ -1,0 +1,48 @@
+<!-- @dsCard group="Components" viewport="700x230" name="Buttons" subtitle="Primary / ghost / danger / subtle · sizes · with icon" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; background: var(--app-bg); font-family: var(--font-body); padding: 26px; color: var(--text-body); }
+  .stack { display: flex; flex-direction: column; gap: 18px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .lbl { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); width: 64px; flex: none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../_ds_bundle.js"></script>
+<script type="text/babel">
+  const { Button } = window.LighthouseDesignSystem_68eba0;
+  const Plus = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>);
+  const Arrow = () => (<span style={{fontWeight:700}}>&rarr;</span>);
+  function Demo() {
+    return (
+      <div className="stack">
+        <div className="row"><span className="lbl">Variant</span>
+          <Button>Create campaign</Button>
+          <Button variant="ghost" iconLeft={<Plus/>}>Add metric</Button>
+          <Button variant="danger">Request erasure</Button>
+          <Button variant="subtle" iconRight={<Arrow/>}>View all</Button>
+        </div>
+        <div className="row"><span className="lbl">Small</span>
+          <Button size="sm">Suggest</Button>
+          <Button size="sm" variant="ghost">Snooze</Button>
+          <Button size="sm" variant="danger">Escalate</Button>
+        </div>
+        <div className="row"><span className="lbl">Disabled</span>
+          <Button disabled>Primary</Button>
+          <Button variant="ghost" disabled>Ghost</Button>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>
+</body>
+</html>

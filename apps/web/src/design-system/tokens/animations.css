@@ -1,0 +1,76 @@
+/* ============================================================
+   Project Signal — Motion
+   Copied from the Lighthouse "Aurora" system: subtle and fast.
+   Cards fade up on load with a staggered delay; nothing bounces,
+   nothing parallaxes, no infinite spinners outside loaders.
+
+   Every animation here is disabled under prefers-reduced-motion.
+   ============================================================ */
+
+@keyframes ds-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ds-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ds-ring-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Applied by Card and the page surfaces. The stagger is set inline as a
+   custom property so a list can offset each child without a class per index. */
+.ds-enter {
+  animation: ds-fade-up var(--dur-enter) var(--ease) both;
+  animation-delay: var(--ds-stagger, 0ms);
+}
+
+.ds-enter-fade {
+  animation: ds-fade-in var(--dur-enter) var(--ease) both;
+  animation-delay: var(--ds-stagger, 0ms);
+}
+
+/* ============================================================
+   Reduced motion. Not a courtesy — entrance animations on every
+   card are exactly the pattern that triggers vestibular symptoms.
+   Content must still be VISIBLE, so animations are cancelled by
+   forcing the end state rather than by hiding the element.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .ds-enter,
+  .ds-enter-fade {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

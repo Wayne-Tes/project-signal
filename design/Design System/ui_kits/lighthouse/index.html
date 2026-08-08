@@ -1,0 +1,72 @@
+<!-- @dsCard group="Lighthouse" viewport="1440x900" name="Lighthouse app" subtitle="Interactive recreation built entirely from the design system" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lighthouse — by Tes</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: var(--font-body); background: var(--app-bg); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: rgba(34,38,51,.16); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(34,38,51,.28); background-clip: padding-box; }
+  input::placeholder { color: var(--tes-n-400); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+
+<!-- Screens use the design-system Icon directly; alias for brevity -->
+<script>window.LHIcon = window.LighthouseDesignSystem_68eba0.Icon;</script>
+
+<script type="text/babel" src="HomeScreen.jsx"></script>
+<script type="text/babel" src="HealthScreen.jsx"></script>
+<script type="text/babel" src="InboxScreen.jsx"></script>
+<script type="text/babel" src="TasksScreen.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+  const { AppShell, EmptyState, Button, Icon } = window.LighthouseDesignSystem_68eba0;
+
+  const SCREENS = {
+    Home: () => <window.HomeScreen />,
+    Health: () => <window.HealthScreen />,
+    Inbox: () => <window.InboxScreen />,
+    Tasks: () => <window.TasksScreen />,
+  };
+
+  function Placeholder({ name, onHome }) {
+    const iconFor = { 'Sector radar': 'radar', 'Champion watch': 'champion', Triage: 'triage', Playbooks: 'playbooks', 'Impact ledger': 'ledger', Opportunities: 'opportunities', Meetings: 'meetings', Skills: 'skills', Chat: 'chat', Reports: 'reports', Jobs: 'jobs', 'Design library': 'design' };
+    return (
+      <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <EmptyState
+          icon={<Icon name={iconFor[name] || 'home'} size={38} stroke="var(--tes-blue)" strokeWidth={1.7} />}
+          title={name}
+          description="This route is part of the Lighthouse shell. Home, Inbox, Health and Tasks are built out in this kit."
+          action={<Button onClick={onHome} iconLeft={<Icon name="home" size={16} stroke="#fff" strokeWidth={2} />}>Back to Home</Button>}
+        />
+      </div>
+    );
+  }
+
+  function App() {
+    const [active, setActive] = React.useState('Home');
+    const Screen = SCREENS[active];
+    return (
+      <AppShell active={active} onNav={setActive}>
+        {Screen ? <Screen /> : <Placeholder name={active} onHome={() => setActive('Home')} />}
+      </AppShell>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

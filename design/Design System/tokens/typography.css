@@ -1,0 +1,44 @@
+/* ============================================================
+   Lighthouse — Typography tokens
+   Display = Poppins (Museo Sans stand-in), extra-bold for
+   headings + metric figures. Body = Open Sans.
+   Personality = weight contrast (800 display vs 400 body),
+   never decoration.
+   ============================================================ */
+
+:root {
+  /* ---------- Families ---------- */
+  --font-display: 'Poppins', 'Museo Sans', 'Segoe UI', sans-serif;
+  --font-body:    'Open Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-mono:    ui-monospace, Menlo, Consolas, monospace; /* IDs / keys @kind font */
+
+  /* ---------- Weights ---------- */
+  --fw-regular:   400;  /* @kind other */
+  --fw-medium:    500;  /* @kind other */
+  --fw-semibold:  600;  /* @kind other */
+  --fw-bold:      700;  /* @kind other */
+  --fw-extrabold: 800;  /* @kind other */ /* big display headlines + metric figures */
+
+  /* ---------- Type scale (px) — the app scale ---------- */
+  --fs-hero:    52px;  /* greeting / page hero */
+  --fs-h1:      26px;  /* section / dashboard title */
+  --fs-h2:      20px;  /* page title in top bar */
+  --fs-h3:      16px;  /* panel / card title */
+  --fs-stat:    42px;  /* KPI metric figure */
+  --fs-stat-lg: 64px;  /* large standalone metric */
+  --fs-lead:    17px;  /* hero subtitle / intro */
+  --fs-body:    14px;  /* default body */
+  --fs-sm:      13px;  /* muted / secondary */
+  --fs-xs:      11.5px;/* uppercase eyebrows / labels */
+
+  /* ---------- Line heights ---------- */
+  --lh-tight:   1.05; /* @kind other */
+  --lh-snug:    1.2;  /* @kind other */
+  --lh-normal:  1.5;  /* @kind other */
+  --lh-relaxed: 1.6;  /* @kind other */
+
+  /* ---------- Letter spacing ---------- */
+  --ls-eyebrow: 0.05em;   /* uppercase labels @kind other */
+  --ls-tight:  -0.02em;   /* big display @kind other */
+  --ls-normal:  0;        /* @kind other */
+}

@@ -1,0 +1,212 @@
+/* ============================================================
+   Project Signal — Colour tokens
+   Adapted from the Lighthouse "Aurora" design system
+   (design/Design System/tokens/colors.css). Values are COPIED,
+   not re-derived — this palette is the shared house style and
+   drifting from it defeats the point of having one.
+
+   Three layers: primitive -> semantic -> components read semantic.
+   Colour is EARNED: blue = data/links, lime = positive/active,
+   mosaic = categories only, magenta/orange = risk.
+
+   THEMING. Two independent axes, both user-chosen:
+     1. Surface theme  [data-theme="light"|"dark"] — the whole app.
+     2. Sidebar theme  [data-sidebar="light"|"navy"] — chrome only.
+   Semantic tokens are re-pointed per theme; PRIMITIVES never change.
+   A component must only ever read a semantic token, so that a new
+   theme is a block of variable overrides and not a component edit.
+   ============================================================ */
+
+:root {
+  /* ---------- CHROME / STRUCTURE (navy & slate) ---------- */
+  --tes-ink: #222633; /* headings, near-black navy */
+  --tes-navy: #2a2f3d; /* primary buttons, dark caps */
+  --tes-slate: #424a60; /* slate chrome / secondary text on light */
+
+  /* ---------- ACCENTS ---------- */
+  --tes-blue: #2b7dc4; /* data, links, info */
+  --tes-blue-600: #2467a6; /* link hover / pressed */
+  --tes-blue-100: #e4eff7;
+  --tes-lime: #9fcb3b; /* positive / reward / active accent */
+  --tes-lime-deep: #84ab28; /* lime text on white (legible) */
+  --tes-lime-100: #f1f7df;
+
+  /* ---------- MOSAIC (categorical / decorative ONLY) ----------
+     Category chips, KPI accent bars, chart series, avatars.
+     Never a semantic status — that is what the status tokens are for. */
+  --tes-mosaic-purple: #6b4e9e;
+  --tes-mosaic-indigo: #3e4a9e;
+  --tes-mosaic-blue: #2b7dc4;
+  --tes-mosaic-teal: #3fb6a8;
+  --tes-mosaic-green: #5fb573;
+  --tes-mosaic-orange: #e8843c;
+  --tes-mosaic-magenta: #c9275e;
+  --tes-mosaic-yellow: #f2c13d;
+
+  /* ---------- NEUTRALS ---------- */
+  --tes-white: #ffffff;
+  --tes-n-50: #f7f8fa;
+  --tes-n-100: #f1f2f4;
+  --tes-n-200: #e4e6ea;
+  --tes-n-300: #d3d6dd;
+  --tes-n-400: #aeb3bf;
+  --tes-n-500: #7c828f;
+  --tes-n-600: #5b616e;
+  --tes-n-700: #3a3f4a;
+  --tes-n-900: #222633;
+
+  /* ---------- USER-SELECTABLE ACCENTS ----------
+     The five highlight colours offered in Appearance. Stored by KEY
+     (see personalisation.ts), never as a raw colour, so persistence
+     stays token-driven and a palette change is one edit here. */
+  --accent-lime: var(--tes-lime);
+  --accent-lime-tint: color-mix(in srgb, var(--tes-lime) 16%, transparent);
+  --accent-blue: var(--tes-blue);
+  --accent-blue-tint: color-mix(in srgb, var(--tes-blue) 14%, transparent);
+  --accent-teal: var(--tes-mosaic-teal);
+  --accent-teal-tint: color-mix(in srgb, var(--tes-mosaic-teal) 14%, transparent);
+  --accent-orange: var(--tes-mosaic-orange);
+  --accent-orange-tint: color-mix(in srgb, var(--tes-mosaic-orange) 14%, transparent);
+  --accent-purple: var(--tes-mosaic-purple);
+  --accent-purple-tint: color-mix(in srgb, var(--tes-mosaic-purple) 16%, transparent);
+
+  /* The resolved accent. AppShell rewrites these two from the chosen key;
+     everything accent-coloured reads THESE, never --accent-<key> directly. */
+  --accent: var(--accent-lime);
+  --accent-tint: var(--accent-lime-tint);
+  /* Text placed ON a solid accent fill. Ink rather than white: lime and
+     yellow accents fail contrast against white. */
+  --accent-on: var(--tes-ink);
+}
+
+/* ============================================================
+   LIGHT — the default surface theme, matching the Aurora system.
+   ============================================================ */
+:root,
+[data-theme='light'] {
+  --app-bg: var(--tes-n-50);
+  --surface-card: var(--tes-white);
+  --surface-sunken: var(--tes-n-50);
+  --surface-raised: var(--tes-white);
+  --surface-hover: var(--tes-n-100);
+
+  --text-heading: var(--tes-ink);
+  --text-body: var(--tes-n-700);
+  --text-muted: var(--tes-n-500);
+  --text-faint: var(--tes-n-400);
+  --text-link: var(--tes-blue);
+  --text-link-hover: var(--tes-blue-600);
+  --text-on-dark: var(--tes-white);
+
+  --border-hairline: var(--tes-n-200);
+  --border-input: var(--tes-n-300);
+  --border-strong: var(--tes-n-300);
+
+  --status-positive: var(--tes-lime-deep);
+  --status-positive-bg: var(--tes-lime-100);
+  --status-info: var(--tes-blue);
+  --status-info-bg: var(--tes-blue-100);
+  --status-warn: #b5611f;
+  --status-warn-bg: #fdeede;
+  --status-critical: #c9275e;
+  --status-critical-bg: #fbe7ee;
+  --status-neutral: var(--tes-n-600);
+  --status-neutral-bg: var(--tes-n-100);
+  --status-teal: #247f76;
+  --status-teal-bg: #e2f4f1;
+
+  /* Perception bands — this product's equivalent of Lighthouse's health bands. */
+  --band-strong: var(--tes-mosaic-green);
+  --band-watch: var(--tes-mosaic-orange);
+  --band-critical: var(--tes-mosaic-magenta);
+  --band-unscored: var(--tes-n-400);
+
+  --shadow-xs: 0 1px 2px rgba(34, 38, 51, 0.06);
+  --shadow-sm: 0 1px 3px rgba(34, 38, 51, 0.08), 0 1px 2px rgba(34, 38, 51, 0.04);
+  --shadow-md: 0 4px 14px rgba(34, 38, 51, 0.1);
+  --shadow-lg: 0 12px 32px rgba(34, 38, 51, 0.14);
+
+  --topbar-bg: rgba(255, 255, 255, 0.82);
+}
+
+/* ============================================================
+   DARK — retained deliberately.
+
+   The Aurora system is white-led and defines no dark mode, so this
+   is an ADDITION rather than a copy. It exists because Project
+   Signal's original instrument-grade dark surface reads well for
+   dense analytical work and the owner asked to keep it.
+
+   Only SEMANTIC tokens are re-pointed. The brand primitives and the
+   accent hues are identical in both themes, so the product still
+   looks like the same family with the lights off.
+   ============================================================ */
+[data-theme='dark'] {
+  /* Background sits ONE STEP BELOW the brand navy so navy cards lift off it.
+     A generic charcoal was the first attempt and it looked like a different
+     product with the lights off; deriving the whole ramp from --tes-navy keeps
+     it recognisably the same brand. */
+  --app-bg: #1a1e28;
+  --surface-card: var(--tes-navy); /* #2A2F3D — the brand navy IS the card */
+  --surface-sunken: #161a22;
+  --surface-raised: #343a4a;
+  --surface-hover: #343a4a;
+
+  /* The navy-sidebar text ramp from the Aurora system, applied product-wide —
+     white at descending alpha rather than a set of greys, so text sits ON the
+     navy rather than next to it. */
+  --text-heading: #ffffff;
+  --text-body: rgba(255, 255, 255, 0.86);
+  --text-muted: rgba(255, 255, 255, 0.68);
+  --text-faint: rgba(255, 255, 255, 0.5);
+  --text-link: #6ba9e0;
+  --text-link-hover: #8cc4f0;
+  --text-on-dark: var(--tes-white);
+
+  --border-hairline: rgba(255, 255, 255, 0.1);
+  --border-input: rgba(255, 255, 255, 0.2);
+  --border-strong: rgba(255, 255, 255, 0.2);
+
+  /* Status hues LIFT in luminance so they clear navy — the hue is unchanged, so
+     "critical" is the same colour idea in both themes.
+
+     The tints are SOLID DARK colours, not light pastels and not alpha washes: a
+     light tint on navy glows, and stacked alphas shift unpredictably over
+     whatever sits behind them. The text colour lightens to match its tint. */
+  --status-positive: var(--tes-lime); /* the LIGHT lime is the legible one on navy */
+  --status-positive-bg: #2a3318;
+  --status-info: #6ba9e0;
+  --status-info-bg: #1d2c3c;
+  --status-warn: #e8a05c;
+  --status-warn-bg: #3a2a15;
+  --status-critical: #e8628f;
+  --status-critical-bg: #3a1524;
+  --status-neutral: rgba(255, 255, 255, 0.68);
+  --status-neutral-bg: rgba(255, 255, 255, 0.08);
+  --status-teal: #4cc4b8;
+  --status-teal-bg: #14332f;
+
+  --band-strong: #6cc47f;
+  --band-watch: var(--tes-mosaic-orange);
+  --band-critical: #e8628f;
+  --band-unscored: rgba(255, 255, 255, 0.5);
+
+  /* Shadows carry almost no weight on a dark ground — borders do the separating.
+     Kept defined so no component needs a dark branch. */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+
+  --topbar-bg: rgba(42, 47, 61, 0.82);
+
+  /* Text on a solid accent fill flips to near-black: lime, yellow and orange
+     accents are far too bright to carry white text. */
+  --accent-on: #1a1e28;
+}
+
+/* Focus ring follows the chosen accent, so keyboard focus is visibly the
+   user's colour rather than a fixed blue that clashes with it. */
+:root {
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
+}

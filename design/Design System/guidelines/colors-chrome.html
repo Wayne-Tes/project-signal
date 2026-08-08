@@ -1,0 +1,26 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Chrome & accents" subtitle="Ink, navy, slate + the blue & lime accents" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; background: var(--surface-card); font-family: var(--font-body); padding: 24px; }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .sw { display: flex; flex-direction: column; gap: 8px; }
+  .chip { width: 92px; height: 60px; border-radius: var(--radius-md); border: 1px solid rgba(0,0,0,.06); }
+  .name { font-family: var(--font-mono); font-size: 11px; color: var(--text-body); }
+  .hex { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="sw"><div class="chip" style="background:var(--tes-ink)"></div><span class="name">--tes-ink</span><span class="hex">#222633</span></div>
+    <div class="sw"><div class="chip" style="background:var(--tes-navy)"></div><span class="name">--tes-navy</span><span class="hex">#2A2F3D</span></div>
+    <div class="sw"><div class="chip" style="background:var(--tes-slate)"></div><span class="name">--tes-slate</span><span class="hex">#424A60</span></div>
+    <div class="sw"><div class="chip" style="background:var(--tes-blue)"></div><span class="name">--tes-blue</span><span class="hex">#2B7DC4</span></div>
+    <div class="sw"><div class="chip" style="background:var(--tes-lime)"></div><span class="name">--tes-lime</span><span class="hex">#9FCB3B</span></div>
+    <div class="sw"><div class="chip" style="background:var(--tes-lime-deep)"></div><span class="name">--tes-lime-deep</span><span class="hex">#84AB28</span></div>
+  </div>
+</body>
+</html>

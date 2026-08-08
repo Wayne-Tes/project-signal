@@ -1,0 +1,15 @@
+/* ============================================================
+   Lighthouse Design System — global entry point.
+   Consumers link THIS one file. Keep it a list of @imports only;
+   never put rules here. Everything reachable from here ships to
+   consumers (tokens + @font-face webfonts).
+   "Aurora" light theme, built on the Tes Design System.
+   British English throughout. No emoji in product UI.
+   ============================================================ */
+
+@import "tokens/fonts.css";
+@import "tokens/colors.css";
+@import "tokens/typography.css";
+@import "tokens/spacing.css";
+@import "tokens/sidebar.css";
+@import "tokens/animations.css";

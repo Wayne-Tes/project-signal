@@ -1,0 +1,35 @@
+/* ============================================================
+   Lighthouse — Spacing, radius, shadow, motion, layout tokens
+   4px base scale. Soft, low-contrast navy shadows. Generous
+   14px card radius is the redesign default.
+   ============================================================ */
+
+:root {
+  /* ---------- SPACING (4px base) ---------- */
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:24px;
+  --s-8:32px; --s-10:40px; --s-12:48px; --s-16:64px;
+
+  /* ---------- RADIUS ---------- */
+  --radius-sm:   6px;   /* chips, small controls */
+  --radius-md:   10px;  /* buttons, inputs */
+  --radius-lg:   14px;  /* cards, panels (the redesign default) */
+  --radius-xl:   18px;  /* composer, large surfaces */
+  --radius-pill: 999px;
+
+  /* ---------- SHADOW (soft, low-contrast navy) ---------- */
+  --shadow-xs: 0 1px 2px rgba(34,38,51,.06);
+  --shadow-sm: 0 1px 3px rgba(34,38,51,.08), 0 1px 2px rgba(34,38,51,.04);
+  --shadow-md: 0 4px 14px rgba(34,38,51,.10);
+  --shadow-lg: 0 12px 32px rgba(34,38,51,.14);
+  --shadow-focus: 0 0 0 3px rgba(43,125,196,.35);
+
+  /* ---------- MOTION ---------- */
+  --ease:      cubic-bezier(.2,.6,.2,1); /* @kind other */
+  --dur:       150ms;   /* @kind other */ /* hover / state transitions */
+  --dur-enter: 500ms;   /* @kind other */ /* card entrance fade-up */
+
+  /* ---------- LAYOUT ---------- */
+  --sidebar-w:   252px;
+  --topbar-h:    68px;
+  --content-max: 1240px;
+}

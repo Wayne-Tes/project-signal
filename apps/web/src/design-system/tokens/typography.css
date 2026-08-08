@@ -1,0 +1,51 @@
+/* ============================================================
+   Project Signal — Typography tokens
+   Copied from the Lighthouse "Aurora" system. Display = Poppins
+   (a Museo Sans stand-in), extra-bold for headings and metric
+   figures. Body = Open Sans.
+
+   Personality comes from WEIGHT CONTRAST — 800 display against
+   400 body — never from decoration.
+   ============================================================ */
+
+:root {
+  /* ---------- Families ---------- */
+  --font-display: 'Poppins', 'Museo Sans', 'Segoe UI', sans-serif;
+  --font-body: 'Open Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, Consolas, monospace;
+
+  /* ---------- Weights ---------- */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-extrabold: 800;
+
+  /* ---------- Type scale (px) ---------- */
+  --fs-hero: 52px;
+  --fs-h1: 26px;
+  --fs-h2: 20px;
+  --fs-h3: 16px;
+  --fs-stat: 42px;
+  --fs-stat-lg: 64px;
+  --fs-lead: 17px;
+  --fs-body: 14px;
+  --fs-sm: 13px;
+  --fs-xs: 11.5px;
+
+  /* ---------- Line heights ---------- */
+  --lh-tight: 1.05;
+  --lh-snug: 1.2;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.6;
+
+  /* ---------- Letter spacing ---------- */
+  --ls-eyebrow: 0.05em;
+  --ls-tight: -0.02em;
+  --ls-normal: 0;
+
+  /* ---------- Tabular figures ----------
+     Metric figures and table columns must not jitter as values change.
+     Applied by the KpiCard, DataTable and every stat surface. */
+  --fnum: 'tnum' 1, 'lnum' 1;
+}

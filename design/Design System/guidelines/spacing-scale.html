@@ -1,0 +1,29 @@
+<!-- @dsCard group="Spacing" viewport="700x150" name="Spacing scale" subtitle="4px base — s-1 → s-16" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; background: var(--surface-card); font-family: var(--font-body); padding: 24px; }
+  .row { display: flex; align-items: flex-end; gap: 18px; }
+  .col { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .bar { background: var(--tes-blue); border-radius: 3px; height: 16px; }
+  .tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="col"><div class="bar" style="width:4px"></div><span class="tok">s-1 · 4</span></div>
+    <div class="col"><div class="bar" style="width:8px"></div><span class="tok">s-2 · 8</span></div>
+    <div class="col"><div class="bar" style="width:12px"></div><span class="tok">s-3 · 12</span></div>
+    <div class="col"><div class="bar" style="width:16px"></div><span class="tok">s-4 · 16</span></div>
+    <div class="col"><div class="bar" style="width:20px"></div><span class="tok">s-5 · 20</span></div>
+    <div class="col"><div class="bar" style="width:24px"></div><span class="tok">s-6 · 24</span></div>
+    <div class="col"><div class="bar" style="width:32px"></div><span class="tok">s-8 · 32</span></div>
+    <div class="col"><div class="bar" style="width:40px"></div><span class="tok">s-10 · 40</span></div>
+    <div class="col"><div class="bar" style="width:48px"></div><span class="tok">s-12 · 48</span></div>
+    <div class="col"><div class="bar" style="width:64px"></div><span class="tok">s-16 · 64</span></div>
+  </div>
+</body>
+</html>

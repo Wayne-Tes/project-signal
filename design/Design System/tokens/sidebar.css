@@ -1,0 +1,36 @@
+/* ============================================================
+   Lighthouse — Sidebar theme tokens
+   The app shell sidebar. LIGHT is the recommended default; a
+   NAVY variant is offered as a user "Appearance" setting
+   ([data-sidebar="navy"] on the shell root). The active-nav
+   accent is user-selectable at runtime (lime by default).
+   ============================================================ */
+
+:root {
+  /* ---------- SIDEBAR (light — default) ---------- */
+  --side-bg:            var(--tes-white);
+  --side-border:        var(--tes-n-200);
+  --side-brand:         var(--tes-ink);
+  --side-sub:           var(--tes-n-500);
+  --side-group:         var(--tes-n-400);
+  --side-item:          #5b616e;
+  --side-icon:          #8b909c;
+  --side-active-bg:     rgba(159,203,59,.16);  /* lime tint */
+  --side-active-text:   var(--tes-ink);
+  --side-active-accent: var(--tes-lime);       /* 3px inset left bar + icon */
+  --side-hover-bg:      #f4f5f7;
+}
+
+/* NAVY sidebar variant — set data-sidebar="navy" on the shell root. */
+[data-sidebar="navy"] {
+  --side-bg:            #2A2F3D;
+  --side-border:        rgba(255,255,255,.08);
+  --side-brand:         #ffffff;
+  --side-sub:           rgba(255,255,255,.55);
+  --side-group:         rgba(255,255,255,.42);
+  --side-item:          rgba(255,255,255,.74);
+  --side-icon:          rgba(255,255,255,.55);
+  --side-active-bg:     rgba(255,255,255,.10);
+  --side-active-text:   #ffffff;
+  --side-hover-bg:      rgba(255,255,255,.06);
+}

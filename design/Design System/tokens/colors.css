@@ -1,0 +1,73 @@
+/* ============================================================
+   Lighthouse — Colour tokens  ("Aurora" light theme)
+   Three layers: primitive → semantic → (components read semantic).
+   Colour is EARNED: blue = data/links, lime = positive/active,
+   mosaic = categories, magenta/orange = risk. White + ink do
+   most of the work.
+   ============================================================ */
+
+:root {
+  /* ---------- CHROME / STRUCTURE (navy & slate) ---------- */
+  --tes-ink:   #222633;  /* headings, near-black navy */
+  --tes-navy:  #2A2F3D;  /* primary buttons, dark caps */
+  --tes-slate: #424A60;  /* slate chrome / secondary text on light */
+
+  /* ---------- ACCENTS ---------- */
+  --tes-blue:      #2B7DC4;  /* data, links, info */
+  --tes-blue-600:  #2467a6;  /* link hover / pressed */
+  --tes-blue-100:  #e4eff7;  /* tinted blue surface */
+  --tes-lime:      #9FCB3B;  /* positive / reward / active accent */
+  --tes-lime-deep: #84AB28;  /* lime text on white (legible) */
+  --tes-lime-100:  #f1f7df;  /* tinted lime surface */
+
+  /* ---------- MOSAIC (categorical / decorative) ----------
+     The 8 brand-mosaic hues. Use for category chips, KPI accent
+     bars, sparklines, avatars — never as semantic status. */
+  --tes-mosaic-purple:  #6B4E9E;
+  --tes-mosaic-indigo:  #3E4A9E;
+  --tes-mosaic-blue:    #2B7DC4;
+  --tes-mosaic-teal:    #3FB6A8;
+  --tes-mosaic-green:   #5FB573;
+  --tes-mosaic-orange:  #E8843C;
+  --tes-mosaic-magenta: #C9275E;
+  --tes-mosaic-yellow:  #F2C13D;
+
+  /* ---------- NEUTRALS ---------- */
+  --tes-white: #ffffff;
+  --tes-n-50:  #f7f8fa;  /* app background wash */
+  --tes-n-100: #f1f2f4;  /* chip / hover fill */
+  --tes-n-200: #e4e6ea;  /* hairline borders, dividers */
+  --tes-n-300: #d3d6dd;  /* input borders */
+  --tes-n-400: #aeb3bf;  /* placeholder / disabled icon */
+  --tes-n-500: #7c828f;  /* muted text */
+  --tes-n-600: #5b616e;
+  --tes-n-700: #3A3F4A;  /* body text (≈10:1 on white) */
+  --tes-n-900: #222633;
+
+  /* ---------- SEMANTIC: surfaces & text ---------- */
+  --app-bg:          var(--tes-n-50);
+  --surface-card:    var(--tes-white);
+  --surface-sunken:  var(--tes-n-50);
+  --text-heading:    var(--tes-ink);
+  --text-body:       var(--tes-n-700);
+  --text-muted:      var(--tes-n-500);
+  --text-link:       var(--tes-blue);
+  --text-link-hover: var(--tes-blue-600);
+  --border-hairline: var(--tes-n-200);
+  --border-input:    var(--tes-n-300);
+
+  /* ---------- SEMANTIC: status (text colour / surface tint) ----------
+     Never encode status by colour alone — pair with a label/glyph. */
+  --status-positive:    var(--tes-lime-deep);  --status-positive-bg: var(--tes-lime-100);
+  --status-info:        var(--tes-blue);       --status-info-bg:     var(--tes-blue-100);
+  --status-warn:        #B5611F;               --status-warn-bg:     #fdeede;
+  --status-critical:    #C9275E;               --status-critical-bg: #fbe7ee;
+  --status-neutral:     var(--tes-n-600);      --status-neutral-bg:  var(--tes-n-100);
+  --status-teal:        #247f76;               --status-teal-bg:     #e2f4f1;
+
+  /* ---------- HEALTH BANDS (account-health specific) ---------- */
+  --band-healthy:   var(--tes-mosaic-green);   /* #5FB573 */
+  --band-attention: var(--tes-mosaic-orange);  /* #E8843C */
+  --band-critical:  var(--tes-mosaic-magenta); /* #C9275E */
+  --band-unscored:  var(--tes-n-400);          /* #aeb3bf */
+}

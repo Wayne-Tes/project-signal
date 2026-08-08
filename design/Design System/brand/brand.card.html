@@ -1,0 +1,44 @@
+<!-- @dsCard group="Brand" viewport="700x220" name="Mosaic brand mark" subtitle="The 3×3 Lighthouse mosaic at several sizes" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; background: var(--app-bg); font-family: var(--font-body); padding: 26px; color: var(--text-body); }
+  .row { display: flex; gap: 40px; align-items: flex-end; }
+  .item { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .cap { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+  .lockup { display: flex; align-items: center; gap: 11px; }
+  .name { font-family: var(--font-display); font-weight: 800; font-size: 18px; letter-spacing: -.01em; color: var(--tes-ink); line-height: 1.05; }
+  .sub { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../_ds_bundle.js"></script>
+<script type="text/babel">
+  const { MosaicMark } = window.LighthouseDesignSystem_68eba0;
+  function Demo() {
+    return (
+      <div className="row">
+        <div className="item"><MosaicMark size={56} /><span className="cap">56px</span></div>
+        <div className="item"><MosaicMark size={32} /><span className="cap">32px</span></div>
+        <div className="item"><MosaicMark size={24} radius={4} /><span className="cap">24px · avatar</span></div>
+        <div className="item">
+          <div className="lockup">
+            <MosaicMark size={34} />
+            <div><div className="name">Lighthouse</div><div className="sub">by Tes</div></div>
+          </div>
+          <span className="cap">sidebar lockup</span>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>
+</body>
+</html>

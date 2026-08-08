@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 30 30" role="img" aria-label="Lighthouse mosaic mark">
+  <rect x="1" y="1" width="8" height="8" rx="2.2" fill="#6B4E9E"></rect>
+  <rect x="11" y="1" width="8" height="8" rx="2.2" fill="#2B7DC4"></rect>
+  <rect x="21" y="1" width="8" height="8" rx="2.2" fill="#3FB6A8"></rect>
+  <rect x="1" y="11" width="8" height="8" rx="2.2" fill="#C9275E"></rect>
+  <rect x="11" y="11" width="8" height="8" rx="2.2" fill="#9FCB3B"></rect>
+  <rect x="21" y="11" width="8" height="8" rx="2.2" fill="#E8843C"></rect>
+  <rect x="1" y="21" width="8" height="8" rx="2.2" fill="#3E4A9E"></rect>
+  <rect x="11" y="21" width="8" height="8" rx="2.2" fill="#5FB573"></rect>
+  <rect x="21" y="21" width="8" height="8" rx="2.2" fill="#F2C13D"></rect>
+</svg>

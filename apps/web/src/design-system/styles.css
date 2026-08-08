@@ -1,0 +1,778 @@
+/* ============================================================
+   Project Signal — Design system component styles
+
+   Every rule reads SEMANTIC tokens only. No component here
+   references a primitive (--tes-*) or a raw colour, which is
+   what lets a theme be a block of variable overrides rather
+   than a component rewrite.
+
+   Class prefix `ds-` marks a design-system surface. If a page
+   needs a style that is not here, the answer is a new component
+   or a new variant — not a one-off inline style on the page.
+   ============================================================ */
+
+/* ---------- Layout primitives ---------------------------------------- */
+
+.ds-shell {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  background: var(--app-bg);
+  color: var(--text-body);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+}
+
+.ds-main {
+  flex: 1 1 auto;
+  min-width: 0; /* without this, wide tables force the whole shell to scroll */
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.ds-content {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--content-pad-y) var(--content-pad-x) var(--content-pad-bottom);
+}
+
+.ds-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-gap, var(--s-4));
+}
+
+.ds-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-gap, var(--s-3));
+}
+
+/* Auto-fitting grid — the default for KPI rows and card decks. Pages set a
+   min column width rather than a column count, so the layout responds without
+   a media query per breakpoint. */
+.ds-grid {
+  display: grid;
+  gap: var(--ds-gap, var(--s-4));
+  grid-template-columns: repeat(auto-fit, minmax(var(--ds-min, 240px), 1fr));
+}
+
+/* ---------- Card ------------------------------------------------------ */
+
+.ds-card {
+  position: relative;
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: var(--s-5);
+  transition:
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.ds-card--flush {
+  padding: 0;
+}
+
+.ds-card--interactive {
+  cursor: pointer;
+}
+
+.ds-card--interactive:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.ds-card--interactive:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* 3px top accent bar — KPI and band cards. The colour is passed in as
+   --ds-accent-bar so the same component serves every category hue. */
+.ds-card--accented::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--ds-accent-bar, var(--accent));
+}
+
+/* The one sanctioned solid-navy block — a Tes signature, reserved for a single
+   hero per page. Reads --tes-navy directly because it is intentionally the same
+   navy in both themes; that is the point of the signature. */
+.ds-card--dark {
+  background: var(--tes-navy);
+  border-color: transparent;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.ds-card--dark .ds-card__title,
+.ds-card--dark .ds-kpi__value {
+  color: #ffffff;
+}
+
+.ds-card--dark .ds-card__subtitle,
+.ds-card--dark .ds-kpi__label {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+/* ---------- Panel header (replaces heavy navy section bars) ----------- */
+
+.ds-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-bottom: var(--s-4);
+}
+
+.ds-panel-header__tile {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: var(--radius-md);
+  background: var(--ds-tile-bg, var(--accent-tint));
+  color: var(--ds-tile-fg, var(--accent));
+}
+
+.ds-panel-header__title {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-h3);
+  color: var(--text-heading);
+  margin: 0;
+}
+
+.ds-panel-header__subtitle {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  margin: 2px 0 0;
+}
+
+/* ---------- Page header ----------------------------------------------- */
+
+.ds-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-6);
+  margin-bottom: var(--s-6);
+}
+
+.ds-page-header__title {
+  font-family: var(--font-display);
+  font-weight: var(--fw-extrabold);
+  font-size: var(--fs-h1);
+  letter-spacing: var(--ls-tight);
+  line-height: var(--lh-snug);
+  color: var(--text-heading);
+  margin: 0;
+}
+
+.ds-page-header__subtitle {
+  font-size: var(--fs-lead);
+  color: var(--text-muted);
+  margin: var(--s-2) 0 0;
+  max-width: 68ch;
+}
+
+.ds-eyebrow {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-muted);
+}
+
+/* ---------- KPI card --------------------------------------------------- */
+
+.ds-kpi__label {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-muted);
+}
+
+.ds-kpi__value {
+  font-family: var(--font-display);
+  font-weight: var(--fw-extrabold);
+  font-size: var(--fs-stat);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-tight);
+  color: var(--text-heading);
+  font-feature-settings: var(--fnum); /* stops figures jittering as values change */
+  margin: var(--s-2) 0 0;
+}
+
+.ds-kpi__value--lg {
+  font-size: var(--fs-stat-lg);
+}
+
+.ds-kpi__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+/* Trend pill. Direction is carried by a glyph as well as colour — colour alone
+   is not an accessible signal. */
+.ds-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  font-feature-settings: var(--fnum);
+}
+
+.ds-trend--up {
+  color: var(--status-positive);
+}
+.ds-trend--down {
+  color: var(--status-critical);
+}
+.ds-trend--flat {
+  color: var(--text-muted);
+}
+
+/* ---------- Badge & chip ----------------------------------------------- */
+
+.ds-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.01em;
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral);
+  white-space: nowrap;
+}
+
+.ds-badge--positive {
+  background: var(--status-positive-bg);
+  color: var(--status-positive);
+}
+.ds-badge--info {
+  background: var(--status-info-bg);
+  color: var(--status-info);
+}
+.ds-badge--warn {
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
+}
+.ds-badge--critical {
+  background: var(--status-critical-bg);
+  color: var(--status-critical);
+}
+.ds-badge--teal {
+  background: var(--status-teal-bg);
+  color: var(--status-teal);
+}
+
+.ds-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-card);
+  color: var(--text-body);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.ds-chip:hover {
+  border-color: var(--text-link);
+}
+
+.ds-chip[aria-pressed='true'],
+.ds-chip--selected {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--text-heading);
+  font-weight: var(--fw-semibold);
+}
+
+/* ---------- Button ------------------------------------------------------ */
+
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: 9px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.ds-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.ds-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.ds-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Primary is the brand navy, not the accent: the accent is a personalisation
+   choice and primary actions must not change meaning when a user picks lime. */
+.ds-btn--primary {
+  background: var(--tes-navy);
+  color: #ffffff;
+}
+.ds-btn--primary:hover:not(:disabled) {
+  background: #363c4d;
+}
+
+.ds-btn--secondary {
+  background: var(--surface-card);
+  border-color: var(--border-input);
+  color: var(--text-body);
+}
+.ds-btn--secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.ds-btn--ghost {
+  background: transparent;
+  color: var(--text-body);
+}
+.ds-btn--ghost:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.ds-btn--accent {
+  background: var(--accent);
+  color: var(--accent-on);
+}
+.ds-btn--accent:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.ds-btn--danger {
+  background: var(--status-critical);
+  color: #ffffff;
+}
+
+.ds-btn--sm {
+  padding: 6px 11px;
+  font-size: var(--fs-sm);
+}
+
+.ds-btn--icon {
+  padding: 0;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+}
+
+/* ---------- Form controls ----------------------------------------------- */
+
+.ds-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ds-label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-body);
+}
+
+.ds-input,
+.ds-select {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-input);
+  background: var(--surface-card);
+  color: var(--text-body);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.ds-input::placeholder {
+  color: var(--text-faint);
+}
+
+.ds-input:focus,
+.ds-select:focus {
+  outline: none;
+  border-color: var(--text-link);
+  box-shadow: var(--focus-ring);
+}
+
+.ds-hint {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.ds-error {
+  font-size: var(--fs-sm);
+  color: var(--status-critical);
+}
+
+/* ---------- Table -------------------------------------------------------- */
+
+.ds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-body);
+}
+
+.ds-table th {
+  text-align: left;
+  padding: var(--s-3) var(--s-4);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-hairline);
+  white-space: nowrap;
+}
+
+.ds-table td {
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--border-hairline);
+  color: var(--text-body);
+  font-feature-settings: var(--fnum);
+}
+
+.ds-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ds-table tbody tr:hover td {
+  background: var(--surface-hover);
+}
+
+/* ---------- Empty state --------------------------------------------------- */
+
+.ds-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--s-3);
+  padding: var(--s-12) var(--s-6);
+  color: var(--text-muted);
+}
+
+.ds-empty__tile {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-faint);
+}
+
+.ds-empty__title {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-h3);
+  color: var(--text-heading);
+  margin: 0;
+}
+
+.ds-empty__body {
+  font-size: var(--fs-body);
+  margin: 0;
+  max-width: 46ch;
+}
+
+/* ---------- Sidebar -------------------------------------------------------- */
+
+.ds-sidebar {
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--side-bg);
+  border-right: 1px solid var(--side-border);
+  transition: background var(--dur) var(--ease);
+}
+
+.ds-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-5);
+  border-bottom: 1px solid var(--side-border);
+}
+
+.ds-sidebar__brand-name {
+  font-family: var(--font-display);
+  font-weight: var(--fw-extrabold);
+  font-size: var(--fs-h3);
+  letter-spacing: var(--ls-tight);
+  color: var(--side-brand);
+}
+
+.ds-sidebar__brand-sub {
+  font-size: var(--fs-xs);
+  color: var(--side-sub);
+}
+
+.ds-sidebar__nav {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--s-4) var(--s-3);
+}
+
+.ds-sidebar__group {
+  padding: var(--s-4) var(--s-3) var(--s-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--side-group);
+}
+
+.ds-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: 9px var(--s-3);
+  margin-bottom: 2px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--side-item);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.ds-nav-item svg {
+  color: var(--side-icon);
+  flex: 0 0 auto;
+  transition: color var(--dur) var(--ease);
+}
+
+.ds-nav-item:hover {
+  background: var(--side-hover-bg);
+}
+
+.ds-nav-item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Active state: the user's accent, as a 3px inset bar plus a tint. Both are
+   driven by --accent, so choosing a highlight colour re-tints every active item
+   with no component involvement. */
+.ds-nav-item--active {
+  background: var(--side-active-bg);
+  color: var(--side-active-text);
+  font-weight: var(--fw-semibold);
+}
+
+.ds-nav-item--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--side-active-accent);
+}
+
+.ds-nav-item--active svg {
+  color: var(--side-active-accent);
+}
+
+.ds-sidebar__footer {
+  padding: var(--s-4);
+  border-top: 1px solid var(--side-border);
+}
+
+/* ---------- Top bar --------------------------------------------------------- */
+
+.ds-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--topbar-h);
+  flex: 0 0 var(--topbar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: 0 var(--content-pad-x);
+  background: var(--topbar-bg);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.ds-topbar__title {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-h2);
+  color: var(--text-heading);
+  margin: 0;
+}
+
+/* ---------- Popover --------------------------------------------------------- */
+
+.ds-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 248px;
+  padding: var(--s-4);
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---------- Appearance controls --------------------------------------------- */
+
+.ds-segmented {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-hairline);
+}
+
+.ds-segmented__option {
+  flex: 1 1 0;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.ds-segmented__option[aria-checked='true'] {
+  background: var(--surface-card);
+  color: var(--text-heading);
+  box-shadow: var(--shadow-xs);
+}
+
+.ds-segmented__option:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.ds-swatches {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.ds-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background: var(--ds-swatch, var(--accent));
+  cursor: pointer;
+  transition:
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.ds-swatch:hover {
+  transform: scale(1.08);
+}
+
+.ds-swatch[aria-checked='true'] {
+  /* Ring drawn OUTSIDE the swatch so the colour stays fully visible. */
+  box-shadow:
+    0 0 0 2px var(--surface-card),
+    0 0 0 4px var(--ds-swatch, var(--accent));
+}
+
+.ds-swatch:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--surface-card),
+    0 0 0 4px var(--text-link);
+}
+
+/* ---------- Utilities --------------------------------------------------------- */
+
+.ds-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.ds-muted {
+  color: var(--text-muted);
+}
+
+.ds-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

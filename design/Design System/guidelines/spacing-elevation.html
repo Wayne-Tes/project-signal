@@ -1,0 +1,24 @@
+<!-- @dsCard group="Spacing" viewport="700x170" name="Elevation" subtitle="Soft, low-contrast navy shadows: xs → lg + focus ring" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; background: var(--surface-card); font-family: var(--font-body); padding: 30px 24px; }
+  .row { display: flex; gap: 26px; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .tile { width: 96px; height: 64px; background: #fff; border: 1px solid var(--tes-n-200); border-radius: var(--radius-lg); }
+  .tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="col"><div class="tile" style="box-shadow:var(--shadow-xs)"></div><span class="tok">shadow-xs</span></div>
+    <div class="col"><div class="tile" style="box-shadow:var(--shadow-sm)"></div><span class="tok">shadow-sm</span></div>
+    <div class="col"><div class="tile" style="box-shadow:var(--shadow-md)"></div><span class="tok">shadow-md</span></div>
+    <div class="col"><div class="tile" style="box-shadow:var(--shadow-lg)"></div><span class="tok">shadow-lg</span></div>
+    <div class="col"><div class="tile" style="box-shadow:var(--shadow-focus)"></div><span class="tok">shadow-focus</span></div>
+  </div>
+</body>
+</html>

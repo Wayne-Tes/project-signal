@@ -1,0 +1,63 @@
+/* ============================================================
+   Project Signal — Sidebar theme tokens
+   Copied from the Lighthouse "Aurora" system.
+
+   The sidebar is themed INDEPENDENTLY of the app surface, via
+   [data-sidebar="light"|"navy"] on the shell root. That is the
+   design system's own model and it is worth keeping: a user can
+   run a light app with navy chrome, which is the Lighthouse
+   default look.
+
+   The active-nav accent is the user's chosen highlight colour.
+   AppShell rewrites --accent / --accent-tint from the stored key,
+   and these tokens read those — so choosing an accent re-tints
+   every active nav item live, with no component involvement.
+   ============================================================ */
+
+/* ---------- LIGHT sidebar (Aurora default) ---------- */
+:root,
+[data-sidebar='light'] {
+  --side-bg: var(--tes-white);
+  --side-border: var(--tes-n-200);
+  --side-brand: var(--tes-ink);
+  --side-sub: var(--tes-n-500);
+  --side-group: var(--tes-n-400);
+  --side-item: #5b616e;
+  --side-icon: #8b909c;
+  --side-active-bg: var(--accent-tint);
+  --side-active-text: var(--tes-ink);
+  --side-active-accent: var(--accent);
+  --side-hover-bg: #f4f5f7;
+}
+
+/* ---------- NAVY sidebar ---------- */
+[data-sidebar='navy'] {
+  --side-bg: #2a2f3d;
+  --side-border: rgba(255, 255, 255, 0.08);
+  --side-brand: #ffffff;
+  --side-sub: rgba(255, 255, 255, 0.55);
+  --side-group: rgba(255, 255, 255, 0.42);
+  --side-item: rgba(255, 255, 255, 0.74);
+  --side-icon: rgba(255, 255, 255, 0.55);
+  --side-active-bg: rgba(255, 255, 255, 0.1);
+  --side-active-text: #ffffff;
+  --side-active-accent: var(--accent);
+  --side-hover-bg: rgba(255, 255, 255, 0.06);
+}
+
+/* When the whole app is dark, a "light" sidebar would be a glaring white
+   slab. Re-point it to the app's own raised surface so the two themes
+   compose sensibly instead of fighting. The navy variant is unaffected —
+   it already suits a dark app. */
+[data-theme='dark'][data-sidebar='light'],
+[data-theme='dark'] [data-sidebar='light'] {
+  --side-bg: var(--surface-card);
+  --side-border: var(--border-hairline);
+  --side-brand: var(--text-heading);
+  --side-sub: var(--text-muted);
+  --side-group: var(--text-faint);
+  --side-item: var(--text-body);
+  --side-icon: var(--text-muted);
+  --side-active-text: var(--text-heading);
+  --side-hover-bg: var(--surface-hover);
+}
