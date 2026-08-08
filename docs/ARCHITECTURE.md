@@ -219,14 +219,14 @@ runtime by the ingestion handler.
 
 Seven migrations exist, tracked in `apps/api/migrations/meta/_journal.json`:
 
-| Tag                       | Contents                                                            |
-| ------------------------- | ------------------------------------------------------------------- |
-| `0000_hot_loners`         | `tenants`, `brand_entities`, `signals` + indexes                    |
-| `0001_fluffy_guardsmen`   | `users`, `sentiment_results`, `dimension_scores`                    |
-| `0002_slippery_energizer` | `source_configs`                                                    |
-| `0003_amused_moondragon`  | Unique `(source_url, brand_entity_id)` on `signals`                 |
-| `0004_chief_freak`        | `brand_aliases`                                                     |
-| `0005_demonic_mindworm`   | Drops the four denormalised sentiment columns from `signals`        |
+| Tag                       | Contents                                                              |
+| ------------------------- | --------------------------------------------------------------------- |
+| `0000_hot_loners`         | `tenants`, `brand_entities`, `signals` + indexes                      |
+| `0001_fluffy_guardsmen`   | `users`, `sentiment_results`, `dimension_scores`                      |
+| `0002_slippery_energizer` | `source_configs`                                                      |
+| `0003_amused_moondragon`  | Unique `(source_url, brand_entity_id)` on `signals`                   |
+| `0004_chief_freak`        | `brand_aliases`                                                       |
+| `0005_demonic_mindworm`   | Drops the four denormalised sentiment columns from `signals`          |
 | `0006_familiar_vermin`    | Adds `brand_entities.dimension_weights` jsonb (per-brand BPI weights) |
 
 Authoring a new migration: edit the schema in `libs/db/src/schema/`, then run
@@ -310,7 +310,7 @@ call site needs a value of a known shape. `getLlmClient()` returns a memoised
 `BedrockLlmClient`; `getScorerModel()` / `getReporterModel()` resolve the model by use case.
 
 **Structured output comes from forced tool use, not from prompting.** The model is given exactly
-one tool whose input schema *is* the shape wanted, with `toolChoice` forcing it, so Bedrock
+one tool whose input schema _is_ the shape wanted, with `toolChoice` forcing it, so Bedrock
 returns a parsed object. This replaced a prompt that asked for "ONLY valid JSON", a ` ```json `
 fence-stripper, and a `JSON.parse` — and it is a correctness change, not tidying. A model that
 wrapped its answer in a sentence used to raise `PermanentScoringError`, **which acks the
@@ -318,8 +318,8 @@ message**, so the signal was dropped permanently and silently. **If you change t
 reintroduce prose-then-parse.**
 
 > **Model ids on Bedrock are inference profiles.** `eu.anthropic.claude-haiku-4-5-20251001-v1:0`
-> is what works; the bare `anthropic.claude-haiku-4-5-…` is rejected with *"on-demand throughput
-> isn't supported"*. The `eu.` prefix scopes routing to EU regions — `global.` variants exist and
+> is what works; the bare `anthropic.claude-haiku-4-5-…` is rejected with _"on-demand throughput
+> isn't supported"_. The `eu.` prefix scopes routing to EU regions — `global.` variants exist and
 > do not. See `HANDOVER.md` §3.4.
 
 ### `libs/messaging`
@@ -503,8 +503,8 @@ difference.
 | Method & path                             | Role         | Response shape       | Behaviour                                                                                                               |
 | ----------------------------------------- | ------------ | -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `POST /admin/tenants`                     | owner        | `{status,data}`      | **Transactional**: creates tenant + owned brand + admin user row in one `db.transaction`. Slugs are derived from names. |
-| `POST /admin/users`                       | owner, admin | bare row             | Row **and** claims written in one transaction. An `admin` is confined to their own tenant and to the roles admin/user. |
-| `PATCH /admin/users/:id`                  | owner, admin | bare row             | Reads the target first, then updates role/brand and re-syncs claims in one transaction. 404 for a foreign tenant.      |
+| `POST /admin/users`                       | owner, admin | bare row             | Row **and** claims written in one transaction. An `admin` is confined to their own tenant and to the roles admin/user.  |
+| `PATCH /admin/users/:id`                  | owner, admin | bare row             | Reads the target first, then updates role/brand and re-syncs claims in one transaction. 404 for a foreign tenant.       |
 | `GET /admin/users`                        | owner, admin | bare array           | Users in the caller's tenant.                                                                                           |
 | `GET /brands`                             | any          | bare array           | Tenant-scoped. A `user` with a `brandEntityId` sees **only** that brand.                                                |
 | `GET /brands/:id`                         | any          | bare row             | Tenant-scoped + `requireBrandAccess`; 404 otherwise.                                                                    |
@@ -607,11 +607,11 @@ Fastify, port **8082**. Private.
 It base64-decodes `message.data` to a signal id and calls `handlePubSubMessage`. The **status
 code is the ack signal**, so it is load-bearing rather than cosmetic:
 
-| Outcome                  | Status  | Effect                                            |
-| ------------------------ | ------- | ------------------------------------------------- |
-| Success                  | **204** | Acked.                                            |
-| `PermanentScoringError`  | **204** | Acked, logged at error level. Retry cannot help.  |
-| Anything else (transient) | **500** | Nacked → the queue retries with backoff → DLQ.     |
+| Outcome                   | Status  | Effect                                           |
+| ------------------------- | ------- | ------------------------------------------------ |
+| Success                   | **204** | Acked.                                           |
+| `PermanentScoringError`   | **204** | Acked, logged at error level. Retry cannot help. |
+| Anything else (transient) | **500** | Nacked → the queue retries with backoff → DLQ.   |
 
 ### `handlePubSubMessage(signalId)` — `src/handler.ts`
 
@@ -717,15 +717,15 @@ and passed as a Docker build arg by the deploy workflows — see
 
 ### Views (`src/views/`)
 
-| View          | Data   | Contents                                                                                            |
-| ------------- | ------ | --------------------------------------------------------------------------------------------------- |
-| `Dashboard`   | live   | Hero score (radial gauge or bars), dimension bars, sparklines, stat row → `/score`, `/dimension-scores`, `/stats`, `/achilles`, `/strengths` |
-| `Trends`      | live   | Dimension history line chart → `/score`, `/dimension-scores`                                        |
-| `Achilles`    | live   | Top weakness cards ranked by damage → `/achilles`                                                   |
-| `Competitors` | live   | Benchmark bars → `/brands` plus one `/score` per brand                                              |
-| `Roadmap`     | **mock** | Prioritised actions. **No producer exists** — nothing in Epics 11–13 generates recommendations.   |
-| `Report`      | **mock** | Print-styled weekly report. Epic 12.                                                              |
-| `Admin`       | live   | Tenant creation, `BrandManager`, `UserManager`                                                      |
+| View          | Data     | Contents                                                                                                                                     |
+| ------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Dashboard`   | live     | Hero score (radial gauge or bars), dimension bars, sparklines, stat row → `/score`, `/dimension-scores`, `/stats`, `/achilles`, `/strengths` |
+| `Trends`      | live     | Dimension history line chart → `/score`, `/dimension-scores`                                                                                 |
+| `Achilles`    | live     | Top weakness cards ranked by damage → `/achilles`                                                                                            |
+| `Competitors` | live     | Benchmark bars → `/brands` plus one `/score` per brand                                                                                       |
+| `Roadmap`     | **mock** | Prioritised actions. **No producer exists** — nothing in Epics 11–13 generates recommendations.                                              |
+| `Report`      | **mock** | Print-styled weekly report. Epic 12.                                                                                                         |
+| `Admin`       | live     | Tenant creation, `BrandManager`, `UserManager`                                                                                               |
 
 ### Charts and motion
 
@@ -755,7 +755,7 @@ Three groups sit outside the switchable palette, deliberately:
   reassign them.
 
 > **`PALETTES` in `components/App.tsx` is the one place literal hex belongs.** Those four
-> palettes are the *values the tokens take*: `App.tsx:182` writes them into `--mint`, `--bg`,
+> palettes are the _values the tokens take_: `App.tsx:182` writes them into `--mint`, `--bg`,
 > `--surface` and the rest via `rootStyle`. They are the runtime analogue of the `:root` block.
 > Rewriting them as `var(…)` would be circular and would break palette switching entirely —
 > `KNOWN-GAPS.md` #19 originally listed all 40 as defects for exactly this reason, and was
@@ -868,17 +868,17 @@ Region **`eu-west-2`** (London). Compute **ECS Fargate**, database **RDS Postgre
 
 **Phase 1 (guardrails) is written; Phases 2–7 do not exist yet.** What is there:
 
-| Path | What |
-| ---- | ---- |
-| `bootstrap/` | S3 remote-state bucket — versioned, encrypted, TLS-only, `prevent_destroy`. Local state, because it creates the backend everything else uses |
-| `stack/` | Cost allocation tag activation and the tag-filtered monthly budget. S3 remote state with native locking (`use_lockfile`); **no DynamoDB lock table** — that mechanism is deprecated upstream |
-| `envs/dev.tfvars` | Tag values, shared by **both** root modules so they cannot drift. `dev.stack.tfvars` holds budget-only values |
-| `scripts/00-discover.sh` | Phase 0 discovery, read-only, already run — findings in [`HANDOVER.md`](HANDOVER.md) §3 |
-| `scripts/10-preflight.sh` | Pre-apply checks: account, cost allocation tag status, prefix collisions |
-| `scripts/99-teardown.sh` | Reversal, dry-run by default, verifying by **independent tag inventory** rather than Terraform state — which is what catches a resource orphaned by a failed apply |
-| `CONVENTIONS.md` | The proposed cross-repo standard for the shared account |
+| Path                      | What                                                                                                                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bootstrap/`              | S3 remote-state bucket — versioned, encrypted, TLS-only, `prevent_destroy`. Local state, because it creates the backend everything else uses                                                 |
+| `stack/`                  | Cost allocation tag activation and the tag-filtered monthly budget. S3 remote state with native locking (`use_lockfile`); **no DynamoDB lock table** — that mechanism is deprecated upstream |
+| `envs/dev.tfvars`         | Tag values, shared by **both** root modules so they cannot drift. `dev.stack.tfvars` holds budget-only values                                                                                |
+| `scripts/00-discover.sh`  | Phase 0 discovery, read-only, already run — findings in [`HANDOVER.md`](HANDOVER.md) §3                                                                                                      |
+| `scripts/10-preflight.sh` | Pre-apply checks: account, cost allocation tag status, prefix collisions                                                                                                                     |
+| `scripts/99-teardown.sh`  | Reversal, dry-run by default, verifying by **independent tag inventory** rather than Terraform state — which is what catches a resource orphaned by a failed apply                           |
+| `CONVENTIONS.md`          | The proposed cross-repo standard for the shared account                                                                                                                                      |
 
-The account is **shared with other projects**, so the build is designed to be *separable*: own
+The account is **shared with other projects**, so the build is designed to be _separable_: own
 VPC, `psignal-<env>-*` naming, mandatory tags applied as Terraform provider `default_tags` (so a
 resource cannot be created untagged), and `allowed_account_ids` aborting before the first API
 call in the wrong account. See [`AWS-SETUP.md`](AWS-SETUP.md) for the guardrails,
@@ -1039,15 +1039,15 @@ has no thresholds by design.
 Each project's config uses `vite-tsconfig-paths` so `@project-signal/*` aliases resolve in tests
 without building the libs.
 
-| Area           | Files                                                                          | Approach                                                                                                                                                                                                                                     |
-| -------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| API routes     | `admin`, `aliases`, `brands`, `integrations`, `keyset`, `scores`, `signals`, `users` | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers `@fastify/sensible` and stubs `request.user` in an `onRequest` hook — **Firebase is never involved**. `DEFAULT_ADMIN` / `DEFAULT_OWNER` / `DEFAULT_PINNED_USER` presets. |
-| API plugins    | `plugins/auth.test.ts`                                                         | Token parsing, public-prefix bypass, `requireRole` and `requireBrandAccess` behaviour                                                                                                                                                        |
-| API migrations | `migrate.test.ts`                                                              | Advisory-lock and no-op-when-absent behaviour                                                                                                                                                                                                |
-| Ingestion      | `handler.test.ts`, `rollup.test.ts`                                            | `vi.hoisted` mock chain impersonating the Drizzle fluent builder with a queue of result sets; adapters, storage and the SQS publisher mocked                                                                                                            |
-| Sentiment      | `handler`, `scorer`                                                            | Permanent-vs-transient classification, upsert-on-conflict, prompt shape, fence-stripping, JSON parsing                                                                                                                                        |
-| Web            | `test/brand-data.test.ts`                                                      | The API→presentation mapping, which is where view correctness is proven while `AuthGate` blocks browser verification                                                                                                                         |
-| Libs           | `config`, `gemini`, `messaging`, `scoring`, `storage`, all 5 adapters + `apifyClient` | `fetch` mocked; RSS tests cover both RSS and Atom shapes; `scoring` is pure and needs no mocks                                                                                                                                          |
+| Area           | Files                                                                                 | Approach                                                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API routes     | `admin`, `aliases`, `brands`, `integrations`, `keyset`, `scores`, `signals`, `users`  | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers `@fastify/sensible` and stubs `request.user` in an `onRequest` hook — **Firebase is never involved**. `DEFAULT_ADMIN` / `DEFAULT_OWNER` / `DEFAULT_PINNED_USER` presets. |
+| API plugins    | `plugins/auth.test.ts`                                                                | Token parsing, public-prefix bypass, `requireRole` and `requireBrandAccess` behaviour                                                                                                                                                                    |
+| API migrations | `migrate.test.ts`                                                                     | Advisory-lock and no-op-when-absent behaviour                                                                                                                                                                                                            |
+| Ingestion      | `handler.test.ts`, `rollup.test.ts`                                                   | `vi.hoisted` mock chain impersonating the Drizzle fluent builder with a queue of result sets; adapters, storage and the SQS publisher mocked                                                                                                             |
+| Sentiment      | `handler`, `scorer`                                                                   | Permanent-vs-transient classification, upsert-on-conflict, prompt shape, fence-stripping, JSON parsing                                                                                                                                                   |
+| Web            | `test/brand-data.test.ts`                                                             | The API→presentation mapping, which is where view correctness is proven while `AuthGate` blocks browser verification                                                                                                                                     |
+| Libs           | `config`, `gemini`, `messaging`, `scoring`, `storage`, all 5 adapters + `apifyClient` | `fetch` mocked; RSS tests cover both RSS and Atom shapes; `scoring` is pure and needs no mocks                                                                                                                                                           |
 
 **`test/routes/keyset.test.ts` is the one to copy for any new raw SQL.** It renders the keyset
 condition through the real `PgDialect`, which is what catches a JS `Date` interpolated into a
@@ -1087,15 +1087,15 @@ See [`HANDOVER.md`](HANDOVER.md) §5.
 The one link that cannot be closed locally is **scoring** — LocalStack does not emulate
 Bedrock, so that needs real AWS credentials.
 
-| Service          | URL                                                                      |
-| ---------------- | ------------------------------------------------------------------------ |
-| web              | http://localhost:3000                                                    |
-| api              | http://localhost:8080 (Swagger UI at `/docs`)                            |
-| ingestion        | http://localhost:8081                                                    |
-| sentiment-worker | http://localhost:8082                                                    |
-| report-worker    | http://localhost:8083                                                    |
-| Postgres         | `postgresql://project_signal_app:password@localhost:5432/project_signal` |
-| LocalStack (S3+SQS) | http://localhost:4566                                                 |
+| Service             | URL                                                                      |
+| ------------------- | ------------------------------------------------------------------------ |
+| web                 | http://localhost:3000                                                    |
+| api                 | http://localhost:8080 (Swagger UI at `/docs`)                            |
+| ingestion           | http://localhost:8081                                                    |
+| sentiment-worker    | http://localhost:8082                                                    |
+| report-worker       | http://localhost:8083                                                    |
+| Postgres            | `postgresql://project_signal_app:password@localhost:5432/project_signal` |
+| LocalStack (S3+SQS) | http://localhost:4566                                                    |
 
 **Calling the API locally without Firebase** — with `NODE_ENV=development`:
 

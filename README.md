@@ -21,15 +21,15 @@ and role-scoped.
 
 Read in this order.
 
-| Document | Read it for |
-| -------- | ----------- |
-| **[`docs/HANDOVER.md`](docs/HANDOVER.md)** | **Start here.** Current state, proven vs assumed, verified AWS account facts, the phase plan, the regression checklist. Written for a reader with no prior context. |
-| [`DEVRULES.md`](DEVRULES.md) | The operating rules. Verify, never assume. |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete code-accurate reference: every app, lib, table, route and module, plus end-to-end flows and editing gotchas. |
-| [`docs/AWS-SETUP.md`](docs/AWS-SETUP.md) | The AWS runbook and its guardrails. Phase 0 discovery is executable and read-only. |
-| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md) | The defect register — 17 of 19 closed. The closed entries explain *why* things are as they are. |
-| [`docs/PLAN.md`](docs/PLAN.md) | Design rationale, key decisions, epic status. |
-| [`docs/SETUP.md`](docs/SETUP.md) · [`infra/README.md`](infra/README.md) | **Superseded.** GCP setup and Terraform, kept as the clearest specification of what each service needs. Will never be applied. |
+| Document                                                                | Read it for                                                                                                                                                         |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[`docs/HANDOVER.md`](docs/HANDOVER.md)**                              | **Start here.** Current state, proven vs assumed, verified AWS account facts, the phase plan, the regression checklist. Written for a reader with no prior context. |
+| [`DEVRULES.md`](DEVRULES.md)                                            | The operating rules. Verify, never assume.                                                                                                                          |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)                          | Complete code-accurate reference: every app, lib, table, route and module, plus end-to-end flows and editing gotchas.                                               |
+| [`docs/AWS-SETUP.md`](docs/AWS-SETUP.md)                                | The AWS runbook and its guardrails. Phase 0 discovery is executable and read-only.                                                                                  |
+| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)                              | The defect register — 17 of 19 closed. The closed entries explain _why_ things are as they are.                                                                     |
+| [`docs/PLAN.md`](docs/PLAN.md)                                          | Design rationale, key decisions, epic status.                                                                                                                       |
+| [`docs/SETUP.md`](docs/SETUP.md) · [`infra/README.md`](infra/README.md) | **Superseded.** GCP setup and Terraform, kept as the clearest specification of what each service needs. Will never be applied.                                      |
 
 ## Quick start
 
@@ -48,15 +48,15 @@ corepack yarn dev
 **Migrations are applied by the API on startup** — there is no migrate step. Boot the API before
 seeding, or `yarn db:seed` fails with `relation "tenants" does not exist`.
 
-| Service | Local URL |
-| ------- | --------- |
-| web | http://localhost:3000 |
-| api | http://localhost:8080 (Swagger UI at `/docs`) |
-| ingestion | http://localhost:8081 |
-| sentiment-worker | http://localhost:8082 |
-| report-worker | http://localhost:8083 |
-| Postgres | localhost:5432 (user `project_signal_app`, db `project_signal`, pass `password`) |
-| LocalStack (S3 + SQS) | http://localhost:4566 |
+| Service               | Local URL                                                                        |
+| --------------------- | -------------------------------------------------------------------------------- |
+| web                   | http://localhost:3000                                                            |
+| api                   | http://localhost:8080 (Swagger UI at `/docs`)                                    |
+| ingestion             | http://localhost:8081                                                            |
+| sentiment-worker      | http://localhost:8082                                                            |
+| report-worker         | http://localhost:8083                                                            |
+| Postgres              | localhost:5432 (user `project_signal_app`, db `project_signal`, pass `password`) |
+| LocalStack (S3 + SQS) | http://localhost:4566                                                            |
 
 `scripts/localstack-init.sh` runs inside the container on first boot and creates the
 `psignal-local-raw` bucket, the item/report queues and their DLQs, with `maxReceiveCount: 5`
@@ -142,7 +142,7 @@ infra-aws/           AWS tree — Phase 0 discovery script only so far
   app/auth metadata. Target is RDS; BigQuery and Firestore were evaluated and dropped
   (see `PLAN.md`).
 - **Raw verbatim payloads live in S3**, referenced from the signal rows for the audit trail. The
-  upload happens *before* the row insert, so `raw_storage_ref` can never point at a missing
+  upload happens _before_ the row insert, so `raw_storage_ref` can never point at a missing
   object.
 - The **API owns the schema** and applies Drizzle migrations on startup under a Postgres advisory
   lock so concurrent instances don't race. There is no manual migrate step and no migrator app.

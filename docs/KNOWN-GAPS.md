@@ -16,28 +16,28 @@
 
 ## Summary
 
-| #   | Gap                                                           | Severity    | Area                  |
-| --- | ------------------------------------------------------------- | ----------- | --------------------- |
-| 1   | ~~Pub/Sub pushed to `/events`; workers serve `/pubsub/item`~~ | ✅ resolved | infra ↔ worker        |
-| 2   | ~~Scheduler called `/reconcile`, which did not exist~~        | ✅ resolved | infra ↔ ingestion     |
-| 3   | Cloud Tasks queue provisioned but never used                  | ⏸ dissolved | ingestion             |
-| 4   | ~~Raw payloads never written to Cloud Storage~~               | ✅ resolved | ingestion + sentiment |
-| 5   | ~~Brand-scoped reads don't enforce `brandEntityId`~~          | ✅ resolved | API authz             |
-| 5b  | ~~`GET /brands/:id` missed the same guard~~ (found 2026-08-07) | ✅ resolved | API authz             |
-| 6   | ~~Cursor pagination has no `ORDER BY`~~                       | ✅ resolved | API correctness       |
-| 7   | ~~Topic names differ between code and Terraform~~             | ✅ resolved | messaging             |
-| 8   | ~~Web app can't be pointed at the API at deploy time~~        | ✅ resolved | web ↔ infra           |
-| 9   | ~~Sentiment worker swallows errors — DLQ never fires~~        | ✅ resolved | sentiment             |
-| 10  | ~~`dimension_scores` is never written~~                       | ✅ resolved | Epic 11               |
-| 11  | ~~Unused denormalised sentiment columns on `signals`~~        | ✅ resolved | schema                |
-| 12  | `POST /admin/users` gating fixed; users UI unverified         | 🟠 partial  | API + web             |
-| 13  | Four of six views wired; Roadmap + Report remain              | 🟠 partial  | web ↔ API             |
-| 14  | ~~Hardcoded contractor fallbacks in the web client~~          | ✅ resolved | web config            |
-| 15  | ~~Working directory is not a git repository~~                 | ✅ resolved | repo                  |
-| 16  | No cloud environment — AWS discovery done, libs ported, undeployed | 🔴     | infra                 |
-| 17  | ~~`apps/web` build failure~~ — was local Node 24              | ✅ resolved | tooling               |
-| 18  | ~~User writes not atomic with Firebase custom claims~~        | ✅ resolved | API                   |
-| 19  | ~~Web components use literal hex, not CSS custom properties~~ | ✅ resolved | web style             |
+| #   | Gap                                                                | Severity    | Area                  |
+| --- | ------------------------------------------------------------------ | ----------- | --------------------- |
+| 1   | ~~Pub/Sub pushed to `/events`; workers serve `/pubsub/item`~~      | ✅ resolved | infra ↔ worker        |
+| 2   | ~~Scheduler called `/reconcile`, which did not exist~~             | ✅ resolved | infra ↔ ingestion     |
+| 3   | Cloud Tasks queue provisioned but never used                       | ⏸ dissolved | ingestion             |
+| 4   | ~~Raw payloads never written to Cloud Storage~~                    | ✅ resolved | ingestion + sentiment |
+| 5   | ~~Brand-scoped reads don't enforce `brandEntityId`~~               | ✅ resolved | API authz             |
+| 5b  | ~~`GET /brands/:id` missed the same guard~~ (found 2026-08-07)     | ✅ resolved | API authz             |
+| 6   | ~~Cursor pagination has no `ORDER BY`~~                            | ✅ resolved | API correctness       |
+| 7   | ~~Topic names differ between code and Terraform~~                  | ✅ resolved | messaging             |
+| 8   | ~~Web app can't be pointed at the API at deploy time~~             | ✅ resolved | web ↔ infra           |
+| 9   | ~~Sentiment worker swallows errors — DLQ never fires~~             | ✅ resolved | sentiment             |
+| 10  | ~~`dimension_scores` is never written~~                            | ✅ resolved | Epic 11               |
+| 11  | ~~Unused denormalised sentiment columns on `signals`~~             | ✅ resolved | schema                |
+| 12  | `POST /admin/users` gating fixed; users UI unverified              | 🟠 partial  | API + web             |
+| 13  | Four of six views wired; Roadmap + Report remain                   | 🟠 partial  | web ↔ API             |
+| 14  | ~~Hardcoded contractor fallbacks in the web client~~               | ✅ resolved | web config            |
+| 15  | ~~Working directory is not a git repository~~                      | ✅ resolved | repo                  |
+| 16  | No cloud environment — AWS discovery done, libs ported, undeployed | 🔴          | infra                 |
+| 17  | ~~`apps/web` build failure~~ — was local Node 24                   | ✅ resolved | tooling               |
+| 18  | ~~User writes not atomic with Firebase custom claims~~             | ✅ resolved | API                   |
+| 19  | ~~Web components use literal hex, not CSS custom properties~~      | ✅ resolved | web style             |
 
 ---
 
@@ -632,7 +632,7 @@ inside `app/globals.css` itself, which this entry never counted.
 
 > **Correction (2026-08-07): `App.tsx`'s 40 occurrences were never defects.** This entry
 > listed them as the single largest cluster. They are the four **palette definitions** —
-> `PALETTES` at `App.tsx:46`, whose values `App.tsx:182` writes *into* `--mint`, `--bg`,
+> `PALETTES` at `App.tsx:46`, whose values `App.tsx:182` writes _into_ `--mint`, `--bg`,
 > `--surface` and the rest via `rootStyle`. They are the analogue of the `:root` block: the
 > values the tokens take. Converting them to `var(--mint)` would be circular and would break
 > the palette switcher outright — the exact feature this gap exists to protect.
@@ -670,7 +670,7 @@ the report logo's, which became `--paper-on-accent`.
 
 **Verification.** `apps/web` lints, typechecks and passes its 23 tests; the production image
 builds on `node:20-alpine`. Every one of the 47 `var(--…)` references in `apps/web` resolves to
-a definition — checked mechanically, because an undefined custom property renders as *nothing*
+a definition — checked mechanically, because an undefined custom property renders as _nothing_
 rather than failing, which is this refactor's real failure mode. The sign-in and loading panes
 were confirmed serving `background:var(--bg);color:var(--t2)`.
 

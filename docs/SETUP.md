@@ -3,7 +3,7 @@
 > # ⚠️ Superseded as a destination — do not work through this without reading `HANDOVER.md`
 >
 > **On 2026-08-06 the owner decided not to stand up GCP at all.** The system goes straight to
-> AWS. Everything below remains an accurate description of the deployment the *code* targets,
+> AWS. Everything below remains an accurate description of the deployment the _code_ targets,
 > and it is kept for exactly that reason — the GCP stack is the clearest available
 > specification of what each service needs, and the AWS equivalent has to be written against
 > it. But it provisions an environment that is no longer intended to exist.
@@ -30,7 +30,7 @@ regional model availability — the doc says how to check rather than asserting 
 | A Google account with rights to create projects and link billing | Steps 2–4                         | Needs Owner on the new project.              |
 | A payment method                                                 | Bootstrap enables paid APIs       | Free-trial credit works.                     |
 | An Apify account                                                 | 3 of 5 source adapters            | Paid; the free tier is enough to smoke-test. |
-| Admin on the GitHub repo                                         | Steps 5, 10                       | `Wayne-Tes/project-signal`.               |
+| Admin on the GitHub repo                                         | Steps 5, 10                       | `Wayne-Tes/project-signal`.                  |
 | Microsoft Entra tenant                                           | Optional — Microsoft sign-in only | Skip if email/password is enough.            |
 
 ### Local tooling
@@ -402,17 +402,16 @@ is wired end to end** — the five defects this section used to list (gaps #1, #
 were closed during the 2026-08 backlog burn-down. What remains from
 [`KNOWN-GAPS.md`](KNOWN-GAPS.md):
 
-| Gap | What you will see                                                                                                                     |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| #13 | **Roadmap** and **Report** still render mock data for a fictional bank. The other four analytical views are live.                     |
+| Gap | What you will see                                                                                                                                                              |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #13 | **Roadmap** and **Report** still render mock data for a fictional bank. The other four analytical views are live.                                                              |
 | #3  | `/ingest/dispatch` fans out in-process, not through a queue. A dispatch across many brands can exceed the request timeout, and a failed source is dropped rather than retried. |
-| #12 | The users UI has never been driven in a browser — it needs a real sign-in, which is what this document provides.                      |
-| #19 | 119 literal hex values in `apps/web` do not respond to the runtime palette switcher.                                                  |
+| #12 | The users UI has never been driven in a browser — it needs a real sign-in, which is what this document provides.                                                               |
+| #19 | 119 literal hex values in `apps/web` do not respond to the runtime palette switcher.                                                                                           |
 
 **Expect the first scoring run to be the real test.** Nothing in this repo has ever executed a
 Cloud Storage round trip or a live Vertex call; both are covered by unit tests and by mocked
 failure paths only. Watch the item DLQ and the worker logs on the first weekly run.
-
 
 ### Smoke tests that should pass
 

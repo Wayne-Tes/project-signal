@@ -21,16 +21,16 @@ and [`../docs/HANDOVER.md`](../docs/HANDOVER.md) §6 for the phase plan.
 
 ## What exists today
 
-| Path | What |
-| ---- | ---- |
-| `bootstrap/` | The S3 remote-state bucket. Local state, run once, creates nothing else |
-| `stack/` | The tag-filtered budget and cost allocation tag activation. Remote state |
-| `envs/dev.tfvars` | Tag values shared by **both** root modules, so they cannot drift |
-| `envs/dev.stack.tfvars` | Budget-only values |
-| `scripts/00-discover.sh` | Phase 0 discovery, read-only. Already run — findings in HANDOVER §3 |
-| `scripts/10-preflight.sh` | Run before any apply. Checks account, cost allocation tags, collisions |
-| `scripts/99-teardown.sh` | Reverses everything and proves the account is clean. Dry run by default |
-| `CONVENTIONS.md` | The proposed cross-repo standard for this shared account |
+| Path                      | What                                                                     |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `bootstrap/`              | The S3 remote-state bucket. Local state, run once, creates nothing else  |
+| `stack/`                  | The tag-filtered budget and cost allocation tag activation. Remote state |
+| `envs/dev.tfvars`         | Tag values shared by **both** root modules, so they cannot drift         |
+| `envs/dev.stack.tfvars`   | Budget-only values                                                       |
+| `scripts/00-discover.sh`  | Phase 0 discovery, read-only. Already run — findings in HANDOVER §3      |
+| `scripts/10-preflight.sh` | Run before any apply. Checks account, cost allocation tags, collisions   |
+| `scripts/99-teardown.sh`  | Reverses everything and proves the account is clean. Dry run by default  |
+| `CONVENTIONS.md`          | The proposed cross-repo standard for this shared account                 |
 
 **No VPC, RDS, ECR, Secrets Manager, ECS or Cognito yet** — those are Phases 2–5.
 

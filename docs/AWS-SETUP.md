@@ -3,7 +3,7 @@
 **Status:** Phase 0 complete (2026-08-07). Later phases are written as the code lands.
 **Target region:** `eu-west-2` (London).
 **Account model:** a **shared** enterprise sandbox — several projects, owner is admin inside it
-but cannot create accounts outside it. The build is therefore designed to be *separable later*;
+but cannot create accounts outside it. The build is therefore designed to be _separable later_;
 see [`HANDOVER.md`](HANDOVER.md) §3.2.
 
 > This supersedes [`SETUP.md`](SETUP.md) as the setup path. `SETUP.md` describes the GCP
@@ -27,17 +27,18 @@ So every phase obeys the same five rules, and they are not negotiable:
    `CostCentre`, `Environment`, `ManagedBy` and `Expires`. This is what lets you answer "what is
    this and who owns it" without opening a ticket, and what makes the teardown script safe.
 
-   > **Corrected 2026-08-07.** This list previously read `project, owner, cost-centre,
-   > environment, expires` — lower-case, kebab-cased, and missing `ManagedBy`. It disagreed with
-   > [`HANDOVER.md`](HANDOVER.md) §3.2, which is authoritative (HANDOVER.md:5) and is what
-   > `infra-aws/` implements. **AWS tag keys are case-sensitive and cost allocation tags are
-   > activated by exact key**, so this was not a cosmetic discrepancy: applying one list and
-   > activating the other yields six tags that attribute nothing.
 4. **Cost controls precede spend.** The budget alarm is created before the first billable
    resource. **ECS Fargate does not scale to zero** — five idle services bill continuously.
    That is a real change from the Cloud Run design this replaces, where idle cost was ~nil.
 5. **Teardown is written before build-up.** Each phase ships with the commands to reverse it,
    scoped to the prefix and tags above, so you can prove the account is clean afterwards.
+
+> **Rule 3, corrected 2026-08-07.** The tag list above previously read
+> `project, owner, cost-centre, environment, expires` — lower-case, kebab-cased, and missing
+> `ManagedBy`. It disagreed with [`HANDOVER.md`](HANDOVER.md) §3.2, which is authoritative
+> (HANDOVER.md:5) and is what `infra-aws/` implements. **AWS tag keys are case-sensitive and cost
+> allocation tags are activated by exact key**, so this was not a cosmetic discrepancy: applying
+> one list and activating the other yields six tags that attribute nothing.
 
 **On credentials.** Run everything yourself. I will never ask you to paste an access key,
 secret, session token or password, and you should refuse any instruction that does — including
@@ -51,15 +52,15 @@ them to verify each step landed where intended.
 Run against account **`290304998906`** (`tesai-dev-sandbox`), `eu-west-2`. Full findings and
 their consequences are in [`HANDOVER.md`](HANDOVER.md) §3. Summary:
 
-| Finding | Result |
-| ------- | ------ |
-| Identity | IAM Identity Center (SSO) admin. Temporary session role — **cannot be reused for CI** |
-| VPCs in `eu-west-2` | **None**, not even a default. No CIDR collisions; we create our own |
-| IAM role creation | **Permitted** — probed for real with a create+delete, since the policy simulator does not model SCPs |
-| OIDC providers | **`gitlab.com` only.** GitHub's can be created. One provider per URL per account |
-| Budgets | `monthly_tesai-dev-sandbox` exists account-wide — leave it, add a tag-filtered one |
-| Bedrock | **Working.** `eu.anthropic.claude-haiku-4-5-20251001-v1:0` → "OK" in 752ms |
-| Account spend | ~$44 MTD, ~$182 forecast, rising. Not compute — our Fargate would be the first |
+| Finding             | Result                                                                                               |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| Identity            | IAM Identity Center (SSO) admin. Temporary session role — **cannot be reused for CI**                |
+| VPCs in `eu-west-2` | **None**, not even a default. No CIDR collisions; we create our own                                  |
+| IAM role creation   | **Permitted** — probed for real with a create+delete, since the policy simulator does not model SCPs |
+| OIDC providers      | **`gitlab.com` only.** GitHub's can be created. One provider per URL per account                     |
+| Budgets             | `monthly_tesai-dev-sandbox` exists account-wide — leave it, add a tag-filtered one                   |
+| Bedrock             | **Working.** `eu.anthropic.claude-haiku-4-5-20251001-v1:0` → "OK" in 752ms                           |
+| Account spend       | ~$44 MTD, ~$182 forecast, rising. Not compute — our Fargate would be the first                       |
 
 > ### ⚠️ If the enterprise AWS account is not `290304998906`, none of the above holds
 >
@@ -113,15 +114,15 @@ fails, say so immediately; a stray role must not be left behind.
 
 ### What each section tells us
 
-| § | Question it answers | Why it changes the plan |
-| - | ------------------- | ----------------------- |
-| 1 | Which account, which principal | Hard-coded into every later script as a guard |
-| 2 | Is the account inside an Organization / OU | `AccessDenied` is a normal, useful answer — it tells us guardrails exist above you |
-| 4 | Is the account actually empty | Existing VPCs, buckets or clusters mean it is shared in practice, whatever it is called, and we must avoid colliding |
-| 5 | Can you create roles, VPCs, RDS, Cognito | Necessary-but-not-sufficient; SCPs are invisible here |
-| 6 | Which Bedrock models exist in `eu-west-2` | **The only source of truth.** Model ids and regional availability decay; this project has already been burned by a retired model id shipped as a default |
-| 7 | Is there a budget | If not, one is created before anything billable |
-| 8 | Can you *really* create a role | The reliable version of §5 |
+| §   | Question it answers                        | Why it changes the plan                                                                                                                                  |
+| --- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Which account, which principal             | Hard-coded into every later script as a guard                                                                                                            |
+| 2   | Is the account inside an Organization / OU | `AccessDenied` is a normal, useful answer — it tells us guardrails exist above you                                                                       |
+| 4   | Is the account actually empty              | Existing VPCs, buckets or clusters mean it is shared in practice, whatever it is called, and we must avoid colliding                                     |
+| 5   | Can you create roles, VPCs, RDS, Cognito   | Necessary-but-not-sufficient; SCPs are invisible here                                                                                                    |
+| 6   | Which Bedrock models exist in `eu-west-2`  | **The only source of truth.** Model ids and regional availability decay; this project has already been burned by a retired model id shipped as a default |
+| 7   | Is there a budget                          | If not, one is created before anything billable                                                                                                          |
+| 8   | Can you _really_ create a role             | The reliable version of §5                                                                                                                               |
 
 ### What I need back
 
@@ -151,15 +152,15 @@ Created before anything billable exists, per rule 4. Everything lives in
 executable order of operations and [`CONVENTIONS.md`](../infra-aws/CONVENTIONS.md) for the
 cross-repo standard this account now follows.
 
-| Deliverable | Where |
-| ----------- | ----- |
-| Mandatory tags as provider defaults — a resource *cannot* be created untagged | `infra-aws/*/versions.tf`, `default_tags` |
-| Account guard — aborts before the first API call on the wrong account | `allowed_account_ids`, plus `stack/guard.tf` for a readable message |
-| Name prefix `psignal-dev-*`, single-sourced | `stack/locals.tf` |
-| Cost allocation tag activation | `stack/budget.tf` |
-| Tag-filtered monthly budget, `ACTUAL` at 50/90/100% and `FORECASTED` at 100% | `stack/budget.tf` |
-| Remote state, S3 native locking, no DynamoDB table | `bootstrap/`, `stack/backend.tf` |
-| Preflight and teardown scripts | `scripts/10-preflight.sh`, `scripts/99-teardown.sh` |
+| Deliverable                                                                   | Where                                                               |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Mandatory tags as provider defaults — a resource _cannot_ be created untagged | `infra-aws/*/versions.tf`, `default_tags`                           |
+| Account guard — aborts before the first API call on the wrong account         | `allowed_account_ids`, plus `stack/guard.tf` for a readable message |
+| Name prefix `psignal-dev-*`, single-sourced                                   | `stack/locals.tf`                                                   |
+| Cost allocation tag activation                                                | `stack/budget.tf`                                                   |
+| Tag-filtered monthly budget, `ACTUAL` at 50/90/100% and `FORECASTED` at 100%  | `stack/budget.tf`                                                   |
+| Remote state, S3 native locking, no DynamoDB table                            | `bootstrap/`, `stack/backend.tf`                                    |
+| Preflight and teardown scripts                                                | `scripts/10-preflight.sh`, `scripts/99-teardown.sh`                 |
 
 ### The failure this phase is really guarding against
 
@@ -177,12 +178,12 @@ team to activate the six keys centrally — once, benefiting every project in th
 
 ### Decisions taken at Phase 1 (owner, 2026-08-07)
 
-| Question (was HANDOVER §10) | Answer |
-| --------------------------- | ------ |
-| Account | Confirmed still `290304998906` |
-| `Environment` tag | `dev`, not `sandbox` — it names *our* environment, so the stack lifts into a dedicated account later as an account-id change rather than a rename |
-| `CostCentre` | `tesai-dev-sandbox` as a placeholder; no formal code exists yet. **Replace it as soon as one is issued — cost allocation tags do not backfill** |
-| Cross-repo standard | None existed. One is now proposed in [`../infra-aws/CONVENTIONS.md`](../infra-aws/CONVENTIONS.md) |
+| Question (was HANDOVER §10) | Answer                                                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Account                     | Confirmed still `290304998906`                                                                                                                    |
+| `Environment` tag           | `dev`, not `sandbox` — it names _our_ environment, so the stack lifts into a dedicated account later as an account-id change rather than a rename |
+| `CostCentre`                | `tesai-dev-sandbox` as a placeholder; no formal code exists yet. **Replace it as soon as one is issued — cost allocation tags do not backfill**   |
+| Cross-repo standard         | None existed. One is now proposed in [`../infra-aws/CONVENTIONS.md`](../infra-aws/CONVENTIONS.md)                                                 |
 
 ---
 
@@ -191,17 +192,17 @@ team to activate the six keys centrally — once, benefiting every project in th
 They land as the code does, and deliberately not before: a runbook written ahead of the code it
 provisions is a runbook that drifts. The intended order, for context:
 
-| Phase | What | Needs your account? |
-| ----- | ---- | ------------------- |
-| 0 | Discovery | ✅ **done 2026-08-07** |
-| B | Port the libraries — S3, SQS, Bedrock, config | ✅ **done 2026-08-07**, no account needed |
-| 1 | Guardrails: budget alarm, tagging, prefix, teardown script | ✅ **written 2026-08-07**, apply pending credentials |
-| 2 | Foundation: VPC, RDS Postgres, S3, ECR, Secrets Manager | Yes |
-| 3 | **Thin vertical slice** — one brand, one RSS feed, one signal, end to end | Yes |
-| 4 | Full stack: ECS Fargate services, SQS + DLQs, EventBridge Scheduler | Yes |
-| 5 | Cognito, then the browser pass over the views nobody has ever seen | Yes |
-| 6 | CI/CD via GitHub OIDC | Yes |
-| 7 | Delete `infra/` and the five GCP dependencies | No |
+| Phase | What                                                                      | Needs your account?                                  |
+| ----- | ------------------------------------------------------------------------- | ---------------------------------------------------- |
+| 0     | Discovery                                                                 | ✅ **done 2026-08-07**                               |
+| B     | Port the libraries — S3, SQS, Bedrock, config                             | ✅ **done 2026-08-07**, no account needed            |
+| 1     | Guardrails: budget alarm, tagging, prefix, teardown script                | ✅ **written 2026-08-07**, apply pending credentials |
+| 2     | Foundation: VPC, RDS Postgres, S3, ECR, Secrets Manager                   | Yes                                                  |
+| 3     | **Thin vertical slice** — one brand, one RSS feed, one signal, end to end | Yes                                                  |
+| 4     | Full stack: ECS Fargate services, SQS + DLQs, EventBridge Scheduler       | Yes                                                  |
+| 5     | Cognito, then the browser pass over the views nobody has ever seen        | Yes                                                  |
+| 6     | CI/CD via GitHub OIDC                                                     | Yes                                                  |
+| 7     | Delete `infra/` and the five GCP dependencies                             | No                                                   |
 
 Phase 3 is deliberately early. **Nothing in this system has ever run in any cloud**, so the
 first real end-to-end run is the highest-information moment in the whole plan and should not be

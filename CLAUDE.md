@@ -40,13 +40,13 @@
 
 Follow all development rules in @DEVRULES.md
 
-| Document                                       | Why                                                                                                                                                                                                         |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document                                       | Why                                                                                                                                                                                                                           |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`docs/HANDOVER.md`](docs/HANDOVER.md)         | **Read first, in full.** Current state, what is proven vs assumed, the verified AWS account facts, the remaining phase plan, and the regression checklist. Written for an agent with no memory of how any of this came to be. |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete code-accurate reference — every app, lib, table, route and module, plus end-to-end flows and a "gotchas before you edit" section. **Read before changing anything unfamiliar.**                     |
-| [`docs/AWS-SETUP.md`](docs/AWS-SETUP.md)       | The AWS runbook and its guardrails. Phase 0 discovery is executable and read-only.                                                                                                                          |
-| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)     | The defect register. 17 of 19 closed; **read before debugging any end-to-end flow.**                                                                                                                        |
-| [`docs/PLAN.md`](docs/PLAN.md)                 | Design rationale, key decisions and epic status.                                                                                                                                                            |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete code-accurate reference — every app, lib, table, route and module, plus end-to-end flows and a "gotchas before you edit" section. **Read before changing anything unfamiliar.**                                      |
+| [`docs/AWS-SETUP.md`](docs/AWS-SETUP.md)       | The AWS runbook and its guardrails. Phase 0 discovery is executable and read-only.                                                                                                                                            |
+| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)     | The defect register. 17 of 19 closed; **read before debugging any end-to-end flow.**                                                                                                                                          |
+| [`docs/PLAN.md`](docs/PLAN.md)                 | Design rationale, key decisions and epic status.                                                                                                                                                                              |
 
 Keep all of these current when you change structure, and update `ARCHITECTURE.md` in the same
 change as the code it describes.

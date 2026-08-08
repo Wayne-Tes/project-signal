@@ -4,11 +4,11 @@ Product Specification
 
 Confidential · June 2026
 
-| Status | In development — pre-build specification |
-| :---- | :---- |
-| **Format** | SaaS · Agency-managed, multi-brand |
-| **Stack** | Next.js · Node.js · GCP · Vertex AI |
-| **Target launch** | 2026 |
+| Status            | In development — pre-build specification |
+| :---------------- | :--------------------------------------- |
+| **Format**        | SaaS · Agency-managed, multi-brand       |
+| **Stack**         | Next.js · Node.js · GCP · Vertex AI      |
+| **Target launch** | 2026                                     |
 
 # **1\. Overview**
 
@@ -18,34 +18,34 @@ The core proposition is moving brands from reactive reputation monitoring to pro
 
 # **2\. Product goals**
 
-* Continuously ingest brand signals across review platforms, social, news, and app stores
+- Continuously ingest brand signals across review platforms, social, news, and app stores
 
-* Score brand perception across trust, quality, service, value, and experience dimensions
+- Score brand perception across trust, quality, service, value, and experience dimensions
 
-* Surface the top weaknesses driving the most damage with verbatim evidence
+- Surface the top weaknesses driving the most damage with verbatim evidence
 
-* Produce a prioritised action roadmap with plain-English recommendations
+- Produce a prioritised action roadmap with plain-English recommendations
 
-* Generate a weekly branded report per client, delivered by email
+- Generate a weekly branded report per client, delivered by email
 
-* Maintain a full audit trail from every insight back to its source
+- Maintain a full audit trail from every insight back to its source
 
-* Support competitor tracking using the same pipeline and data model
+- Support competitor tracking using the same pipeline and data model
 
-* Scale cheaply across a growing brand portfolio with minimal per-brand marginal cost
+- Scale cheaply across a growing brand portfolio with minimal per-brand marginal cost
 
 # **3\. System architecture**
 
 The system is structured in six layers, all hosted on GCP. The intelligence layer runs on Vertex AI using a two-model strategy to balance cost and quality.
 
-| Layer | GCP service | Responsibility |
-| :---- | :---- | :---- |
-| Data sources | External (Apify, APIs, RSS) | Raw signal collection per brand |
-| Ingestion | Cloud Scheduler \+ Cloud Run (Node.js) | Pull scheduling, deduplication, entity resolution, raw store |
-| Queue | Cloud Pub/Sub | Item queue \+ report queue (separate topics) |
-| Intelligence | Vertex AI (Gemini Flash \+ Pro) | Sentiment scoring, topic clustering, report generation, anomaly detection |
-| Storage | Firestore \+ Cloud Storage \+ BigQuery | Processed signals, raw audit store, trend analytics |
-| Presentation | Cloud Run (Node.js API) \+ Next.js | Dashboard, drill-down, reports, alerts |
+| Layer        | GCP service                            | Responsibility                                                            |
+| :----------- | :------------------------------------- | :------------------------------------------------------------------------ |
+| Data sources | External (Apify, APIs, RSS)            | Raw signal collection per brand                                           |
+| Ingestion    | Cloud Scheduler \+ Cloud Run (Node.js) | Pull scheduling, deduplication, entity resolution, raw store              |
+| Queue        | Cloud Pub/Sub                          | Item queue \+ report queue (separate topics)                              |
+| Intelligence | Vertex AI (Gemini Flash \+ Pro)        | Sentiment scoring, topic clustering, report generation, anomaly detection |
+| Storage      | Firestore \+ Cloud Storage \+ BigQuery | Processed signals, raw audit store, trend analytics                       |
+| Presentation | Cloud Run (Node.js API) \+ Next.js     | Dashboard, drill-down, reports, alerts                                    |
 
 ### **Two-model strategy**
 
@@ -63,16 +63,16 @@ Brand and competitor data is isolated at the Firestore document level using a te
 
 MVP sources are selected for a combination of signal quality, cost, and access reliability. All sources are implemented as swappable adapters to allow future addition or replacement without pipeline changes.
 
-| Source | Access method | Est. cost/brand/mo | Notes |
-| :---- | :---- | :---- | :---- |
-| Google reviews | Apify scraper | £0.20–0.50 | Anchor source. High signal, low cost. Official Places API 68x more expensive per review. |
-| Trustpilot | Apify scraper | £0.20–0.50 | ToS risk — monitor. Official API is enterprise-only at £5k+/yr. Swap to official when scale justifies. |
-| YouTube | YouTube Data API (free) | £0 | Official, free up to 10k units/day. Comments and descriptions are high-signal. |
-| App stores | iTunes RSS \+ Play Store (free) | £0 | Official free feeds. Version-tagged sentiment. MVP inclusion. |
-| RSS / news | Direct fetch | £0 | Free, zero ToS risk. Curated feed list per brand at onboarding. |
-| NewsAPI | NewsAPI.org | £30/mo shared | Flat monthly cost shared across all brands. Business tier. |
-| X (Twitter) | Pay-per-use API | £5–20 (light use) | Tier 2\. $0.005/post read, no monthly minimum. Hard rate limits per brand required. |
-| Facebook | Graph API (owned pages) | £0 | Own page data only. Broader mention monitoring not available via official API. |
+| Source         | Access method                   | Est. cost/brand/mo | Notes                                                                                                  |
+| :------------- | :------------------------------ | :----------------- | :----------------------------------------------------------------------------------------------------- |
+| Google reviews | Apify scraper                   | £0.20–0.50         | Anchor source. High signal, low cost. Official Places API 68x more expensive per review.               |
+| Trustpilot     | Apify scraper                   | £0.20–0.50         | ToS risk — monitor. Official API is enterprise-only at £5k+/yr. Swap to official when scale justifies. |
+| YouTube        | YouTube Data API (free)         | £0                 | Official, free up to 10k units/day. Comments and descriptions are high-signal.                         |
+| App stores     | iTunes RSS \+ Play Store (free) | £0                 | Official free feeds. Version-tagged sentiment. MVP inclusion.                                          |
+| RSS / news     | Direct fetch                    | £0                 | Free, zero ToS risk. Curated feed list per brand at onboarding.                                        |
+| NewsAPI        | NewsAPI.org                     | £30/mo shared      | Flat monthly cost shared across all brands. Business tier.                                             |
+| X (Twitter)    | Pay-per-use API                 | £5–20 (light use)  | Tier 2\. $0.005/post read, no monthly minimum. Hard rate limits per brand required.                    |
+| Facebook       | Graph API (owned pages)         | £0                 | Own page data only. Broader mention monitoring not available via official API.                         |
 
 Reddit, TikTok Research API, and support ticket integrations (Zendesk, Intercom, Freshdesk) are deferred to later phases. Schema placeholders included in the data model.
 
@@ -144,26 +144,26 @@ Anomaly alerts are delivered by email (SendGrid) and optionally by webhook to a 
 
 The following are explicitly out of scope for the initial build but are accounted for in the data model and architecture to avoid breaking changes when added.
 
-| Feature | Notes |
-| :---- | :---- |
-| Revenue uplift model | Requires client revenue data integration. Schema placeholder in action document. |
-| Survey widget | First-party data collection. Separate frontend component \+ response ingestion adapter. |
-| Support ticket integrations | Zendesk, Intercom, Freshdesk. OAuth connectors, one per platform. |
-| Lighthouse / technical audit | Separate Cloud Run job. Scores stored as a distinct signal type in Firestore. |
-| Reddit commercial access | Viable at scale. Free tier non-commercial only. Upgrade when revenue justifies. |
-| TikTok Research API | Apply for access now. Gated approval takes weeks. |
-| Self-serve onboarding | MVP is agency-managed setup. Self-serve UI is a later product surface. |
+| Feature                      | Notes                                                                                   |
+| :--------------------------- | :-------------------------------------------------------------------------------------- |
+| Revenue uplift model         | Requires client revenue data integration. Schema placeholder in action document.        |
+| Survey widget                | First-party data collection. Separate frontend component \+ response ingestion adapter. |
+| Support ticket integrations  | Zendesk, Intercom, Freshdesk. OAuth connectors, one per platform.                       |
+| Lighthouse / technical audit | Separate Cloud Run job. Scores stored as a distinct signal type in Firestore.           |
+| Reddit commercial access     | Viable at scale. Free tier non-commercial only. Upgrade when revenue justifies.         |
+| TikTok Research API          | Apply for access now. Gated approval takes weeks.                                       |
+| Self-serve onboarding        | MVP is agency-managed setup. Self-serve UI is a later product surface.                  |
 
 # **9\. Open questions**
 
-* Revenue uplift model: benchmark-based (industry data) or client-connected (requires revenue data integration)? Affects scoring engine design.
+- Revenue uplift model: benchmark-based (industry data) or client-connected (requires revenue data integration)? Affects scoring engine design.
 
-* Onboarding flow: what is the minimum brand configuration required at setup? Keyword list, competitor set, source selection, dimension weights.
+- Onboarding flow: what is the minimum brand configuration required at setup? Keyword list, competitor set, source selection, dimension weights.
 
-* Report branding: agency-branded or Project Signal-branded? Affects PDF template design.
+- Report branding: agency-branded or Project Signal-branded? Affects PDF template design.
 
-* Alert thresholds: global defaults or per-brand configurable from the dashboard?
+- Alert thresholds: global defaults or per-brand configurable from the dashboard?
 
-* Trustpilot scraper: what is the contingency plan if Apify scraper is blocked? Official API negotiation or alternative source weighting.
+- Trustpilot scraper: what is the contingency plan if Apify scraper is blocked? Official API negotiation or alternative source weighting.
 
 Project Signal · Confidential · June 2026 · This document reflects the agreed pre-build specification. Deferred features are excluded from the initial build scope.

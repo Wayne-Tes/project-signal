@@ -23,14 +23,14 @@ change and are a first-class part of this handover.
 
 Things that the move made stale, or that still need doing:
 
-| What | Where | Status |
-| ---- | ----- | ------ |
-| Git remote | `.git/config` | ✅ Done. `origin` → `https://Wayne-Tes@github.com/Wayne-Tes/project-signal.git`. The old personal repo is retained as the `old-origin` remote; delete it when you are confident nothing is needed from it |
-| GitHub OIDC trust policy | not yet written (Phase 6) | **The IAM role's trust policy must name `repo:Wayne-Tes/project-signal:*`.** Get this right first time — a mismatch fails with an error that does not name the cause |
-| `github_repository` | `infra/bootstrap/variables.tf` | Updated to the new path for accuracy, but it is GCP WIF and **will never be applied** — see §8 |
-| Repo is user-owned, not org-owned | GitHub | `Wayne-Tes` is a **user account**, so there are no teams — access is per-individual collaborator. A repo can be transferred into an organisation later without losing history or issues; do that if the team needs shared ownership |
-| Branch protection | GitHub settings | Not yet configured. `ci.yml` runs on `main` and `staging`; `deploy-staging.yml` triggers on a **`staging` branch that does not exist** — see §9 |
-| GitHub Actions on a private repo | GitHub settings | Verify Actions are enabled and that GitHub-hosted runners are permitted. The workflows target `ubuntu-latest`; a self-hosted-only policy means they need editing |
+| What                              | Where                          | Status                                                                                                                                                                                                                              |
+| --------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Git remote                        | `.git/config`                  | ✅ Done. `origin` → `https://Wayne-Tes@github.com/Wayne-Tes/project-signal.git`. The old personal repo is retained as the `old-origin` remote; delete it when you are confident nothing is needed from it                           |
+| GitHub OIDC trust policy          | not yet written (Phase 6)      | **The IAM role's trust policy must name `repo:Wayne-Tes/project-signal:*`.** Get this right first time — a mismatch fails with an error that does not name the cause                                                                |
+| `github_repository`               | `infra/bootstrap/variables.tf` | Updated to the new path for accuracy, but it is GCP WIF and **will never be applied** — see §8                                                                                                                                      |
+| Repo is user-owned, not org-owned | GitHub                         | `Wayne-Tes` is a **user account**, so there are no teams — access is per-individual collaborator. A repo can be transferred into an organisation later without losing history or issues; do that if the team needs shared ownership |
+| Branch protection                 | GitHub settings                | Not yet configured. `ci.yml` runs on `main` and `staging`; `deploy-staging.yml` triggers on a **`staging` branch that does not exist** — see §9                                                                                     |
+| GitHub Actions on a private repo  | GitHub settings                | Verify Actions are enabled and that GitHub-hosted runners are permitted. The workflows target `ubuntu-latest`; a self-hosted-only policy means they need editing                                                                    |
 
 **Everything verified below was verified in AWS account `290304998906` (`tesai-dev-sandbox`).
 If the enterprise account is a different one, every account-specific fact in §3 is unverified
@@ -122,7 +122,7 @@ separable later"**. Concretely:
 - Every resource named `psignal-<env>-*`. Nothing generic, nothing that could collide.
 - **Our own VPC.** There is no default VPC in `eu-west-2` (verified: `describe-vpcs` returns
   nothing), so there is no CIDR to collide with and no shared default to land in by accident.
-- Mandatory tags on everything, applied as Terraform defaults so a resource *cannot* be created
+- Mandatory tags on everything, applied as Terraform defaults so a resource _cannot_ be created
   without them: `Project`, `Owner`, `CostCentre`, `Environment`, `ManagedBy=terraform`,
   `Expires`.
 - **Activate those as cost allocation tags in Billing.** Without that, spend is not attributable
@@ -141,12 +141,12 @@ not silently).
 
 ### 3.3 Existing state in the account
 
-| Fact | Value | Why it matters |
-| ---- | ----- | -------------- |
-| VPCs in `eu-west-2` | **none**, not even a default | We create our own, no collisions. Region caps at 5 |
-| OIDC providers | **`gitlab.com` only** | GitHub's does not exist — we can create it. **An account allows only one provider per URL**, so if one appears later, reference it rather than creating a duplicate |
-| Budgets | `monthly_tesai-dev-sandbox` (account-wide) | Do not touch it. Add a **tag-filtered** budget for this project alongside |
-| Spend at time of survey | ~$44 month-to-date, ~$182 forecast, both rising | Not compute (there are no VPCs) — most likely Bedrock. **Our Fargate tasks would be the first persistent compute spend in the account** |
+| Fact                    | Value                                           | Why it matters                                                                                                                                                      |
+| ----------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| VPCs in `eu-west-2`     | **none**, not even a default                    | We create our own, no collisions. Region caps at 5                                                                                                                  |
+| OIDC providers          | **`gitlab.com` only**                           | GitHub's does not exist — we can create it. **An account allows only one provider per URL**, so if one appears later, reference it rather than creating a duplicate |
+| Budgets                 | `monthly_tesai-dev-sandbox` (account-wide)      | Do not touch it. Add a **tag-filtered** budget for this project alongside                                                                                           |
+| Spend at time of survey | ~$44 month-to-date, ~$182 forecast, both rising | Not compute (there are no VPCs) — most likely Bedrock. **Our Fargate tasks would be the first persistent compute spend in the account**                             |
 
 The presence of a `gitlab.com` OIDC provider suggests the department's CI standard is GitLab
 while this repo is on GitHub. **Owner has confirmed: stay on GitHub.** Phase 6 therefore creates
@@ -165,9 +165,9 @@ $ aws bedrock-runtime converse --region eu-west-2 \
 way the error does not explain:
 
 1. **It is an inference profile, not a model id.** The bare
-   `anthropic.claude-haiku-4-5-20251001-v1:0` is rejected with *"Invocation of model ID … with
+   `anthropic.claude-haiku-4-5-20251001-v1:0` is rejected with _"Invocation of model ID … with
    on-demand throughput isn't supported. Retry your request with the ID or ARN of an inference
-   profile."* Newer models are profile-only.
+   profile."_ Newer models are profile-only.
 2. **`eu.` scopes routing to the EU.** Verified via `get-inference-profile`: it routes to
    `eu-west-2, eu-west-1, eu-west-3, eu-central-1, eu-north-1, eu-south-1, eu-south-2`.
    `global.` profiles also exist for the same models and route anywhere. **Note this is EU, not
@@ -208,15 +208,15 @@ from one explicitly fenced, self-cleaning IAM probe behind `--test-iam`.
 
 ### 4.1 The three library ports are done
 
-| Library | Was | Is | Notes |
-| ------- | --- | -- | ----- |
-| `libs/storage` | GCS | **S3** (`@aws-sdk/client-s3`) | Was already split types/impl/factory, so this was one file plus a factory line |
-| `libs/messaging` | Pub/Sub | **SQS** (`@aws-sdk/client-sqs`) | Publish side only — see §5 |
-| `libs/gemini` → **`libs/llm`** | Vertex AI | **Bedrock** (`@aws-sdk/client-bedrock-runtime`) | Renamed by use case, not provider |
+| Library                        | Was       | Is                                              | Notes                                                                          |
+| ------------------------------ | --------- | ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| `libs/storage`                 | GCS       | **S3** (`@aws-sdk/client-s3`)                   | Was already split types/impl/factory, so this was one file plus a factory line |
+| `libs/messaging`               | Pub/Sub   | **SQS** (`@aws-sdk/client-sqs`)                 | Publish side only — see §5                                                     |
+| `libs/gemini` → **`libs/llm`** | Vertex AI | **Bedrock** (`@aws-sdk/client-bedrock-runtime`) | Renamed by use case, not provider                                              |
 
 **There is deliberately no `CLOUD_PROVIDER` switch.** GCP was never provisioned and is
 abandoned, so a factory with one live branch would be dead code that still had to clear the 80%
-coverage gate. The *interfaces* were kept — they are what made each swap a single-file change —
+coverage gate. The _interfaces_ were kept — they are what made each swap a single-file change —
 and the GCP implementations were deleted, not parked.
 
 **All three take `AWS_ENDPOINT_URL` when set**, which points them at LocalStack, and nothing
@@ -230,7 +230,7 @@ The Gemini scorer asked for "ONLY valid JSON", stripped ` ```json ` fences, and 
 — **which acks the message.** The signal was dropped permanently and silently.
 
 The Bedrock client uses **forced tool use**: the model is given exactly one tool whose input
-schema *is* the shape we want, with `toolChoice` forcing it, so the provider returns a parsed
+schema _is_ the shape we want, with `toolChoice` forcing it, so the provider returns a parsed
 object. The fence-stripper and the `JSON.parse` are gone. **That failure class no longer
 exists** — it is not handled, it is absent.
 
@@ -242,8 +242,8 @@ silent data loss.
 `libs/config/src/index.ts` is the single source of truth for env vars — **not** `.env.example`,
 which is documentation of it and is allowed to drift. Notable current state:
 
-- `GOOGLE_CLOUD_PROJECT` is now **optional**. It was required, which meant *every app in the
-  monorepo refused to boot without it*, including the four that never touched GCP. That would
+- `GOOGLE_CLOUD_PROJECT` is now **optional**. It was required, which meant _every app in the
+  monorepo refused to boot without it_, including the four that never touched GCP. That would
   have been the first thing to stop an AWS container, with an error naming the variable but not
   the reason. It is still read by `firebase-admin` in `apps/api`; delete the line in the same
   change that removes the last firebase import.
@@ -278,17 +278,17 @@ Be precise about this, because the distinction is where projects lie to themselv
 
 ### Proven end to end, against real services (2026-08-07, local, LocalStack + Postgres)
 
-| Step | Evidence |
-| ---- | -------- |
-| Ingest 52 items from the live BBC RSS feed | `{"signalsCreated":52,"signalsPublished":52}` |
-| Raw payloads → S3 | 52 objects, correct `tenant/brand/source/externalId` key layout |
-| Read back out of S3 | Real article text recovered |
-| Publish → SQS | 52 messages, body is a bare signal UUID |
-| DB rows | 52, all carrying `s3://…` refs |
-| Dedup | Identical re-run created **0** |
-| Reconcile sweep | Found all 52 unscored, re-published |
-| Rollup | `{"brands":4,"rows":0}` — correct, nothing scored yet |
-| Logs | Zero error-level lines, no 5xx |
+| Step                                       | Evidence                                                        |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| Ingest 52 items from the live BBC RSS feed | `{"signalsCreated":52,"signalsPublished":52}`                   |
+| Raw payloads → S3                          | 52 objects, correct `tenant/brand/source/externalId` key layout |
+| Read back out of S3                        | Real article text recovered                                     |
+| Publish → SQS                              | 52 messages, body is a bare signal UUID                         |
+| DB rows                                    | 52, all carrying `s3://…` refs                                  |
+| Dedup                                      | Identical re-run created **0**                                  |
+| Reconcile sweep                            | Found all 52 unscored, re-published                             |
+| Rollup                                     | `{"brands":4,"rows":0}` — correct, nothing scored yet           |
+| Logs                                       | Zero error-level lines, no 5xx                                  |
 
 **This mattered.** There was never a GCS emulator, so `libs/storage`'s write path had only ever
 met a mock and gap #4 was closed on faith. The reconcile sweep had never run against a real
@@ -298,7 +298,7 @@ queue. Both work.
 
 - **Nothing has run in any cloud.** Not one line.
 - **Scoring has never executed against a real model.** Local LocalStack does not emulate
-  Bedrock. The `converse` smoke test proves the *account and model* work; it does not prove
+  Bedrock. The `converse` smoke test proves the _account and model_ work; it does not prove
   `libs/llm` + `scorer.ts` produce a usable `sentiment_results` row. **That is the single most
   valuable thing for you to prove first.**
 - **The SQS consumer does not exist.** `libs/messaging` covers the **publish** side only.
@@ -316,17 +316,17 @@ queue. Both work.
 Locked decisions (owner, 2026-08-06/07): **ECS Fargate** compute, **Cognito** auth, **RDS
 Postgres single instance**, **`eu-west-2`**, **GitHub** CI.
 
-| Phase | Work | Needs the account? |
-| ----- | ---- | ------------------ |
-| ~~0~~ | ~~Discovery~~ | ✅ **done** — §3 |
-| ~~B~~ | ~~Port libraries behind interfaces~~ | ✅ **done** — §4.1 |
-| ~~1~~ | ~~Guardrails: tag defaults, name prefix, tag-filtered budget, teardown script~~ | ✅ **written 2026-08-07** in `infra-aws/`; `fmt` and `validate` green. **Apply pending SSO credentials** — see `infra-aws/README.md` |
-| 2 | Foundation: VPC, RDS, S3, ECR, Secrets Manager | Yes |
-| 3 | **Thin vertical slice** — one brand, one RSS feed, one signal, ingest → score → read | Yes |
-| 4 | Full stack: Fargate services, SQS + DLQs, EventBridge Scheduler, **the SQS consumer** | Yes |
-| 5 | Cognito, then the browser pass over views nobody has ever seen | Yes |
-| 6 | CI/CD: GitHub OIDC → IAM role | Yes |
-| 7 | Delete `infra/` and the last Google dependencies | No |
+| Phase | Work                                                                                  | Needs the account?                                                                                                                   |
+| ----- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| ~~0~~ | ~~Discovery~~                                                                         | ✅ **done** — §3                                                                                                                     |
+| ~~B~~ | ~~Port libraries behind interfaces~~                                                  | ✅ **done** — §4.1                                                                                                                   |
+| ~~1~~ | ~~Guardrails: tag defaults, name prefix, tag-filtered budget, teardown script~~       | ✅ **written 2026-08-07** in `infra-aws/`; `fmt` and `validate` green. **Apply pending SSO credentials** — see `infra-aws/README.md` |
+| 2     | Foundation: VPC, RDS, S3, ECR, Secrets Manager                                        | Yes                                                                                                                                  |
+| 3     | **Thin vertical slice** — one brand, one RSS feed, one signal, ingest → score → read  | Yes                                                                                                                                  |
+| 4     | Full stack: Fargate services, SQS + DLQs, EventBridge Scheduler, **the SQS consumer** | Yes                                                                                                                                  |
+| 5     | Cognito, then the browser pass over views nobody has ever seen                        | Yes                                                                                                                                  |
+| 6     | CI/CD: GitHub OIDC → IAM role                                                         | Yes                                                                                                                                  |
+| 7     | Delete `infra/` and the last Google dependencies                                      | No                                                                                                                                   |
 
 **Phase 3 is deliberately early and you should resist the urge to defer it.** The superseded
 plan put the first true end-to-end run at Phase 5 of 7. That is indefensible when nothing has
@@ -350,18 +350,18 @@ already visible to others. The budget alarm in Phase 1 is not ceremony.
 Fifteen defects were closed to reach this point, several found by running the system rather than
 testing it. A re-platform is exactly the change that silently undoes them.
 
-| Property | Note |
-| -------- | ---- |
-| Brand-scoped routes enforce `brandEntityId` | Via `requireBrandAccess`. **It is opt-in per route and nothing fails when a new route omits it** — that is how `GET /brands/:id` kept the hole until 2026-08-07. Add it to every new `/brands/:id...` route |
-| User row and identity-provider claim are atomic | §4.4. The Cognito trap |
-| `PATCH /admin/users/:id` reads the target first and 404s for a foreign tenant | Not confirming a row's existence is deliberate |
-| Cursor pagination has deterministic `ORDER BY` + composite keyset | `(published_at, id)`; neither is a stable sort key alone |
-| Raw payloads written to object storage **before** the row insert | So `raw_storage_ref` can never point at a missing object |
-| Queue/topic names come from the environment, never a constant | Gap #7 |
-| Worker failures classified permanent vs transient | So the DLQ can fire. **Do not swallow errors in the SQS consumer** |
-| `dimension_scores` written by the rollup; `libs/scoring` stays pure | It needs no AWS changes at all |
-| `NEXT_PUBLIC_*` supplied as Docker **build args** | Inlined by `next build`; a runtime env var can never reach the client |
-| Node 20 everywhere | On Node 24, `next build` fails with a null React dispatcher three layers from the cause |
+| Property                                                                      | Note                                                                                                                                                                                                        |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Brand-scoped routes enforce `brandEntityId`                                   | Via `requireBrandAccess`. **It is opt-in per route and nothing fails when a new route omits it** — that is how `GET /brands/:id` kept the hole until 2026-08-07. Add it to every new `/brands/:id...` route |
+| User row and identity-provider claim are atomic                               | §4.4. The Cognito trap                                                                                                                                                                                      |
+| `PATCH /admin/users/:id` reads the target first and 404s for a foreign tenant | Not confirming a row's existence is deliberate                                                                                                                                                              |
+| Cursor pagination has deterministic `ORDER BY` + composite keyset             | `(published_at, id)`; neither is a stable sort key alone                                                                                                                                                    |
+| Raw payloads written to object storage **before** the row insert              | So `raw_storage_ref` can never point at a missing object                                                                                                                                                    |
+| Queue/topic names come from the environment, never a constant                 | Gap #7                                                                                                                                                                                                      |
+| Worker failures classified permanent vs transient                             | So the DLQ can fire. **Do not swallow errors in the SQS consumer**                                                                                                                                          |
+| `dimension_scores` written by the rollup; `libs/scoring` stays pure           | It needs no AWS changes at all                                                                                                                                                                              |
+| `NEXT_PUBLIC_*` supplied as Docker **build args**                             | Inlined by `next build`; a runtime env var can never reach the client                                                                                                                                       |
+| Node 20 everywhere                                                            | On Node 24, `next build` fails with a null React dispatcher three layers from the cause                                                                                                                     |
 
 Two traps that are not defects but have each cost real time:
 
@@ -462,13 +462,13 @@ the same way the real one will.
 All five were put to the owner at the start of Phase 1. Recorded here with their answers, since
 the reasoning matters more than the choice.
 
-| # | Question | Answer |
-| - | -------- | ------ |
-| 1 | Cost centre code, and `Environment` = `dev` or `sandbox`? | **`CostCentre = tesai-dev-sandbox`** as a placeholder — no formal code exists yet. **`Environment = dev`**, giving `psignal-dev-*`. The tag names *our* environment, not the account, so the stack lifts into a dedicated account later as an account-id change rather than a rename — the property §3.2 calls the highest-value one to protect |
-| 2 | Same account as `290304998906`? | **Yes, confirmed.** Every fact in §3 stands. Model ids are still re-verified at the moment of use |
-| 3 | EU-wide inference acceptable? | **Yes.** What crosses a border is public review text; storage, database and queues stay in `eu-west-2` |
-| 4 | `report-worker` on Fargate? | **Omit it** until Epic 12. A health-check skeleton as a permanently-running task is pure cost. Adding it back is a one-file change |
-| 5 | Postgres RLS? | **Add it in Phase 2 as defence-in-depth, keeping every existing `tenant_id` filter in place.** Belt and braces — no query is deleted, so a wrong policy cannot silently widen access, and the greenfield database is the only cheap moment to do it. Two defects of this class are already in the register (#5, #5b) plus the cross-tenant `PATCH` in #12 |
+| #   | Question                                                  | Answer                                                                                                                                                                                                                                                                                                                                                    |
+| --- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Cost centre code, and `Environment` = `dev` or `sandbox`? | **`CostCentre = tesai-dev-sandbox`** as a placeholder — no formal code exists yet. **`Environment = dev`**, giving `psignal-dev-*`. The tag names _our_ environment, not the account, so the stack lifts into a dedicated account later as an account-id change rather than a rename — the property §3.2 calls the highest-value one to protect           |
+| 2   | Same account as `290304998906`?                           | **Yes, confirmed.** Every fact in §3 stands. Model ids are still re-verified at the moment of use                                                                                                                                                                                                                                                         |
+| 3   | EU-wide inference acceptable?                             | **Yes.** What crosses a border is public review text; storage, database and queues stay in `eu-west-2`                                                                                                                                                                                                                                                    |
+| 4   | `report-worker` on Fargate?                               | **Omit it** until Epic 12. A health-check skeleton as a permanently-running task is pure cost. Adding it back is a one-file change                                                                                                                                                                                                                        |
+| 5   | Postgres RLS?                                             | **Add it in Phase 2 as defence-in-depth, keeping every existing `tenant_id` filter in place.** Belt and braces — no query is deleted, so a wrong policy cannot silently widen access, and the greenfield database is the only cheap moment to do it. Two defects of this class are already in the register (#5, #5b) plus the cross-tenant `PATCH` in #12 |
 
 **The cost centre placeholder is a live debt, not a decision.** Cost allocation tags do **not**
 backfill — they attribute from activation forward only. Every day spent on the placeholder is a

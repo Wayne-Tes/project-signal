@@ -50,7 +50,7 @@ Inherited from [`docs/AWS-SETUP.md`](../docs/AWS-SETUP.md) and generalised to an
    profile away from provisioning into a colleague's workload.
 2. **One prefix, everywhere.** Every resource is `<prefix>-<env>-<resource>`. No generic names.
 3. **Tags are mandatory, not decorative.** Applied as Terraform provider defaults, so a resource
-   *cannot* be created without them.
+   _cannot_ be created without them.
 4. **Cost controls precede spend.** A tag-filtered budget exists before the first billable
    resource.
 5. **Teardown is written before build-up**, and it verifies by independent inventory rather
@@ -65,7 +65,7 @@ Inherited from [`docs/AWS-SETUP.md`](../docs/AWS-SETUP.md) and generalised to an
 ```
 
 - `prefix` — 2–12 lower-case alphanumerics identifying the **project**. Registered in §6.
-- `environment` — the project's *own* environment (`local`, `dev`, `staging`, `prod`).
+- `environment` — the project's _own_ environment (`local`, `dev`, `staging`, `prod`).
   **Not the account's nature.** Do not use `sandbox`: it encodes which account you happen to be
   in today into resource names that are immutable once created, which is precisely what breaks
   the separability goal.
@@ -85,14 +85,14 @@ deep into a stack.
 
 Six keys, **PascalCase**, on every resource, applied as provider `default_tags`:
 
-| Key | Value | Why |
-| --- | ----- | --- |
-| `Project` | e.g. `project-signal` | The discriminator between co-tenant workloads. What budgets filter on |
-| `Owner` | a reachable person or team | Answers "whose is this" without a ticket |
-| `CostCentre` | the charge code | What makes spend attributable to a budget holder |
-| `Environment` | `dev`, `staging`, `prod` | The project's own environment |
-| `ManagedBy` | `terraform` | Distinguishes managed resources from console experiments |
-| `Expires` | ISO-8601 date | What makes a teardown sweep safe to point at stale resources |
+| Key           | Value                      | Why                                                                   |
+| ------------- | -------------------------- | --------------------------------------------------------------------- |
+| `Project`     | e.g. `project-signal`      | The discriminator between co-tenant workloads. What budgets filter on |
+| `Owner`       | a reachable person or team | Answers "whose is this" without a ticket                              |
+| `CostCentre`  | the charge code            | What makes spend attributable to a budget holder                      |
+| `Environment` | `dev`, `staging`, `prod`   | The project's own environment                                         |
+| `ManagedBy`   | `terraform`                | Distinguishes managed resources from console experiments              |
+| `Expires`     | ISO-8601 date              | What makes a teardown sweep safe to point at stale resources          |
 
 **Casing is load-bearing.** AWS tag keys are case-sensitive and cost allocation tags are
 activated by exact key, so `Project` and `project` are two different tags and only one of them
@@ -152,10 +152,10 @@ Say these out loud rather than discovering them:
 
 Maintained here until something better exists. **Add a row before you apply**, not after.
 
-| Project | Prefix | VPC CIDR | Repository | Owner |
-| ------- | ------ | -------- | ---------- | ----- |
-| Project Signal | `psignal` | `10.20.0.0/16` *(proposed, Phase 2)* | `Wayne-Tes/project-signal` | wayne.strydom@tes.com |
-| _next project_ | — | `10.21.0.0/16` suggested | — | — |
+| Project        | Prefix    | VPC CIDR                             | Repository                 | Owner                 |
+| -------------- | --------- | ------------------------------------ | -------------------------- | --------------------- |
+| Project Signal | `psignal` | `10.20.0.0/16` _(proposed, Phase 2)_ | `Wayne-Tes/project-signal` | wayne.strydom@tes.com |
+| _next project_ | —         | `10.21.0.0/16` suggested             | —                          | —                     |
 
 Allocating `/16`s from `10.20.0.0/16` upward leaves `10.0.0.0/16`–`10.19.0.0/16` clear of the
 range, which keeps this scheme from colliding with anything pre-existing or with a corporate
