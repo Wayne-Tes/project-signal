@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const BASE_ENV = {
   DATABASE_URL: 'postgresql://project_signal_app:password@localhost:5432/project_signal',
-  GOOGLE_CLOUD_PROJECT: 'project-signal-local',
+  COGNITO_USER_POOL_ID: 'eu-west-2_test',
+  COGNITO_CLIENT_ID: 'test-client-id',
 };
 
 describe('getEnv', () => {
@@ -26,7 +27,10 @@ describe('getEnv', () => {
     const { getEnv } = await import('../src/index.js');
     const env = getEnv();
     expect(env.DATABASE_URL).toBe(BASE_ENV.DATABASE_URL);
-    expect(env.GOOGLE_CLOUD_PROJECT).toBe('project-signal-local');
+    // Cognito replaced Firebase; GOOGLE_CLOUD_PROJECT is gone from the schema entirely, which
+    // is what closes out the last Google dependency on the API side.
+    expect(env.COGNITO_USER_POOL_ID).toBe('eu-west-2_test');
+    expect(env.COGNITO_CLIENT_ID).toBe('test-client-id');
     expect(env.SCORER_MODEL).toContain('eu.anthropic');
     expect(env.NODE_ENV).toBe('development');
     expect(env.PORT).toBe(8080);

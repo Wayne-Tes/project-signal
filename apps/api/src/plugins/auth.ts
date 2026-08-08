@@ -1,6 +1,7 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import admin from 'firebase-admin';
+import { CognitoJwtVerifier } from 'aws-jwt-verify';
+import { getEnv } from '@project-signal/config';
 
 export type UserRole = 'owner' | 'admin' | 'user';
 
@@ -22,6 +23,15 @@ const PUBLIC_ROUTE_PREFIXES = ['/health', '/ready', '/docs'];
 const USER_KEY = Symbol('user');
 
 /**
+ * Cognito custom attributes arrive on the ID token prefixed with `custom:`. The prefix is added
+ * by Cognito and cannot be configured away, so it is stripped here rather than leaking into
+ * `UserClaims` — the rest of the codebase reads `tenantId`, not `custom:tenantId`.
+ */
+const CLAIM_TENANT = 'custom:tenantId';
+const CLAIM_ROLE = 'custom:role';
+const CLAIM_BRAND = 'custom:brandEntityId';
+
+/**
  * Parse a development-only token of the form `dev:<role>:<tenantId>[:<brandEntityId>]`.
  *
  * The delimiter is `:` rather than `-` precisely because tenant and brand ids are UUIDs,
@@ -38,9 +48,39 @@ function parseDevToken(token: string): UserClaims {
   };
 }
 
+/**
+ * Authentication on Amazon Cognito, replacing Firebase / GCP Identity Platform.
+ *
+ * **Authorisation reads the token's claims, never the `users` table.** That table is a directory
+ * record for the admin UI; it is not consulted when authorising a request. The two diverging is
+ * a security problem rather than an untidiness, which is why `lib/claims.ts` writes the claim
+ * inside the same database transaction as the row (KNOWN-GAPS #18).
+ *
+ * `CognitoJwtVerifier` fetches and caches the pool's JWKS, and verifies the signature, issuer,
+ * audience, token use and expiry. Rolling our own with a generic JWT library is how the
+ * `tokenUse` check gets forgotten — an ACCESS token and an ID token are both validly signed by
+ * the same pool, but only the ID token carries the custom attributes this system authorises on.
+ */
 const authPlugin: FastifyPluginAsync = async (fastify) => {
-  if (!admin.apps.length) {
-    admin.initializeApp();
+  const env = getEnv();
+
+  // Built once at plugin registration, not per request: the verifier caches the JWKS, and
+  // constructing it per request would fetch the key set on every call.
+  const verifier =
+    env.COGNITO_USER_POOL_ID && env.COGNITO_CLIENT_ID
+      ? CognitoJwtVerifier.create({
+          userPoolId: env.COGNITO_USER_POOL_ID,
+          clientId: env.COGNITO_CLIENT_ID,
+          tokenUse: 'id',
+        })
+      : null;
+
+  if (!verifier && env.NODE_ENV === 'production') {
+    // Fail at boot rather than 401-ing every request in a way that looks like a client problem.
+    throw new Error(
+      'COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID are required in production — no identity ' +
+        'provider is configured, so no request could ever be authorised.',
+    );
   }
 
   fastify.decorateRequest<UserClaims>('user', {
@@ -62,18 +102,38 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     }
     const token = auth.slice(7);
 
-    if (process.env['NODE_ENV'] === 'development' && token.startsWith(DEV_TOKEN_PREFIX)) {
+    if (env.NODE_ENV === 'development' && token.startsWith(DEV_TOKEN_PREFIX)) {
       request.user = parseDevToken(token);
       return;
     }
 
+    if (!verifier) {
+      return reply.unauthorized('Invalid token');
+    }
+
     try {
-      const decoded = await admin.auth().verifyIdToken(token);
+      const payload = await verifier.verify(token);
+
+      const tenantId = payload[CLAIM_TENANT];
+      const role = payload[CLAIM_ROLE];
+
+      // A validly signed token from a user who has not been provisioned carries no tenant or
+      // role. Rejecting is the only safe reading: defaulting a role would grant access on the
+      // strength of a signature alone.
+      if (typeof tenantId !== 'string' || typeof role !== 'string') {
+        return reply.unauthorized('Token is missing tenant or role claims');
+      }
+
+      const brandEntityId = payload[CLAIM_BRAND];
+
       request.user = {
-        uid: decoded.uid,
-        tenantId: decoded['tenantId'] as string,
-        role: decoded['role'] as UserRole,
-        brandEntityId: decoded['brandEntityId'] as string | undefined,
+        uid: payload.sub,
+        tenantId,
+        role: role as UserRole,
+        // An unpinned user must be `undefined`, not `''`. requireBrandAccess treats a falsy pin
+        // as tenant-wide access, and an empty string would compare unequal to every brand id and
+        // lock the user out of everything.
+        brandEntityId: typeof brandEntityId === 'string' && brandEntityId ? brandEntityId : undefined,
       };
     } catch {
       return reply.unauthorized('Invalid token');

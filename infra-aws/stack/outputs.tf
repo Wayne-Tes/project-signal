@@ -88,3 +88,13 @@ output "ecs_cluster" {
   description = "Cluster name, for `aws ecs execute-command` when debugging a task in a private subnet."
   value       = aws_ecs_cluster.main.name
 }
+
+output "cognito_user_pool_id" {
+  description = "Cognito user pool. The API verifies tokens against its JWKS; the web client authenticates against it."
+  value       = aws_cognito_user_pool.main.id
+}
+
+output "cognito_client_id" {
+  description = "Public web app client id. Safe to ship in the browser bundle — it identifies the app, it does not authorise anything."
+  value       = aws_cognito_user_pool_client.web.id
+}

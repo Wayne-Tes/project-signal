@@ -13,13 +13,17 @@ const envSchema = z
     DB_NAME: z.string().default('project_signal'),
     DB_USER: z.string().default('project_signal_app'),
     DB_PASSWORD: z.string().optional(),
-    // Optional since the move to AWS. It was `z.string()` — required — which meant EVERY app in
-    // the monorepo refused to boot without it, including the four that never touched GCP
-    // (HANDOVER §5.1). That would have stopped the first AWS container from starting with an
-    // `Invalid environment: ...` error that named the variable but not the reason.
-    // Still read by `firebase-admin` in apps/api, which authenticates users until Cognito
-    // lands; delete this line in the same change that removes the last firebase-admin import.
-    GOOGLE_CLOUD_PROJECT: z.string().optional(),
+    // Cognito, which replaced Firebase as the identity provider. Neither value is a secret: the
+    // pool id is an identifier, and the client id is deliberately shipped in the browser bundle.
+    //
+    // Optional in the schema rather than required, because ingestion, the workers and every test
+    // boot without them — only apps/api verifies tokens. apps/api fails loudly at plugin
+    // registration when NODE_ENV is production and they are absent, which is the right place
+    // for that check: a missing identity provider there means no request could ever be
+    // authorised, and a boot failure beats 401-ing everything in a way that looks like a client
+    // bug.
+    COGNITO_USER_POOL_ID: z.string().optional(),
+    COGNITO_CLIENT_ID: z.string().optional(),
     // Comma-separated list of allowed browser origins for the API. Unset = reflect any origin
     // (safe here because auth is Bearer-token only, with no cookies/ambient credentials).
     CORS_ORIGINS: z.string().optional(),

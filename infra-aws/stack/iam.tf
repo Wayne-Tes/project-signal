@@ -185,3 +185,27 @@ resource "aws_iam_role_policy" "task_sentiment" {
 
 # Web: a Next.js server rendering a client-side SPA. It talks to the API over HTTP and touches
 # no AWS service at all, so it gets the common policy and nothing else.
+
+# The API is the only service that administers users: POST /admin/tenants and
+# POST|PATCH /admin/users create Cognito users and write their custom attributes inside the same
+# database transaction that writes the users row (KNOWN-GAPS #18). Scoped to this pool only.
+resource "aws_iam_role_policy" "task_api_cognito" {
+  name = "cognito-admin"
+  role = aws_iam_role.task["api"].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:AdminUpdateUserAttributes",
+        "cognito-idp:AdminSetUserPassword",
+        "cognito-idp:AdminDeleteUser",
+        "cognito-idp:ListUsers",
+      ]
+      Resource = aws_cognito_user_pool.main.arn
+    }]
+  })
+}

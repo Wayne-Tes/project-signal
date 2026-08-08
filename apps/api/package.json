@@ -14,6 +14,7 @@
     "bootstrap-owner": "tsx --env-file-if-exists=../../.env scripts/bootstrap-owner.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1106.0",
     "@fastify/cors": "^11.0.0",
     "@fastify/sensible": "^6.0.0",
     "@fastify/swagger": "^9.7.0",
@@ -22,10 +23,10 @@
     "@project-signal/db": "workspace:*",
     "@project-signal/scoring": "workspace:*",
     "@project-signal/shared-types": "workspace:*",
+    "aws-jwt-verify": "^5.2.1",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.0.0",
     "fastify-plugin": "^5.1.0",
-    "firebase-admin": "^13.10.0",
     "postgres": "^3.4.0"
   },
   "devDependencies": {

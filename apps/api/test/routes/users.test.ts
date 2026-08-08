@@ -42,15 +42,12 @@ vi.mock('@project-signal/db', () => {
 
 const mockSetCustomUserClaims = vi.hoisted(() => vi.fn());
 
-vi.mock('firebase-admin', () => ({
-  default: {
-    apps: ['app'],
-    initializeApp: vi.fn(),
-    auth: vi.fn(() => ({
-      setCustomUserClaims: mockSetCustomUserClaims,
-      verifyIdToken: vi.fn(),
-    })),
-  },
+// Mocks setUserClaims itself rather than the Cognito SDK beneath it. These tests are about
+// route behaviour and about the claim write happening INSIDE the database transaction
+// (KNOWN-GAPS #18) — not about how an attribute array is shaped. The mapping from claims to
+// Cognito attributes is covered directly in test/lib/claims.test.ts.
+vi.mock('../../src/lib/claims.js', () => ({
+  setUserClaims: mockSetCustomUserClaims,
 }));
 
 import usersRoutes from '../../src/routes/users.js';

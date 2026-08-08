@@ -42,15 +42,10 @@ vi.mock('@project-signal/db', () => {
   };
 });
 
-vi.mock('firebase-admin', () => ({
-  default: {
-    apps: ['app'],
-    initializeApp: vi.fn(),
-    auth: vi.fn(() => ({
-      setCustomUserClaims: mockSetCustomUserClaims,
-      verifyIdToken: vi.fn(),
-    })),
-  },
+// See the note in test/routes/users.test.ts: mocking setUserClaims keeps these tests focused on
+// the transactional guarantee rather than on Cognito's wire format.
+vi.mock('../../src/lib/claims.js', () => ({
+  setUserClaims: mockSetCustomUserClaims,
 }));
 
 import { adminRoutes } from '../../src/routes/admin.js';

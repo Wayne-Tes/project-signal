@@ -4,17 +4,25 @@ import sensible from '@fastify/sensible';
 import type { UserClaims } from '../../src/plugins/auth.js';
 
 const mockVerifyIdToken = vi.fn();
-const mockSetCustomUserClaims = vi.fn();
 
-vi.mock('firebase-admin', () => ({
-  default: {
-    apps: [],
-    initializeApp: vi.fn(),
-    auth: vi.fn(() => ({
-      verifyIdToken: mockVerifyIdToken,
-      setCustomUserClaims: mockSetCustomUserClaims,
-    })),
+// aws-jwt-verify does the signature, issuer, audience, token-use and expiry checks against the
+// pool's JWKS. Mocking the verifier means these tests cover what the PLUGIN does with a verified
+// payload — claim extraction, the unpinned-user case, and rejecting a token that verifies but
+// carries no tenant or role. It deliberately does not re-test JWT verification itself.
+vi.mock('aws-jwt-verify', () => ({
+  CognitoJwtVerifier: {
+    create: vi.fn(() => ({ verify: mockVerifyIdToken })),
   },
+}));
+
+// The plugin reads the pool and client id at registration and refuses to start in production
+// without them; supply them so the verifier is constructed rather than skipped.
+vi.mock('@project-signal/config', () => ({
+  getEnv: () => ({
+    NODE_ENV: 'development',
+    COGNITO_USER_POOL_ID: 'eu-west-2_test',
+    COGNITO_CLIENT_ID: 'test-client-id',
+  }),
 }));
 
 async function buildAuthApp() {
@@ -145,29 +153,51 @@ describe('auth plugin', () => {
     expect(body.user.brandEntityId).toBe(brandEntityId);
   });
 
-  it('verifies Firebase token in production mode', async () => {
+  it('maps Cognito custom attributes onto request.user', async () => {
     process.env['NODE_ENV'] = 'production';
+    // Cognito prefixes custom attributes with `custom:` and that prefix cannot be configured
+    // away, so the plugin strips it. The rest of the codebase reads `tenantId`.
     mockVerifyIdToken.mockResolvedValue({
-      uid: 'firebase-uid',
-      tenantId: 'tenant-prod',
-      role: 'admin',
-      brandEntityId: undefined,
+      sub: 'cognito-sub',
+      'custom:tenantId': 'tenant-prod',
+      'custom:role': 'admin',
+      'custom:brandEntityId': '',
     });
 
     const app = await buildAuthApp();
     const res = await app.inject({
       method: 'GET',
       url: '/protected',
-      headers: { authorization: 'Bearer real-firebase-token' },
+      headers: { authorization: 'Bearer real-cognito-token' },
     });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.user.uid).toBe('firebase-uid');
+    expect(body.user.uid).toBe('cognito-sub');
     expect(body.user.tenantId).toBe('tenant-prod');
-    expect(mockVerifyIdToken).toHaveBeenCalledWith('real-firebase-token');
+    // An empty attribute must become undefined, not ''. requireBrandAccess treats a falsy pin as
+    // tenant-wide access; an empty string would compare unequal to every brand id and lock the
+    // user out of everything they are entitled to see.
+    expect(body.user.brandEntityId).toBeUndefined();
+    expect(mockVerifyIdToken).toHaveBeenCalledWith('real-cognito-token');
   });
 
-  it('returns 401 when Firebase token verification fails', async () => {
+  it('returns 401 when the token verifies but carries no tenant or role', async () => {
+    process.env['NODE_ENV'] = 'production';
+    // A real, correctly signed token from a user who exists in the pool but was never
+    // provisioned by the API. Defaulting a role here would grant access on the strength of a
+    // signature alone.
+    mockVerifyIdToken.mockResolvedValue({ sub: 'cognito-sub' });
+
+    const app = await buildAuthApp();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      headers: { authorization: 'Bearer unprovisioned-token' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('returns 401 when token verification fails', async () => {
     process.env['NODE_ENV'] = 'production';
     mockVerifyIdToken.mockRejectedValue(new Error('Token expired'));
 
