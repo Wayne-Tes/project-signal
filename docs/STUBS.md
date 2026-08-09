@@ -9,11 +9,13 @@ third option.
 here, and the owner decides.
 
 **Written:** 2026-08-08, after the shell migration removed several working controls without
-recording that it had done so.
+recording that it had done so. **Last reviewed:** 2026-08-09.
 
 ---
 
-## 1. Export button — stub, never implemented
+## Open
+
+### 1. Export button — stub, never implemented
 
 **Where:** top bar, all views except Report.
 
@@ -27,17 +29,7 @@ smallest real implementation.
 
 ---
 
-## 2. Dashboard hero style — restored, working
-
-**Where:** Appearance popover → "Dashboard hero".
-
-**State:** working. `Dashboard` accepts a `hero` prop and switches between the radial gauge and
-bars. This was lost when the Tweaks panel was deleted and the Dashboard was left hardcoded to the
-gauge; it is now a persisted preference.
-
----
-
-## 3. Period label — reads mock data
+### 2. Period label — reads mock data
 
 **Where:** top bar, left of the role badge.
 
@@ -54,40 +46,72 @@ deletion is blocked on this decision.
 
 ---
 
-## 4. Typeface pairing — restored, but conflicts with the design system
-
-**Where:** Appearance popover → "Typeface".
-
-**State:** working. Four pairings, overriding `--font-display` / `--font-body` at the root.
-
-**The conflict:** the Aurora design system mandates Poppins + Open Sans as the house style,
-specifically so every Tes product looks like one family. A user-facing typeface switcher works
-against that. The prototype's other three pairings are retained because deleting a working
-control was not this layer's decision to take.
-
-**Owner decision needed:** keep it as a personalisation option, or remove it and hold the house
-typeface. If it stays, "House (Poppins + Open Sans)" remains the default.
-
----
-
-## 5. Animations toggle — restored, working
-
-**Where:** Appearance popover → "Animations".
-
-**State:** working. Sets `data-animate` on the root, which gates every `.ds-enter` entrance.
-
-**Deliberately independent of `prefers-reduced-motion`.** That media query is honoured separately
-in `tokens/animations.css` and a user turning animations back **on** does not override it — a
-preference must not defeat an accessibility setting.
-
----
-
-## 6. Views still on legacy markup
+### 3. Views still on legacy markup
 
 `Dashboard`, `Admin`, `Roadmap`, `Report`, `BrandManager`, `UserManager`, `DrillDown` and the
-charts still use the legacy stylesheet. Its `:root` hardcodes dark values and contains no
-`data-theme` rules, so **these surfaces render dark regardless of the chosen theme** — the black
-tiles reported in light mode.
+charts still use the legacy class names in `app/globals.css` rather than design-system
+components.
 
-Tracked as Phase B of [`PLAN-frontend-agent-help.md`](PLAN-frontend-agent-help.md), with a grep
-as the completion criterion.
+**This is no longer a visual defect.** The legacy palette was repointed onto design-system
+semantic tokens on 2026-08-09, so these views theme correctly in both light and dark, and the
+user's chosen highlight colour now reaches them. What remains is that they use bespoke classes
+instead of `Card`, `DataTable` and the rest — a consistency and maintenance cost, not a bug the
+user can see.
+
+Covered by `apps/web/e2e/theme.spec.ts`, which asserts no surface paints dark in the light theme
+on any view.
+
+---
+
+### 4. Sources modelled but not collecting
+
+**Where:** Admin → Manage brand → Sources.
+
+**State:** `trustpilot`, `news_api`, `x` and `survey` are accepted throughout — the type union,
+the schema and the UI all handle them — but **no collector runs for them**. Configuring one
+records intent and produces no signals, with no warning anywhere.
+
+Documented for users in the help centre (`available-sources`), which states plainly which five
+sources actually collect. That is honest, but the UI itself still offers all nine without
+distinction.
+
+**To finish:** either implement the adapters, or mark the non-collecting options in the Admin
+select so the product does not silently accept a configuration it cannot honour.
+
+---
+
+## Closed
+
+### ~~Dashboard hero style~~ — restored and working
+
+Appearance → "Dashboard hero". `Dashboard` accepts a `hero` prop and switches between the radial
+gauge and bars. Lost when the Tweaks panel was deleted; now a persisted preference.
+
+### ~~Typeface pairing~~ — kept, by owner decision
+
+Appearance → "Typeface". Four pairings, overriding `--font-display` / `--font-body` at the root.
+
+It is in tension with the Aurora design system, which mandates Poppins + Open Sans as the house
+style so every Tes product looks like one family. **The owner decided on 2026-08-09 to keep it as
+a personalisation option**, with House as the default. Recorded as a decision rather than left as
+an open question.
+
+### ~~Animations toggle~~ — restored and working
+
+Appearance → "Animations". Sets `data-animate` on the root, gating every `.ds-enter` entrance.
+
+Deliberately independent of `prefers-reduced-motion`: that media query is honoured separately in
+`tokens/animations.css`, and a user turning animations back **on** does not override it. A
+preference must not defeat an accessibility setting.
+
+### ~~Help system~~ — implemented 2026-08-09
+
+`libs/help-content` (18 articles), the help centre panel, contextual per-view help, and a
+first-run tour. Article integrity — dead cross-references, duplicate slugs, and the scoring
+constants the prose quotes — is enforced by tests against `libs/scoring`.
+
+### ~~In-product assistant~~ — implemented 2026-08-09
+
+Read-only, tenant-scoped, with citations derived from what was actually fetched rather than from
+what the model claims. See `apps/api/src/assistant/tools.ts` for why it re-enters the API's own
+routes instead of querying the database.

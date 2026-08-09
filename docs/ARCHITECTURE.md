@@ -1100,10 +1100,22 @@ condition through the real `PgDialect`, which is what catches a JS `Date` interp
 raw `sql` fragment — a bug that has shipped twice and that every mocked test passed both times,
 because a mocked database never renders SQL.
 
-There are **no end-to-end or integration tests** against a real Postgres or emulator, and no
-committed e2e harness — **Playwright is not a dependency in any `package.json`**. Browser
-verification is therefore MCP-driven and leaves no regression artefact. Adding `apps/web/e2e`
-is the standing fix.
+There are still **no integration tests against a real Postgres or emulator** — the route tests
+mock `@project-signal/db` entirely, which is why the two `sql` serialisation bugs above passed
+every one of them.
+
+**A browser harness now exists.** `apps/web/e2e` (Playwright 1.50, added 2026-08-09) signs in and
+drives the real application, asserting on **computed styles** rather than on class names. That
+distinction is the whole point: the light theme painted black cards on eight views while the unit
+suite was entirely green, because each component, token and helper was individually correct and
+nothing rendered the page and read the colour back. A class-name assertion would have passed too.
+
+`bash apps/web/e2e/run-docker.sh` runs it against a local dev server or a deployed environment
+with no local browser install — the image tag is pinned to the `@playwright/test` version so the
+two cannot drift.
+
+`apps/web` also has **component tests** now (Vitest + jsdom + React Testing Library), covering
+the markdown renderer's link-safety behaviour and the tour's storage logic.
 
 ---
 

@@ -10,7 +10,31 @@ anything I am building.
 
 ---
 
-## 1. 🔴 BLOCKING — Submit the Anthropic use case form in Bedrock
+## 1. 🟠 WORTH DOING — Submit the Anthropic use case form in Bedrock
+
+> **Downgraded from 🔴 BLOCKING on 2026-08-09.** Two profiles — `eu.anthropic.claude-sonnet-5`
+> and `eu.anthropic.claude-opus-5` — **do** answer in this account, so nothing is blocked. Every
+> service now defaults to Sonnet 5. Submitting the form re-opens the cheaper and faster profiles,
+> which matters for the scorer specifically: it runs once per signal, and Sonnet 5 costs
+> materially more per call than the Haiku it replaced.
+>
+> **Verified 2026-08-08T23:39Z** by invoking each EU Anthropic profile in `290304998906`:
+>
+> | Profile | Result |
+> | --- | --- |
+> | `eu.anthropic.claude-sonnet-5`, `eu.anthropic.claude-opus-5` | answered |
+> | Haiku 4.5, Sonnet 4.5, Opus 4.5, Sonnet 4.6, Opus 4.6, and the rest | `ResourceNotFoundException` — use case details |
+>
+> Six of the blocked profiles were still answering at ~22:50 the same evening. **Account-level
+> access is being changed while we work**, and this is a shared sandbox, so a co-tenant project
+> sees the same change at the same moment.
+>
+> **`list-inference-profiles` cannot verify this.** Every blocked profile is still listed by it.
+> Only an invoke tells you whether this account may use a model — which is why the entry below
+> was recorded as blocking on the strength of a listing, and why config comments now name the
+> invoke command and its timestamp instead.
+
+### Original entry, retained
 
 **What:** AWS Console → **Amazon Bedrock** (region **eu-west-2**) → **Model access** → Anthropic
 → submit the **use case details** form. It asks who you are and what you are building; it is a
