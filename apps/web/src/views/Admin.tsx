@@ -81,7 +81,11 @@ export function AdminView() {
             required
           />
           <label style={lbl} htmlFor="adminUid">
-            Admin Firebase UID
+            {/* The value is the Cognito `sub`. The wire field and the database column
+                are still named firebaseUid — see KNOWN-GAPS #25 — but showing an admin a
+                label naming an identity provider this product no longer uses is a defect
+                they cannot work around. */}
+            Admin Cognito user ID (sub)
           </label>
           <input
             id="adminUid"

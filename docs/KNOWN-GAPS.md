@@ -49,6 +49,7 @@
 | 22  | ~~Deployed model id could no longer be invoked~~                   | ✅ resolved | llm ↔ infra           |
 | 23  | ~~Workspace import undeclared; container crashed on boot~~         | ✅ resolved | build ↔ deploy        |
 | 24  | Four source types are offered in Admin and collect nothing         | 🟠 open     | ingestion ↔ web       |
+| 25  | `firebaseUid` naming survives in the schema and API contract       | 🟡 open     | db ↔ API ↔ web        |
 
 ---
 
@@ -795,6 +796,26 @@ collect. That is honest but insufficient: the UI still offers all nine without d
 **To close:** either implement the adapters, or mark the non-collecting options in the Admin
 select so the product stops accepting a configuration it cannot honour. The second is small and
 should not wait for the first.
+
+---
+
+## 25. 🟡 `firebaseUid` naming survives the move to Cognito
+
+Auth moved to Cognito, but the name did not. The database column is `users.firebase_uid`, the
+API contract takes `firebaseUid` / `adminFirebaseUid`, and until 2026-08-09 the Admin form
+asked an operator for an "Admin Firebase UID".
+
+**The user-visible labels are fixed** — they now say "Cognito user ID (sub)", because the value
+genuinely is the Cognito `sub` and naming an identity provider the product no longer uses is a
+defect an admin cannot work around.
+
+**The column and the wire field are unchanged**, deliberately. Renaming them is a generated
+migration plus a coordinated API-contract change, and it is a rename with no behavioural benefit —
+worth doing, not worth doing badly in the middle of unrelated work. The mismatch between the label
+and the field name is recorded here so the next person does not conclude one of them is a bug.
+
+**To close:** rename the column via `yarn db:generate`, update `shared-types`, the two routes
+and the two components together, in one change.
 
 ---
 

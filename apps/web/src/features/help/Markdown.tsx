@@ -37,12 +37,15 @@ function safeHref(href: string): string | undefined {
   return undefined;
 }
 
-/** Inline formatting: `**bold**`, `` `code` ``, and `[text](href)`. */
+/** Inline formatting: `**bold**`, `*italic*`, `` `code` ``, and `[text](href)`. */
 function renderInline(text: string, onNavigate?: (href: string) => void): ReactNode[] {
   const out: ReactNode[] = [];
-  /* One pass, one regex, alternation ordered so that code wins over bold — otherwise
-     `` `a ** b` `` renders half a bold tag inside a code span. */
-  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)]+\))/g;
+  /* One pass, one regex. Alternation order is load-bearing twice over:
+       - code first, so `` `a ** b` `` does not render half a bold tag inside a code span;
+       - bold BEFORE italic, so `**x**` is not consumed as an italic `*` followed by `*x*`.
+     Italic matters because the assistant writes it unprompted — it emitted "*no* index" and
+     the asterisks rendered literally, which reads as a formatting bug in the answer. */
+  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(\[[^\]]+\]\([^)]+\))/g;
   let last = 0;
   let match: RegExpExecArray | null;
   let key = 0;
@@ -59,6 +62,8 @@ function renderInline(text: string, onNavigate?: (href: string) => void): ReactN
       );
     } else if (token.startsWith('**')) {
       out.push(<strong key={`b${key}`}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('*')) {
+      out.push(<em key={`i${key}`}>{token.slice(1, -1)}</em>);
     } else {
       const split = token.indexOf('](');
       const label = token.slice(1, split);

@@ -136,6 +136,28 @@ describe('Markdown — inline formatting', () => {
     expect(container.querySelector('code')?.textContent).toBe('code');
   });
 
+  it('renders italic, which the assistant writes unprompted', () => {
+    /* REGRESSION. The assistant answered "...shows *no* index, which means unscored, not zero"
+       and the asterisks rendered literally, which reads to a user as a formatting bug in the
+       answer rather than a gap in the renderer. */
+    const { container } = render(<Markdown>{'shows *no* index'}</Markdown>);
+    expect(container.querySelector('em')?.textContent).toBe('no');
+  });
+
+  it('does not mistake bold for two italics', () => {
+    /* Alternation order: bold must be tried before italic, or **x** is consumed as a stray
+       '*' plus an italic '*x*' and the markup comes out inside-out. */
+    const { container } = render(<Markdown>{'**strong**'}</Markdown>);
+    expect(container.querySelector('strong')?.textContent).toBe('strong');
+    expect(container.querySelector('em')).toBeNull();
+  });
+
+  it('leaves a lone asterisk alone', () => {
+    const { container } = render(<Markdown>{'2 * 3 = 6'}</Markdown>);
+    expect(container.querySelector('em')).toBeNull();
+    expect(container.textContent).toBe('2 * 3 = 6');
+  });
+
   it('does not open a bold tag inside a code span', () => {
     /* Ordering in the tokeniser: code wins. Otherwise `a ** b` inside backticks renders half a
        <strong> and the rest of the paragraph inherits it. */

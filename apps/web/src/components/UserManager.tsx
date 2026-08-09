@@ -122,7 +122,7 @@ export function UserManager() {
         <table style={table}>
           <thead>
             <tr>
-              <th style={th}>Firebase UID</th>
+              <th style={th}>Cognito sub</th>
               <th style={th}>Role</th>
               <th style={th}>Brand</th>
             </tr>
@@ -158,7 +158,7 @@ export function UserManager() {
 
       <form onSubmit={create} style={{ marginTop: 20 }}>
         <label style={lbl} htmlFor="newUserUid">
-          Firebase UID
+          Cognito user ID (sub)
         </label>
         <input
           id="newUserUid"
