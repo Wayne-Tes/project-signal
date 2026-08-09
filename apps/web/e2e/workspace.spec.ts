@@ -38,7 +38,12 @@ test.describe('documentation page', () => {
 
   test('renders markdown rather than raw source', async ({ page }) => {
     await goToView(page, /documentation/i);
-    await page.getByRole('button', { name: /understanding the brand perception index/i }).click();
+    /* Scoped to the contents rail: the title also appears as a "Related" link on other
+       articles, so an unscoped lookup is ambiguous and Playwright refuses it outright. */
+    await page
+      .locator('.ds-docs__nav')
+      .getByRole('button', { name: /understanding the brand perception index/i })
+      .click();
     const article = page.locator('.ds-docs__article');
     await expect(article.locator('table').first()).toBeVisible();
     await expect(article).not.toContainText('| --- |');
