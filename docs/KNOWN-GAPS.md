@@ -7,8 +7,14 @@
 > the code currently does.
 >
 > Findings come from a full read of the repo on **2026-08-05**, re-verified against the code on
-> **2026-08-07** (which added #5b). Items struck through and
-> marked ✅ have since been fixed; everything else is still open.
+> **2026-08-07** (which added #5b) and on **2026-08-09** (which added #20-#24, four of them found
+> by driving the deployed system rather than by reading it). Items struck through and marked ✅
+> have since been fixed; everything else is still open.
+>
+> **#20, #23 and the ALB defect inside #23 share a shape worth naming: every local signal was
+> green and the deploy reported success, while the feature was absent or wrong in the browser.**
+> None would have been caught by reading code or by the unit suite. Ask the running system for
+> the thing that is supposed to be there.
 >
 > **Severity key:** 🔴 breaks a flow · 🟠 correctness/security risk · 🟡 incomplete or drift
 
@@ -31,13 +37,19 @@
 | 10  | ~~`dimension_scores` is never written~~                            | ✅ resolved | Epic 11               |
 | 11  | ~~Unused denormalised sentiment columns on `signals`~~             | ✅ resolved | schema                |
 | 12  | `POST /admin/users` gating fixed; users UI unverified              | 🟠 partial  | API + web             |
-| 13  | Four of six views wired; Roadmap + Report remain                   | 🟠 partial  | web ↔ API             |
+| 13  | ~~Views on mock data; `lib/data.ts` fixture~~                       | ✅ resolved | web ↔ API             |
 | 14  | ~~Hardcoded contractor fallbacks in the web client~~               | ✅ resolved | web config            |
 | 15  | ~~Working directory is not a git repository~~                      | ✅ resolved | repo                  |
 | 16  | No cloud environment — AWS discovery done, libs ported, undeployed | 🔴          | infra                 |
 | 17  | ~~`apps/web` build failure~~ — was local Node 24                   | ✅ resolved | tooling               |
 | 18  | ~~User writes not atomic with Firebase custom claims~~             | ✅ resolved | API                   |
 | 19  | ~~Web components use literal hex, not CSS custom properties~~      | ✅ resolved | web style             |
+| 20  | ~~Light theme painted black cards on eight views~~                  | ✅ resolved | web styling           |
+| 21  | ~~No committed e2e harness; no component tests~~                   | ✅ resolved | testing               |
+| 22  | ~~Deployed model id could no longer be invoked~~                   | ✅ resolved | llm ↔ infra           |
+| 23  | ~~Workspace import undeclared; container crashed on boot~~         | ✅ resolved | build ↔ deploy        |
+| 24  | ~~A source with no collector could be configured via the API~~     | ✅ resolved | API ↔ ingestion       |
+| 25  | `firebaseUid` naming survives in the schema and API contract       | 🟡 open     | db ↔ API ↔ web        |
 
 ---
 
@@ -383,7 +395,26 @@ before it is complete.
 
 ---
 
-## 13. 🟠 Dashboard views on mock data — **four of six wired**
+## 13. ✅ Dashboard views on mock data — **resolved (2026-08-09), `lib/data.ts` deleted**
+
+`apps/web/src/lib/data.ts` is **gone**. It was 588 lines of generated data for a fictional bank:
+an invented index and history, invented topic clusters, a hand-written roadmap with fabricated
+point-uplifts and confidence scores, and — worst — invented "verbatim" quotations attributed to
+invented authors on real-looking dates.
+
+Everything that read it now reads the API:
+
+| Surface | Now |
+| --- | --- |
+| **Roadmap** | Derived from real Brand impact clusters. Effort, confidence and projected uplift are GONE rather than reimplemented — the product has no model of what a fix costs, and with a 90-day half-life there is no honest point prediction. Share of current damage is real; "+3.4 pts" was not. |
+| **Report** | Real index, dimensions, trend, clusters and volumes. Says "not scored yet" rather than printing a number — this is the one page a user prints and hands to someone who cannot check it. |
+| **DrillDown** | Every level reads the API. The cluster level shows real signals via a new `?topic=` filter, and renders **no quotation at all**: the API returns signal metadata, the verbatim text lives in object storage and is exposed by no endpoint. A link to the original is the honest affordance. |
+| **Top-bar period** | The range `dimension_scores` actually covers, absent when there is none. |
+| **Source metadata** | Moved to `config/sources.ts` and keyed by the real `SignalSource` union. It was never mock data — a label and colour per source is real configuration — and deleting it with the fixture would have taken working presentation with it. It also fixes a live defect: the old map was keyed on display prose ("Google", "News"), so every real API id fell through to a grey bullet. |
+
+**The original entry, for context:**
+
+### Original: 🟠 four of six wired
 
 **Where:** `apps/web/src/lib/data.ts` (~574 lines) and the views that consume it.
 
@@ -684,6 +715,134 @@ were confirmed serving `background:var(--bg);color:var(--t2)`.
 (#16), and the Chrome MCP was not connected in this session, so no pixel-level check was
 possible on any of it. The near-miss mappings and the paper ramp need a browser pass once
 sign-in works — that pass is a checkpoint in the AWS auth phase, not an optional follow-up.
+
+---
+
+## 20. ✅ Light theme painted black cards on eight views — **resolved (2026-08-09)**
+
+`app/globals.css` imported the design-system tokens and then, on the next line, redefined `--bg`,
+`--surface`, `--surface-2` and the whole text ramp as hardcoded dark hex — **scoped to no
+`[data-theme]` selector at all**. `grep -c data-theme app/globals.css` returned **0**. The later
+declaration won, so every legacy `.card` resolved `var(--surface)` to `#14161c` whichever theme
+the user chose. The shell themed correctly, because it is already on the design system, which is
+why this looked like a broken product rather than a broken stylesheet.
+
+**Fixed** by repointing every legacy token at a design-system semantic token. That block now
+defines no colour at all, so the views inherit the already-correct light and dark definitions and
+none can be missed. `--peri`, the legacy "active/selected" colour, now resolves to `var(--accent)`
+— so the user's chosen highlight reaches breadcrumbs, drill-down rows and the competitor chart,
+which the Appearance popover previously had no effect on.
+
+**Why nothing caught it:** the entire unit suite was green throughout. Every component, every
+token file and `resolveTheme` were individually correct. The only wrong thing was the colour
+actually painted, and nothing rendered the page and read it back. See #21.
+
+---
+
+## 21. ✅ No committed e2e harness, and no component tests — **resolved (2026-08-09)**
+
+`DEVRULES.md` and `ARCHITECTURE.md` both recorded this as the standing gap: Playwright was not a
+dependency, so browser verification was MCP-driven and left no regression artefact.
+
+`apps/web/e2e` now signs in and drives the real app, asserting on **computed styles**. That is the
+specific property that matters — a class-name assertion would have passed while #20 was live.
+Written before the fix and **confirmed failing against the deployed build** (8 failed, 12 passed):
+a regression test that has never been seen red asserts nothing.
+
+`bash apps/web/e2e/run-docker.sh` needs no local browser install; the image tag is pinned to the
+`@playwright/test` version so the two cannot drift.
+
+`apps/web` also gained jsdom + React Testing Library. The renderer's link-safety behaviour
+(`javascript:` and `data:` URLs refused an href) is covered there, because assistant answers can
+quote a hostile signal.
+
+---
+
+## 22. ✅ The deployed model id could no longer be invoked — **resolved (2026-08-09)**
+
+`SCORER_MODEL` was `eu.anthropic.claude-haiku-4-5-20251001-v1:0`, recorded in `HANDOVER.md` §3.4
+as verified working on 2026-08-07. On 2026-08-08 it returns `ResourceNotFoundException: Model use
+case details have not been submitted for this account`. The sentiment worker was carrying a model
+id it could not invoke.
+
+**The recorded evidence was the wrong kind.** The profile was verified via
+`list-inference-profiles`, which still lists it, and still reports it `ACTIVE`. Listing tells you
+a profile exists; only an **invoke** tells you this account may use it.
+
+Verified by invoking every EU Anthropic profile at 2026-08-08T23:39Z: only
+`eu.anthropic.claude-sonnet-5` and `eu.anthropic.claude-opus-5` answer. **Six of the seven blocked
+profiles were answering an hour earlier the same evening**, so account-level access is being
+tightened during working hours — and this is a shared sandbox, so co-tenant projects see it too.
+
+All three model settings now default to Sonnet 5, and every recording of a model id names the
+invoke command and its timestamp. `OWNER-ACTIONS.md` #1 re-opens the cheaper profiles.
+
+---
+
+## 23. ✅ An undeclared workspace import crashed the container on boot — **resolved (2026-08-09)**
+
+`apps/api` imported `@project-signal/llm` without declaring it. Yarn hoists workspace packages
+into the root `node_modules`, so the import resolved in every local context **and in the Docker
+builder stage**. The runner stage runs `yarn workspaces focus <app> --production`, which installs
+only what is declared, so the container died with `ERR_MODULE_NOT_FOUND`, ECS's circuit breaker
+rolled the deployment back, and `describe-services` went on reporting the new task definition
+while the running task was the old image.
+
+**The shape worth remembering: a deploy that reports success while the feature is absent.** Lint,
+typecheck, unit tests, the image build and `terraform apply` were all green. It was found by
+asking the running API for the route and being told `Route POST:/assistant/messages not found`.
+
+`scripts/check-workspace-deps.mjs` now asserts every `@project-signal/*` import in an app's `src/`
+is declared. Verified by deleting the entry again and watching it fail. Runs in CI and as
+`yarn check:deps`.
+
+A sibling defect in the same deploy: `/assistant*` was missing from the ALB listener rule, so the
+request reached the **web** target group and 404'd. The comment above that rule already warned
+that a new API prefix must be added there — the warning was correct and was not read.
+
+---
+
+## 24. ✅ A source with no collector could be configured — **resolved (2026-08-09)**
+
+> **Correction.** This was first recorded as "four source types are offered in Admin and collect
+> nothing". **That was wrong, and it was written without checking the UI.** `BrandManager`
+> builds its source select from `SOURCE_FIELDS`, which contains exactly the five sources that do
+> collect. No user can pick a dead source from the interface.
+
+The real defect was one layer down. `POST /brands/:id/integrations` accepted **any string** as a
+source. The row was written, the source listed as configured and enabled, and every collection
+run then threw `No adapter for source` — an error the dispatcher counts as a failed source and
+drops. Nothing surfaced to whoever configured it, so the only symptom was a source producing no
+signals, which is indistinguishable from nobody talking about the brand.
+
+Reachable through the API directly, and through anything else that posts to it.
+
+**Resolved** by `COLLECTING_SOURCES` in `shared-types` — what the pipeline can actually fetch, as
+distinct from `SignalSource`, which is what the schema models. The API validates against it and
+names the available sources in the error; `apps/ingestion` has a test asserting its adapter
+registry matches the list exactly, because drift fails silently in **both** directions: an
+adapter added without updating the list is a collector the API refuses to configure, and one
+removed is a config the pipeline can never honour.
+
+---
+
+## 25. 🟡 `firebaseUid` naming survives the move to Cognito
+
+Auth moved to Cognito, but the name did not. The database column is `users.firebase_uid`, the
+API contract takes `firebaseUid` / `adminFirebaseUid`, and until 2026-08-09 the Admin form
+asked an operator for an "Admin Firebase UID".
+
+**The user-visible labels are fixed** — they now say "Cognito user ID (sub)", because the value
+genuinely is the Cognito `sub` and naming an identity provider the product no longer uses is a
+defect an admin cannot work around.
+
+**The column and the wire field are unchanged**, deliberately. Renaming them is a generated
+migration plus a coordinated API-contract change, and it is a rename with no behavioural benefit —
+worth doing, not worth doing badly in the middle of unrelated work. The mismatch between the label
+and the field name is recorded here so the next person does not conclude one of them is a bug.
+
+**To close:** rename the column via `yarn db:generate`, update `shared-types`, the two routes
+and the two components together, in one change.
 
 ---
 

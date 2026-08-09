@@ -73,6 +73,26 @@ export function keysetBefore(publishedAt: Date, id: string): SQL | undefined {
   );
 }
 
+/**
+ * Signals carrying a given topic.
+ *
+ * EXISTS against the scored row rather than a join: a join multiplies the signal row by its
+ * topics, which silently breaks both the page size and the keyset cursor — both assume one row
+ * per signal.
+ *
+ * The topic is a BOUND PARAMETER. It arrives from a URL and, through the assistant's tools, can
+ * be chosen by a language model; `= ANY(topics)` keeps it a value rather than SQL text in every
+ * case. Exported so a test can render it through the real dialect — see keyset.test.ts for why
+ * that is not optional in this file.
+ */
+export function topicFilter(topic: string): SQL {
+  return sql`EXISTS (
+    SELECT 1 FROM ${sentimentResults}
+    WHERE ${sentimentResults.signalId} = ${signals.id}
+      AND ${topic} = ANY(${sentimentResults.topics})
+  )`;
+}
+
 const signalsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     '/brands/:id/signals',
@@ -87,6 +107,11 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
             limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT, default: DEFAULT_LIMIT },
             cursor: { type: 'string' },
             source: { type: 'string' },
+            topic: {
+              type: 'string',
+              description:
+                'Return only signals the scorer tagged with this topic. This is how the drill-down shows the evidence behind a Brand impact cluster.',
+            },
           },
         },
         response: {
@@ -106,10 +131,12 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
         limit = DEFAULT_LIMIT,
         cursor,
         source,
+        topic,
       } = request.query as {
         limit?: number;
         cursor?: string;
         source?: string;
+        topic?: string;
       };
 
       const filters = [eq(signals.tenantId, request.user.tenantId), eq(signals.brandEntityId, id)];
@@ -124,6 +151,18 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
         if (keyset) filters.push(keyset);
       }
       if (source) filters.push(eq(signals.source, source));
+
+      /* Topic filter — the evidence behind a Brand impact cluster.
+     
+         Topics live on `sentiment_results.topics`, a text[], so this is an EXISTS against the
+         scored row rather than a join: a join would multiply the signal row by its topics and
+         silently break both the page size and the keyset cursor, which assume one row per
+         signal.
+     
+         The topic is passed as a BOUND PARAMETER inside the array literal rather than
+         interpolated. It arrives from a URL and, through the assistant, can be chosen by a
+         model; `= ANY(topics)` keeps it a value in every case. */
+      if (topic) filters.push(topicFilter(topic));
 
       const rows = await db
         .get()

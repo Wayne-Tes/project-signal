@@ -50,8 +50,8 @@ export function AdminView() {
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <div style={card}>
-        <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 18, margin: '0 0 4px' }}>
+      <div className="ds-card" style={card}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, margin: '0 0 4px' }}>
           Create tenant
         </h2>
         <p style={{ color: 'var(--t2)', fontSize: 13, margin: '0 0 20px' }}>
@@ -81,7 +81,11 @@ export function AdminView() {
             required
           />
           <label style={lbl} htmlFor="adminUid">
-            Admin Firebase UID
+            {/* The value is the Cognito `sub`. The wire field and the database column
+                are still named firebaseUid — see KNOWN-GAPS #25 — but showing an admin a
+                label naming an identity provider this product no longer uses is a defect
+                they cannot work around. */}
+            Admin Cognito user ID (sub)
           </label>
           <input
             id="adminUid"
@@ -133,11 +137,12 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+/* Kept as a style object for layout only. The SURFACE now comes from the design system's
+   `.ds-card` class — see the className on each panel. Painting a card from an inline style is a
+   second definition of what a card is, and it left the surface invisible to the e2e theme check,
+   which skipped instead of passing. */
 const card: CSSProperties = {
   padding: 24,
-  background: 'var(--bg-2)',
-  border: '1px solid var(--line)',
-  borderRadius: 14,
 };
 const lbl: CSSProperties = {
   display: 'block',

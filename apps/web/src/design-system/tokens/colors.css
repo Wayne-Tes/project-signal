@@ -89,6 +89,11 @@
   --surface-sunken: var(--tes-n-50);
   --surface-raised: var(--tes-white);
   --surface-hover: var(--tes-n-100);
+  /* The empty half of a progress track, and the ground under a subtle chip.
+     Distinct from --surface-sunken deliberately: sunken is n-50, which is
+     invisible on a white card, and a track that cannot be seen turns a bar
+     chart into a set of unanchored floating bars. */
+  --surface-track: var(--tes-n-200);
 
   --text-heading: var(--tes-ink);
   --text-body: var(--tes-n-700);
@@ -151,6 +156,9 @@
   --surface-sunken: #161a22;
   --surface-raised: #343a4a;
   --surface-hover: #343a4a;
+  /* Lighter than the card so a track reads as a recess in it, matching the
+     light theme's relationship rather than inverting it. */
+  --surface-track: rgba(255, 255, 255, 0.14);
 
   /* The navy-sidebar text ramp from the Aurora system, applied product-wide —
      white at descending alpha rather than a set of greys, so text sits ON the

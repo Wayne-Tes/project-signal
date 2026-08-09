@@ -239,13 +239,38 @@ categorically out of bounds — it is not merely another account, it is _the_ ac
 this repository may reference it, and the account-wide budget and cost allocation tag activation
 both ultimately belong to whoever operates it.
 
-### 3.4 Bedrock — verified working, and the ID is not obvious
+### 3.4 Bedrock — the ID is not obvious, and access is not stable
+
+> ## ⚠️ THE MODEL BELOW NO LONGER WORKS. Re-verified 2026-08-08T23:39Z.
+>
+> Haiku 4.5 now returns `ResourceNotFoundException: Model use case details have not been
+> submitted for this account`. It was the deployed `SCORER_MODEL`, so the sentiment worker was
+> carrying a model id it could no longer invoke.
+>
+> **What answers in `290304998906` / `eu-west-2` as of that timestamp:**
+> `eu.anthropic.claude-sonnet-5` and `eu.anthropic.claude-opus-5`. Nothing else.
+> Seven other EU Anthropic profiles — Haiku 4.5, Sonnet 4.5, Opus 4.5, Sonnet 4.6, Opus 4.6 among
+> them — refuse with the error above. **Six of those seven were answering at ~22:50 the same
+> evening**, so account-level access is being tightened while work is in progress, and this is a
+> shared sandbox: a co-tenant project sees the same change at the same moment.
+>
+> All three model settings now default to `eu.anthropic.claude-sonnet-5`.
+>
+> **The listing below is not evidence of access.** Every blocked profile is still `ACTIVE` in
+> `list-inference-profiles`. Listing tells you a profile exists; only an **invoke** tells you this
+> account may use it. That distinction is why the original note here was recorded as verified and
+> was nonetheless wrong within a day. Verify by invoking, at the moment of use.
+>
+> `docs/OWNER-ACTIONS.md` #1 (the Anthropic use case form) re-opens the cheaper profiles, which
+> matters for the scorer — it runs once per signal.
+
+The original note, kept because the three properties it explains are still exactly right:
 
 ```
 $ aws bedrock-runtime converse --region eu-west-2 \
     --model-id eu.anthropic.claude-haiku-4-5-20251001-v1:0 \
     --messages '[{"role":"user","content":[{"text":"Reply with exactly: OK"}]}]'
-→ "OK"   16 tokens   752 ms
+→ "OK"   16 tokens   752 ms      # 2026-08-07. Fails as of 2026-08-08.
 ```
 
 **Three properties of that model id are load-bearing.** Get any of them wrong and it fails in a
@@ -409,7 +434,7 @@ which is documentation of it and is allowed to drift. Notable current state:
   embeds the account id and region, so no constant could stand in for one. This is the AWS form
   of the fix for gap #7, where publishing to a hardcoded topic that existed in no environment
   failed silently.
-- `SCORER_MODEL` / `REPORTER_MODEL` default to the verified inference profile (§3.4).
+- `SCORER_MODEL` / `REPORTER_MODEL` / `ASSISTANT_MODEL` all default to `eu.anthropic.claude-sonnet-5`, verified by INVOKING it (§3.4). The previous Haiku 4.5 default no longer works.
 - `DB_SOCKET_PATH` still exists and is Cloud-SQL-proxy-only. **It simplifies away on RDS** —
   delete it when the database lands.
 

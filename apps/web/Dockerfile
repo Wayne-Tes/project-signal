@@ -10,6 +10,7 @@ FROM base AS builder
 COPY package.json yarn.lock .yarnrc.yml tsconfig.base.json ./
 COPY apps/ apps/
 COPY libs/ libs/
+COPY scripts/ scripts/
 RUN yarn install --immutable
 
 # NEXT_PUBLIC_* values are inlined into the client bundle by `next build`, so they must be
@@ -28,6 +29,13 @@ ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_COGNITO_USER_POOL_ID=$NEXT_PUBLIC_COGNITO_USER_POOL_ID \
     NEXT_PUBLIC_COGNITO_CLIENT_ID=$NEXT_PUBLIC_COGNITO_CLIENT_ID \
     NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
+# The web app now imports a workspace library (`@project-signal/help-content`, which carries the
+# help corpus the assistant and the help centre share). Workspace packages resolve through their
+# `main` field to `dist/`, which does not exist until they are built — without this the Next
+# build fails with "Module not found", which reads like a missing dependency rather than an
+# unbuilt one. The API image has always done the same thing one line before its own compile.
+RUN sh scripts/build-libs.sh
 
 RUN yarn workspace @project-signal/web run build
 

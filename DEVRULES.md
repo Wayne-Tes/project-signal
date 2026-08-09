@@ -54,7 +54,14 @@ A task is NOT done when the code is written, when it compiles, or when a unit te
   ```
   `yarn test` enforces an 80% coverage gate per project. For Terraform changes, additionally: `terraform fmt -check -recursive` and `terraform validate` in the affected tree.
 - **Front-end / UX / UI / user-facing work MUST be driven like a real user.** For any feature with a UI or an interactive flow, exercise it in a real browser. Start the stack with `yarn dev` (Docker services + all apps; the Next.js dashboard serves on `:3000`, the API on `:8080`), then drive it with the **Playwright MCP tools** or the **claude-in-chrome MCP tools** — confirm the MCP is actually connected before relying on it. PHYSICALLY interact with it — click, type, drag, navigate, submit, reload — and confirm it behaves exactly as a user would expect across the real flow. A green Vitest test does NOT substitute for actually using the feature; component tests are necessary, not sufficient.
-  > **Known limitation:** this repo has **no committed e2e harness** — Playwright is not a dependency in any `package.json`, verified 2026-08-06. Browser verification is therefore MCP-driven and leaves no regression artefact behind. Adding `apps/web/e2e` is the standing fix; until it exists, browser verification is manual-equivalent and must be described explicitly in the completion claim.
+  > **The harness now exists.** `apps/web/e2e` (added 2026-08-09) drives the real app with
+  > Playwright and asserts on **computed styles**, which is the only way a whole class of defect
+  > is caught: the light theme painted black cards on eight views while the entire unit suite
+  > stayed green, because every component, token and helper was individually correct and nothing
+  > rendered the page and read the colour back. Run it before claiming front-end work is done —
+  > `bash apps/web/e2e/run-docker.sh` needs no local browser install. MCP-driven browser checks
+  > are still welcome for exploration, but they leave no regression artefact and no longer
+  > substitute for the suite.
 - **Console-driven fix loop until clean.** If anything misbehaves, is uncertain, or looks off: open the **browser console** (plus the network panel and the relevant server logs — the Next.js dev server output and `docker compose logs postgres localstack`), read the ACTUAL errors, fix the root cause, and RE-TEST through the browser. Repeat until the issues are driven to zero and the console is clean. Never report an issue away, suppress it, or hand back a known-broken state.
 - **The completion claim must carry its proof.** When you state a task is complete, say HOW you proved it — the exact commands run and their output, the exact interactions you performed, what you observed, and that the console/network were clean — mirroring the inviolable rule's "include the verification step." "It should work" / "tests pass, so it's done" is rejected.
 
@@ -113,7 +120,8 @@ Verified 2026-08-06 by reading the files named. Re-verify rather than trusting t
 | Planning docs          | `docs/`                                                            | repo root                            |
 | Web framework          | Next.js 16 + React 19 (App Router)                                 | `apps/web/package.json`              |
 | Test runner            | Vitest 2, 80% coverage gate                                        | `package.json`, `*/vitest.config.ts` |
-| E2E harness            | **none — Playwright is not a dependency**                          | no match in any `package.json`       |
+| E2E harness            | Playwright 1.50, `apps/web/e2e`, container runner                  | `apps/web/playwright.config.ts`      |
+| Component tests        | Vitest + jsdom + React Testing Library                             | `apps/web/vitest.config.ts`          |
 | Package manager        | Yarn 4.9.2                                                         | `package.json` `packageManager`      |
 
 ## Standing conflicts to resolve

@@ -10,6 +10,34 @@ export type SignalSource =
   | 'x'
   | 'survey';
 
+/**
+ * The sources a collector actually exists for.
+ *
+ * `SignalSource` is what the SCHEMA models; this is what the pipeline can actually fetch. The
+ * two are deliberately different, and conflating them hides a real failure: the integrations
+ * endpoint accepted any string, so a source config for `trustpilot` could be stored, enabled and
+ * shown as configured, and then throw "No adapter for source" on every single collection run —
+ * where the error is counted as a failed source and dropped. Nothing surfaced to the person who
+ * configured it.
+ *
+ * Kept in shared-types rather than in `libs/source-adapters` so the API can validate against it
+ * without taking a dependency on every adapter's HTTP client. `apps/ingestion` has a test
+ * asserting its adapter registry matches this list exactly, so the two cannot drift.
+ */
+export const COLLECTING_SOURCES = [
+  'google_reviews',
+  'app_store',
+  'play_store',
+  'rss',
+  'youtube',
+] as const satisfies readonly SignalSource[];
+
+export type CollectingSource = (typeof COLLECTING_SOURCES)[number];
+
+export function isCollectingSource(value: string): value is CollectingSource {
+  return (COLLECTING_SOURCES as readonly string[]).includes(value);
+}
+
 // The five brand perception dimensions.
 export type Dimension = 'trust' | 'quality' | 'service' | 'value' | 'experience';
 

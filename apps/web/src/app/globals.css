@@ -18,24 +18,60 @@
 @import '../design-system/tokens/animations.css';
 @import '../design-system/styles.css';
 
-/* Project Signal — instrument-grade dark design system */
-:root {
-  --bg:        #0b0c0f;
-  --bg-2:      #101217;
-  --surface:   #14161c;
-  --surface-2: #191c24;
-  --surface-3: #20242e;
-  --line:      rgba(255,255,255,0.07);
-  --line2:     rgba(255,255,255,0.13);
-  --t1:        #f4f3ef;
-  --t2:        #a7abb6;
-  --t3:        #6c707c;
+/* ============================================================
+   LEGACY COMPATIBILITY BRIDGE
 
-  --mint:  #5dcaa5;
-  --peri:  #afa9ec;
-  --sky:   #85b7eb;
-  --coral: #e2725b;
-  --gold:  #d9b25f;
+   Every token below is an ALIAS onto a design-system semantic token. Nothing
+   here defines a colour.
+
+   THE DEFECT THIS FIXES. These names previously held hardcoded dark hex
+   values — `--surface: #14161c` and so on — declared AFTER the token imports
+   above and scoped to nothing. A `grep -c data-theme` on this file returned
+   zero. So every legacy `.card` resolved `var(--surface)` to near-black
+   whichever theme the user picked, and eight views rendered black tiles on a
+   light shell. The shell itself themed correctly, because it is already on the
+   design system, which is exactly why the fault looked like a broken product
+   rather than a broken stylesheet.
+
+   WHY ALIASES RATHER THAN A MARKUP REWRITE. 265 references to these names
+   survive across the views. Rewriting all of them at once is a large, silent,
+   entirely visual change with no way to review it hunk by hunk. Repointing the
+   names is one reviewable file, is total — no view can be missed, because none
+   of them reference a colour directly — and it costs nothing later: a view
+   migrated onto design-system components simply stops reading these.
+
+   It also fixes something that was never going to work otherwise. `--peri` was
+   the legacy "this is active / this is selected" colour, and it now resolves to
+   `var(--accent)`, so the user's chosen highlight colour reaches breadcrumbs,
+   drill-down rows and the competitor chart — surfaces the Appearance popover
+   previously had no effect on at all.
+
+   These names are FROZEN. Nothing new may reference them; new work uses the
+   semantic tokens directly. The block is deleted when the last view stops
+   reading it.
+   ============================================================ */
+:root {
+  --bg:        var(--app-bg);
+  --bg-2:      var(--surface-sunken);
+  --surface:   var(--surface-card);
+  --surface-2: var(--surface-hover);
+  --surface-3: var(--surface-track);
+  --line:      var(--border-hairline);
+  --line2:     var(--border-strong);
+  --t1:        var(--text-heading);
+  --t2:        var(--text-body);
+  --t3:        var(--text-muted);
+
+  /* The five legacy hues map onto SEMANTIC tokens, not onto the mosaic
+     primitives, because that is how they were used: mint marked a rising
+     score, coral a falling one. Both themes already carry a version of each
+     that clears its own background, so the meaning survives the theme change
+     and the contrast does too. */
+  --mint:  var(--status-positive);
+  --peri:  var(--accent);
+  --sky:   var(--text-link);
+  --coral: var(--status-critical);
+  --gold:  var(--status-warn);
 
   /* The font tokens are NOT redefined here. They come from
      design-system/tokens/typography.css — Poppins for display, Open Sans for
@@ -46,17 +82,23 @@
      render in the new faces, which is the intended outcome of the overhaul
      rather than a side effect to be worked around. */
 
-  --r-sm: 8px; --r: 14px; --r-lg: 20px;
-  --shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 40px -16px rgba(0,0,0,0.6);
+  /* Radii were 8/14/20 and the house scale is 6/10/14/18. `--r` was already
+     14px — the card radius — so cards are unchanged; the other two snap onto
+     the nearest house step rather than keeping two competing scales. */
+  --r-sm: var(--radius-md);
+  --r:    var(--radius-lg);
+  --r-lg: var(--radius-xl);
+  --shadow: var(--shadow-md);
 
-  /* Ink for text sitting ON an accent fill (e.g. a mint submit button). Near-black with a
-     green cast so it reads as part of the accent rather than a hole punched in it. */
-  --ink-accent: #06241b;
+  /* Text sitting ON an accent fill. The design system already solves this per
+     theme — near-black on light accents, and it flips with the theme — so the
+     old fixed green-black is dropped rather than re-expressed. */
+  --ink-accent: var(--accent-on);
 
-  /* Semantic status. Deliberately NOT the five accents above: those are brand colours and
-     the Tweaks palette switcher reassigns them, whereas "this toggle is on" must not change
-     meaning when someone picks Midnight ink. */
-  --ok: #34c759;
+  /* Semantic status. Deliberately NOT one of the five user accents: those are
+     chosen by the user, whereas "this toggle is on" must not change meaning
+     when someone picks a different highlight colour. */
+  --ok: var(--status-positive);
 
   /* ---------- paper surfaces ----------
      The printable report and the floating Tweaks panel are light by design. They are not

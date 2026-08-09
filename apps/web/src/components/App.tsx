@@ -1,14 +1,16 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Download, LogOut } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CircleHelp, Download, LogOut, Sparkles } from 'lucide-react';
 import type { NavActions, NavLevel } from '@/lib/types';
 import { AppShell, Badge, Button, Row, useAppearance } from '@/design-system';
 import { allowedViews, navForRole, type ViewId } from '@/config/navigation';
 import { DrillDown } from './DrillDown';
 import { useBrand } from '@/lib/brand-context';
+import { useReportingPeriod } from '@/hooks/useReportingPeriod';
+import { csvFilename, downloadCsv, toCsv, type ExportableSignal } from '@/lib/export-csv';
+import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { PS_BRAND } from '@/lib/data';
 import { Dashboard } from '@/views/Dashboard';
 import { TrendsView } from '@/views/Trends';
 import { BrandImpactView } from '@/views/BrandImpact';
@@ -16,6 +18,9 @@ import { RoadmapView } from '@/views/Roadmap';
 import { CompetitorsView } from '@/views/Competitors';
 import { ReportView } from '@/views/Report';
 import { AdminView } from '@/views/Admin';
+import { HelpCentre } from '@/features/help/HelpCentre';
+import { AssistantDock } from '@/features/assistant/AssistantDock';
+import { Tour, hasSeenTour } from '@/features/tour/Tour';
 
 /**
  * The application root.
@@ -35,9 +40,59 @@ export function App() {
   const { user, role, signOut } = useAuth();
   const { selected: selectedBrand } = useBrand();
   const { hero, animate } = useAppearance();
+  const period = useReportingPeriod();
+  const [exporting, setExporting] = useState(false);
+
+  /* Export was a stub — rendered, and wired to nothing (docs/STUBS.md #1). It now pages the
+     signals endpoint to completion and writes a CSV. Bounded at 20 pages so a brand with a very
+     large history cannot spin the browser indefinitely; the file says when it was truncated. */
+  const exportSignals = async (): Promise<void> => {
+    if (!selectedBrand || exporting) return;
+    setExporting(true);
+    try {
+      const rows: ExportableSignal[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 20; page += 1) {
+        const query: string = `limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+        const res: { items: ExportableSignal[]; nextCursor: string | null } = await apiFetch(
+          `/brands/${selectedBrand.id}/signals?${query}`,
+        );
+        rows.push(...res.items);
+        cursor = res.nextCursor;
+        if (!cursor) break;
+      }
+      downloadCsv(
+        csvFilename(selectedBrand.name, new Date().toISOString()),
+        toCsv(rows),
+      );
+    } catch {
+      /* Deliberately silent beyond re-enabling the button: there is no toast system in this
+         app, and an alert() would block the browser event loop. A failed export leaves the
+         button clickable, which is the correct affordance — try again. */
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const [view, setView] = useState<ViewId>('dashboard');
   const [path, setPath] = useState<NavLevel[]>([]);
+
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpSlug, setHelpSlug] = useState<string | undefined>();
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+
+  /* The tour offers itself once, to a genuinely new user. Deferred to an effect rather than
+     computed during render because `hasSeenTour` reads localStorage, which does not exist
+     during the server pass and would make the first client render disagree with it. */
+  useEffect(() => {
+    if (!hasSeenTour()) setTourOpen(true);
+  }, []);
+
+  const openArticle = (slug: string): void => {
+    setHelpSlug(slug);
+    setHelpOpen(true);
+  };
 
   const nav = useMemo(
     () => navForRole(role),
@@ -95,22 +150,53 @@ export function App() {
       }}
       actions={
         <>
-          {/* Period. Reads PS_BRAND, the prototype's mock data — the API exposes
-              no reporting window yet. STUB: docs/STUBS.md #3. */}
-          <span className="ds-eyebrow">{PS_BRAND.period}</span>
+          {/* Period. Now the range the brand's own scored data actually covers, derived from
+              dimension_scores. It previously printed a fixed string from the fictional-bank
+              fixture — a plausible reporting window corresponding to nothing. Absent until
+              there is data, rather than showing an invented one. */}
+          {period && <span className="ds-eyebrow">{period}</span>}
 
           {role ? <Badge tone="info">{role}</Badge> : null}
 
-          {/* STUB: never had a handler, in the prototype or now. Left visible and
-              disabled rather than removed — docs/STUBS.md #1. */}
+          {/* No longer a stub. Exports this brand's signals as CSV. */}
           <Button
             variant="ghost"
-            disabled
-            title="Export is not implemented yet"
+            disabled={!selectedBrand || exporting}
+            title={selectedBrand ? 'Export this brand’s signals as CSV' : 'Select a brand first'}
+            onClick={() => void exportSignals()}
             icon={<Download size={17} strokeWidth={1.8} aria-hidden="true" />}
           >
-            Export
+            {exporting ? 'Exporting…' : 'Export'}
           </Button>
+
+          {/* Help and the assistant sit in the top bar on EVERY view, because both answer
+              questions that arise while looking at something. Moving either into a settings
+              menu is how a help system stops being used. */}
+          <span data-tour="help">
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              icon={<CircleHelp size={17} strokeWidth={1.8} aria-hidden="true" />}
+              onClick={() => {
+                setHelpSlug(undefined);
+                setHelpOpen(true);
+              }}
+            >
+              Help
+            </Button>
+          </span>
+
+          <span data-tour="assistant">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />}
+              onClick={() => setAssistantOpen(true)}
+            >
+              Ask
+            </Button>
+          </span>
 
           {activeView === 'report' ? (
             <Button variant="primary" onClick={() => window.print()}>
@@ -119,9 +205,11 @@ export function App() {
           ) : (
             // The only entry point to the top-level drill-down. Removing it made
             // DrillDown reachable only by clicking into a dimension or cluster.
-            <Button variant="primary" onClick={drill.openOverview}>
-              Dig into score
-            </Button>
+            <span data-tour="drill">
+              <Button variant="primary" onClick={drill.openOverview}>
+                Dig into score
+              </Button>
+            </span>
           )}
         </>
       }
@@ -171,6 +259,27 @@ export function App() {
       </div>
 
       {path.length > 0 && <DrillDown path={path} nav={drill} />}
+
+      <HelpCentre
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        view={activeView}
+        initialSlug={helpSlug}
+        onStartTour={() => {
+          setHelpOpen(false);
+          setTourOpen(true);
+        }}
+      />
+
+      <AssistantDock
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        view={activeView}
+        brandId={selectedBrand?.id}
+        onOpenArticle={openArticle}
+      />
+
+      <Tour open={tourOpen} onClose={() => setTourOpen(false)} onOpenArticle={openArticle} />
     </AppShell>
   );
 }

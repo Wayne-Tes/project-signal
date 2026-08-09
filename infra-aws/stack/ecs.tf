@@ -60,6 +60,7 @@ locals {
     { name = "REPORT_QUEUE_URL", value = aws_sqs_queue.main["report"].url },
     { name = "SCORER_MODEL", value = var.scorer_model },
     { name = "REPORTER_MODEL", value = var.reporter_model },
+    { name = "ASSISTANT_MODEL", value = var.assistant_model },
     # Cognito replaces Firebase. Neither value is a secret: the pool id is an identifier and the
     # client id is shipped in the browser bundle by design. The API needs them to verify a
     # token's issuer and audience against the pool's JWKS.

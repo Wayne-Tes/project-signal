@@ -71,6 +71,13 @@ jobs:
         run: yarn nx run-many -t lint --parallel=4
       - name: Typecheck
         run: yarn nx run-many -t typecheck --parallel=4
+      # Catches a workspace package imported but not declared. Yarn hoisting makes such an
+      # import resolve everywhere except the Docker runner stage, where
+      # `yarn workspaces focus <app> --production` installs only what is declared — so the
+      # container crashes on boot, ECS rolls the deployment back, and the service keeps serving
+      # the old image while reporting the new task definition. Every other signal stays green.
+      - name: Workspace dependencies are declared
+        run: yarn check:deps
 
   # ── Unit tests — fail if any project is below 80 % coverage ───────────────
   test:

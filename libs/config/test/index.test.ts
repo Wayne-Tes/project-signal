@@ -79,16 +79,35 @@ describe('getEnv', () => {
     expect(env.YOUTUBE_API_KEY).toBe('yt-key-456');
   });
 
+  /**
+   * The default changed on 2026-08-09, and the reason is the point of the test.
+   *
+   * It was Haiku 4.5, recorded as verified via `list-inference-profiles`. That listing was not
+   * evidence: every profile this account may NOT invoke is still listed and still reports
+   * ACTIVE. Verified by actually invoking it, only Sonnet 5 and Opus 5 answer — so the deployed
+   * sentiment worker was carrying a model id it could no longer call.
+   *
+   * All three default to the same profile deliberately. Asserting that keeps them from drifting
+   * apart silently onto a value nobody has invoked.
+   */
+  const VERIFIED_MODEL = 'eu.anthropic.claude-sonnet-5';
+
   it('applies SCORER_MODEL default', async () => {
     delete process.env['SCORER_MODEL'];
     const { getEnv } = await import('../src/index.js');
-    expect(getEnv().SCORER_MODEL).toBe('eu.anthropic.claude-haiku-4-5-20251001-v1:0');
+    expect(getEnv().SCORER_MODEL).toBe(VERIFIED_MODEL);
+  });
+
+  it('applies ASSISTANT_MODEL default', async () => {
+    delete process.env['ASSISTANT_MODEL'];
+    const { getEnv } = await import('../src/index.js');
+    expect(getEnv().ASSISTANT_MODEL).toBe(VERIFIED_MODEL);
   });
 
   it('applies REPORTER_MODEL default', async () => {
     delete process.env['REPORTER_MODEL'];
     const { getEnv } = await import('../src/index.js');
-    expect(getEnv().REPORTER_MODEL).toBe('eu.anthropic.claude-haiku-4-5-20251001-v1:0');
+    expect(getEnv().REPORTER_MODEL).toBe(VERIFIED_MODEL);
   });
 
   it('accepts the SQS queue URLs', async () => {

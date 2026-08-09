@@ -24,6 +24,14 @@ const ADAPTERS = {
   youtube: new YoutubeAdapter(),
 } as const;
 
+/**
+ * The sources this process can actually collect.
+ *
+ * Exported so a test can assert it matches `COLLECTING_SOURCES` in shared-types, which the API
+ * validates new source configs against. Drift in either direction fails silently — see the test.
+ */
+export const ADAPTER_SOURCES = Object.keys(ADAPTERS) as (keyof typeof ADAPTERS)[];
+
 function getSystemCredentials(source: string): Record<string, string> {
   const env = getEnv();
   const apifyKey = env.APIFY_API_KEY ?? '';

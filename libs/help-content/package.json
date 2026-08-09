@@ -1,0 +1,22 @@
+{
+  "name": "@project-signal/help-content",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js && tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "test": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@project-signal/scoring": "workspace:*",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ]
+}

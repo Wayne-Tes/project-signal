@@ -44,7 +44,7 @@ export function SignIn() {
   return (
     <div style={wrap}>
       <form onSubmit={submit} style={card}>
-        <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 22, margin: '0 0 4px' }}>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 22, margin: '0 0 4px' }}>
           Project Signal
         </h1>
         <p style={{ color: 'var(--t2)', margin: '0 0 20px', fontSize: 13 }}>

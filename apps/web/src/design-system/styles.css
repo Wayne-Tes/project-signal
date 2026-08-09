@@ -870,3 +870,561 @@
   opacity: 1;
   transform: none;
 }
+
+/* ============================================================
+   OVERLAY SURFACES — help centre, assistant dock, product tour
+
+   Every colour here is a semantic token. That is not stylistic
+   tidiness: the black-tiles defect happened because a stylesheet
+   defined its own literal palette outside any [data-theme] rule,
+   and these three surfaces are the newest place that could happen
+   again. Nothing below names a colour.
+   ============================================================ */
+
+.ds-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: color-mix(in srgb, var(--tes-ink) 42%, transparent);
+  backdrop-filter: blur(2px);
+  animation: ds-fade-in var(--dur) var(--ease) both;
+}
+
+.ds-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  width: 520px;
+  max-width: 94vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-card);
+  border-left: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-lg);
+  animation: ds-slide-in var(--dur-enter) var(--ease) both;
+}
+
+.ds-drawer--assistant {
+  width: 560px;
+}
+
+@keyframes ds-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-drawer,
+  .ds-scrim {
+    animation: none;
+  }
+}
+
+.ds-drawer__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--border-hairline);
+  flex: none;
+}
+
+.ds-drawer__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-h3);
+  color: var(--text-heading);
+  flex: 1;
+}
+
+.ds-drawer__head > .ds-btn:first-child {
+  margin-right: auto;
+}
+
+.ds-drawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--s-5);
+  color: var(--text-body);
+}
+
+.ds-drawer__article-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-semibold);
+  color: var(--text-heading);
+  margin: 0 0 var(--s-2);
+  letter-spacing: var(--ls-tight);
+}
+
+.ds-drawer__article-summary {
+  color: var(--text-muted);
+  font-size: var(--fs-lead);
+  margin: 0 0 var(--s-5);
+}
+
+/* ---------- help centre ---------- */
+
+.ds-help__search {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-3);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  margin-bottom: var(--s-5);
+}
+
+.ds-help__search .ds-input {
+  border: none;
+  background: none;
+  padding-left: 0;
+  flex: 1;
+}
+
+.ds-help__search .ds-input:focus {
+  box-shadow: none;
+  outline: none;
+}
+
+.ds-help__category {
+  margin-bottom: var(--s-6);
+}
+
+.ds-help__category-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  color: var(--text-heading);
+  margin: 0 0 var(--s-1);
+}
+
+.ds-help__category-desc {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  margin: 0 0 var(--s-3);
+}
+
+.ds-help__results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.ds-help__result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: var(--s-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.ds-help__result:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.ds-help__result-title {
+  font-weight: var(--fw-semibold);
+  color: var(--text-heading);
+  font-size: var(--fs-body);
+}
+
+.ds-help__result-summary {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+}
+
+.ds-help__empty {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  padding: var(--s-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.ds-help__tour-prompt {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--accent);
+  background: var(--accent-tint);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--s-5);
+}
+
+.ds-help__tour-prompt div {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.ds-help__tour-prompt strong {
+  color: var(--text-heading);
+}
+
+.ds-help__tour-prompt span {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.ds-help__related {
+  margin-top: var(--s-6);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--border-hairline);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  align-items: flex-start;
+}
+
+.ds-help__related-item {
+  color: var(--text-link);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+}
+
+.ds-help__related-item:hover {
+  color: var(--text-link-hover);
+  text-decoration: underline;
+}
+
+/* ---------- markdown ---------- */
+
+.ds-md {
+  color: var(--text-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-relaxed);
+}
+
+.ds-md__h {
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  color: var(--text-heading);
+  margin: var(--s-5) 0 var(--s-2);
+}
+
+.ds-md__p {
+  margin: 0 0 var(--s-3);
+}
+
+.ds-md__list {
+  margin: 0 0 var(--s-3);
+  padding-left: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.ds-md__code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--surface-track);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+}
+
+.ds-md__pre {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--s-3);
+  overflow-x: auto;
+  margin: 0 0 var(--s-3);
+  color: var(--text-body);
+}
+
+.ds-md__link {
+  color: var(--text-link);
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ds-md__link:hover {
+  color: var(--text-link-hover);
+}
+
+/* Wide content scrolls inside its own container so the drawer never scrolls sideways. */
+.ds-md__table-wrap {
+  overflow-x: auto;
+  margin: 0 0 var(--s-4);
+}
+
+.ds-md__table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--fs-sm);
+}
+
+.ds-md__table th,
+.ds-md__table td {
+  border-bottom: 1px solid var(--border-hairline);
+  padding: var(--s-2) var(--s-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ds-md__table th {
+  color: var(--text-heading);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+/* ---------- assistant ---------- */
+
+.ds-assistant__intro p {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  margin: 0 0 var(--s-4);
+}
+
+.ds-assistant__suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.ds-assistant__suggestion {
+  text-align: left;
+  padding: var(--s-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--text-body);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.ds-assistant__suggestion:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.ds-assistant__exchange {
+  margin-bottom: var(--s-6);
+}
+
+.ds-assistant__question {
+  font-weight: var(--fw-semibold);
+  color: var(--text-heading);
+  background: var(--surface-sunken);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  padding: var(--s-3);
+  margin: 0 0 var(--s-3);
+}
+
+.ds-assistant__thinking {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-style: italic;
+}
+
+.ds-assistant__error {
+  color: var(--status-critical);
+  background: var(--status-critical-bg);
+  border-radius: var(--radius-md);
+  padding: var(--s-3);
+  font-size: var(--fs-sm);
+}
+
+.ds-assistant__note {
+  color: var(--status-warn);
+  background: var(--status-warn-bg);
+  border-radius: var(--radius-md);
+  padding: var(--s-2) var(--s-3);
+  font-size: var(--fs-sm);
+  margin: var(--s-3) 0 0;
+}
+
+.ds-assistant__steps {
+  margin-top: var(--s-3);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.ds-assistant__steps summary {
+  cursor: pointer;
+}
+
+.ds-assistant__steps ul {
+  margin: var(--s-2) 0 0;
+  padding-left: var(--s-5);
+}
+
+.ds-assistant__citations {
+  margin-top: var(--s-4);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--border-hairline);
+}
+
+.ds-assistant__citations ul {
+  list-style: none;
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.ds-assistant__citation {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  gap: 1px;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-body);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+a.ds-assistant__citation:hover,
+button.ds-assistant__citation:hover {
+  border-color: var(--accent);
+}
+
+.ds-assistant__citation-title {
+  font-weight: var(--fw-medium);
+  color: var(--text-heading);
+}
+
+.ds-assistant__citation-detail {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.ds-assistant__composer {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-5) var(--s-4);
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface-card);
+}
+
+.ds-assistant__input {
+  flex: 1;
+  resize: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-body);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md);
+  padding: var(--s-2) var(--s-3);
+}
+
+.ds-assistant__input:focus {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent);
+}
+
+/* ---------- tour ---------- */
+
+.ds-tour {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+
+/* Four masks around the spotlight rather than one scrim with a cut-out: a box-shadow hole
+   still intercepts the pointer, and the highlighted control has to stay visible. */
+.ds-tour__mask {
+  position: fixed;
+  background: color-mix(in srgb, var(--tes-ink) 62%, transparent);
+}
+
+.ds-tour__ring {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 4px var(--accent-tint);
+  pointer-events: none;
+}
+
+.ds-tour__card {
+  position: fixed;
+  width: 360px;
+  max-width: 92vw;
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.ds-tour__title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  color: var(--text-heading);
+  margin: 0;
+}
+
+.ds-tour__body {
+  color: var(--text-body);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-relaxed);
+  margin: 0;
+}
+
+.ds-tour__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+
+.ds-tour__spacer {
+  flex: 1;
+}

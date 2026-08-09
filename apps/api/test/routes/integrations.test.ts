@@ -132,3 +132,50 @@ describe('DELETE /brands/:id/integrations/:source', () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+describe('source validation', () => {
+  /**
+   * A source with no collector must be refused at configuration time.
+   *
+   * Before this, any string was accepted. The row was written, the UI listed the source as
+   * configured and enabled, and every collection run threw "No adapter for source" — which the
+   * dispatcher counts as a failed source and drops. The person who configured it was never told,
+   * so the only symptom was a source that produced no signals, which looks exactly like nobody
+   * talking about the brand.
+   */
+  it('rejects a source that is modelled but has no collector', async () => {
+    const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/brands/brand-1/integrations',
+      payload: { source: 'trustpilot', config: { url: 'https://example.com' } },
+    });
+    expect(res.statusCode).toBe(400);
+    /* The message names what IS available — an error that only says "no" leaves the admin
+       guessing which of nine source names the product actually supports. */
+    expect(JSON.parse(res.body).error).toContain('rss');
+  });
+
+  it('rejects a source that is not a source at all', async () => {
+    const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/brands/brand-1/integrations',
+      payload: { source: 'definitely-not-a-source', config: {} },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('still accepts every source that does have a collector', async () => {
+    const { COLLECTING_SOURCES } = await import('@project-signal/shared-types');
+    for (const source of COLLECTING_SOURCES) {
+      const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/brands/brand-1/integrations',
+        payload: { source, config: { feedUrl: 'https://example.com/feed' } },
+      });
+      expect(res.statusCode, source).not.toBe(400);
+    }
+  });
+});

@@ -1,354 +1,287 @@
 'use client';
-import { useEffect } from 'react';
-import type { NavLevel, NavActions } from '@/lib/types';
+
+import { useApi } from '@/hooks/useApi';
+import { useBrand } from '@/lib/brand-context';
 import {
-  PS_BRAND,
-  PS_DIMENSIONS,
-  PS_CLUSTERS,
-  PS_SOURCES,
-  PS_SIGNALS,
-  PS_HISTORY,
-  signalsFor,
-  clusterById,
-} from '@/lib/data';
+  DIMENSION_LABELS,
+  isDimensionKey,
+  roundScore,
+  toDimensionCards,
+  type ApiBrandScore,
+  type ApiCluster,
+} from '@/lib/brand-data';
+import { sourceMeta } from '@/config/sources';
+import { SourceGlyph } from './primitives';
 import { scoreColor, sentColor, sentLabel } from '@/lib/utils';
-import { useCountUp } from '@/hooks/useCountUp';
-import { Delta, SourceBadge, SourceGlyph, Stars, SentChip } from './primitives';
-import { LineChart } from './charts';
+import type { NavActions, NavLevel } from '@/lib/types';
 
-function MixBar({ mix }: { mix: Record<string, number> }) {
-  const total = Object.values(mix).reduce((a, b) => a + b, 0);
+/**
+ * The drill-down: index → dimension → topic → the individual signals.
+ *
+ * This is the product's actual differentiator — every number traces to the specific things
+ * people said — and until now every level of it was fiction. It rendered `PS_BRAND`,
+ * `PS_CLUSTERS` and `PS_SIGNALS`: a fictional bank's score, invented topic clusters, and
+ * hand-written "verbatim" quotations attributed to made-up authors on real-looking dates.
+ *
+ * Fabricated evidence is the worst thing this file could contain. A wrong aggregate is a bug; an
+ * invented quotation shown as something a customer said is a different category of problem.
+ *
+ * Every level now reads the API. Where the API cannot answer, the level says so rather than
+ * filling the space.
+ */
+
+interface ApiSignal {
+  id: string;
+  source: string;
+  sourceUrl: string | null;
+  publishedAt: string;
+}
+
+function MetricRow({ items }: { items: { label: string; value: string; tone?: string }[] }) {
   return (
-    <div>
-      <div className="mixbar">
-        {Object.entries(mix).map(([k, v]) => (
-          <span
-            key={k}
-            style={{ width: `${(v / total) * 100}%`, background: PS_SOURCES[k]?.tone }}
-            title={`${k} ${Math.round((v / total) * 100)}%`}
-          />
-        ))}
-      </div>
-      <div className="mix-legend">
-        {Object.entries(mix).map(([k, v]) => (
-          <span className="it" key={k}>
-            <SourceGlyph name={k} size={13} /> {PS_SOURCES[k]?.short}
-            <b className="mono" style={{ color: 'var(--t3)' }}>
-              {Math.round((v / total) * 100)}%
-            </b>
-          </span>
-        ))}
-      </div>
+    <div className="metric-row">
+      {items.map((m) => (
+        <div className="metric" key={m.label}>
+          <div className="l">{m.label}</div>
+          <div className="v" style={m.tone ? { color: m.tone } : undefined}>
+            {m.value}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
+/** Level 1 — the index and its five dimensions. */
 function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
-  const shown = useCountUp(PS_BRAND.score, { duration: 1200 });
+  const { brandId, selected } = useBrand();
+  const { data, loading } = useApi<ApiBrandScore>(brandId ? `/brands/${brandId}/score` : null);
+
+  if (loading) return <p className="drill-sub">Loading…</p>;
+
+  const index = data?.score ?? null;
+  const previous = data?.previousScore ?? null;
+  const dimensions = data ? toDimensionCards(data) : [];
+
   return (
-    <div>
-      <p className="kicker">Composite index</p>
-      <h2 className="drill-title">{PS_BRAND.scoreLabel}</h2>
-      <p className="drill-sub">
-        A weighted composite of five perception dimensions. Drill into any dimension to see
-        what&apos;s driving it — down to the individual review or comment.
-      </p>
-      <div className="metric-row">
-        <div className="metric">
-          <div className="l">Score</div>
-          <div className="v" style={{ color: scoreColor(PS_BRAND.score) }}>
-            {shown}
+    <>
+      <h2 className="drill-title">{selected?.name ?? 'Brand'}</h2>
+      <p className="drill-sub">Brand Perception Index and the five dimensions beneath it.</p>
+
+      {index === null ? (
+        /* "Not scored" is a different statement from "scored zero", and only one of them is
+           true here. */
+        <p className="prov">
+          This brand has no Brand Perception Index yet — the daily rollup has not scored it.
+          Scores appear once signals have been ingested and scored.
+        </p>
+      ) : (
+        <>
+          <MetricRow
+            items={[
+              { label: 'Index', value: String(roundScore(index)), tone: scoreColor(index) },
+              {
+                label: 'Change',
+                value:
+                  previous === null ? 'no comparison' : `${index >= previous ? '+' : ''}${roundScore(index - previous)}`,
+              },
+              { label: 'As at', value: data?.date?.slice(0, 10) ?? '—' },
+            ]}
+          />
+
+          <div className="drill-list">
+            {dimensions.map((d) => (
+              <button className="drill-row" key={d.key} onClick={() => onDim(d.key)}>
+                <div className="lead" style={{ background: 'var(--surface-track)', color: scoreColor(d.score) }}>
+                  {roundScore(d.score)}
+                </div>
+                <div className="body">
+                  <div className="nm">{d.label}</div>
+                  <div className="ds">
+                    {d.signalCount} signal{d.signalCount === 1 ? '' : 's'} contributed
+                  </div>
+                </div>
+                <div className="arr">→</div>
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="metric">
-          <div className="l">Δ vs prev</div>
-          <div className="v">
-            <Delta value={PS_BRAND.score - PS_BRAND.prevScore} />
-          </div>
-        </div>
-        <div className="metric">
-          <div className="l">Signals / wk</div>
-          <div className="v">{(PS_BRAND.signalsThisWeek / 1000).toFixed(1)}k</div>
-        </div>
-      </div>
-      <p className="kicker" style={{ marginBottom: 10 }}>
-        Contributing dimensions
-      </p>
-      <div className="drill-list">
-        {PS_DIMENSIONS.map((d) => (
-          <button key={d.key} className="drill-row" onClick={() => onDim(d.key)}>
-            <div
-              className="lead"
-              style={{
-                background: `color-mix(in srgb, ${scoreColor(d.score)} 16%, transparent)`,
-                color: scoreColor(d.score),
-              }}
-            >
-              {d.score}
-            </div>
-            <div className="body">
-              <div className="nm">
-                {d.label} <Delta value={d.score - d.prev} />
-              </div>
-              <div className="ds">
-                Weight {Math.round(d.weight * 100)}% · {d.blurb}
-              </div>
-              <div className="mini-bar">
-                <i style={{ width: `${d.score}%`, background: scoreColor(d.score) }} />
-              </div>
-            </div>
-            <span className="arr">→</span>
-          </button>
-        ))}
-      </div>
+        </>
+      )}
+
       <div className="prov">
-        <b>Provenance.</b> Composite recomputed hourly from{' '}
-        {PS_BRAND.signalsThisWeek.toLocaleString()} processed signals this week across{' '}
-        {PS_BRAND.sourcesActive} sources. Recency-weighted, 90-day half-life. Model: Gemini Flash ·
-        confidence-filtered ≥ 0.6.
+        Weighted by <b>recency × confidence</b>, on a <b>90-day half-life</b>. Every figure here is
+        computed from scored signals for this brand.
       </div>
-    </div>
+    </>
   );
 }
 
-function DimensionLevel({
-  dimKey,
-  onCluster,
-}: {
-  dimKey: string;
-  onCluster: (id: string) => void;
-}) {
-  const dim = PS_DIMENSIONS.find((d) => d.key === dimKey)!;
-  const clusters = (PS_CLUSTERS[dimKey] || []).slice().sort((a, b) => b.damage - a.damage);
-  const shown = useCountUp(dim.score, { duration: 1100 });
+/** Level 2 — one dimension, and the topics touching it. */
+function DimensionLevel({ dimKey, onCluster }: { dimKey: string; onCluster: (topic: string) => void }) {
+  const { brandId } = useBrand();
+  const { data, loading } = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/brand-impact` : null);
+
+  const label = isDimensionKey(dimKey) ? DIMENSION_LABELS[dimKey] : dimKey;
+  /* The API ranks clusters brand-wide; this level shows the ones that touch this dimension.
+     Filtering client-side is honest here — the cluster payload names its dimensions. */
+  const clusters = (data ?? []).filter((c) => c.dimensions.includes(dimKey));
+
   return (
-    <div>
-      <p className="kicker">Dimension</p>
-      <h2 className="drill-title">{dim.label}</h2>
-      <p className="drill-sub">{dim.blurb}</p>
-      <div className="metric-row">
-        <div className="metric">
-          <div className="l">Score</div>
-          <div className="v" style={{ color: scoreColor(dim.score) }}>
-            {shown}
-          </div>
+    <>
+      <h2 className="drill-title">{label}</h2>
+      <p className="drill-sub">Topics the scorer tagged to this dimension, ranked by damage.</p>
+
+      {loading ? (
+        <p className="drill-sub">Loading…</p>
+      ) : clusters.length === 0 ? (
+        <p className="prov">
+          No topic cluster has been tagged to {label.toLowerCase()} yet. Clusters appear once
+          enough signals mentioning the same subject have been scored.
+        </p>
+      ) : (
+        <div className="drill-list">
+          {clusters.map((c) => (
+            <button className="drill-row" key={c.topic} onClick={() => onCluster(c.topic)}>
+              <div className="lead" style={{ background: 'var(--surface-track)', color: sentColor(c.sentiment) }}>
+                {c.volume}
+              </div>
+              <div className="body">
+                <div className="nm">{c.topic}</div>
+                <div className="ds">
+                  {sentLabel(c.sentiment)} · damage {c.damage.toFixed(1)}
+                </div>
+                <div className="mini-bar">
+                  <i style={{ width: `${Math.min(c.negativity * 100, 100)}%`, background: 'var(--coral)' }} />
+                </div>
+              </div>
+              <div className="arr">→</div>
+            </button>
+          ))}
         </div>
-        <div className="metric">
-          <div className="l">Δ 8 weeks</div>
-          <div className="v">
-            <Delta value={dim.score - dim.prev} />
-          </div>
-        </div>
-        <div className="metric">
-          <div className="l">Weight</div>
-          <div className="v">{Math.round(dim.weight * 100)}%</div>
-        </div>
-      </div>
-      <div className="card" style={{ marginBottom: 20, padding: '8px 8px 0' }}>
-        <LineChart
-          data={PS_HISTORY}
-          width={460}
-          height={150}
-          yMin={50}
-          yMax={90}
-          series={[{ key: dimKey, color: scoreColor(dim.score), area: true, w: 2.4 }]}
-          showDots
+      )}
+    </>
+  );
+}
+
+/** Level 3 — the actual signals behind one topic. */
+function ClusterLevel({ topic }: { topic: string }) {
+  const { brandId } = useBrand();
+  const clusters = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/brand-impact` : null);
+  /* The `topic` filter added to the signals route for exactly this: the evidence behind a
+     cluster, rather than "recent signals" standing in for it. */
+  const signals = useApi<{ items: ApiSignal[] }>(
+    brandId ? `/brands/${brandId}/signals?limit=20&topic=${encodeURIComponent(topic)}` : null,
+  );
+
+  const cluster = (clusters.data ?? []).find((c) => c.topic === topic);
+  const items = signals.data?.items ?? [];
+
+  return (
+    <>
+      <h2 className="drill-title">{topic}</h2>
+      <p className="drill-sub">The signals the scorer tagged with this topic.</p>
+
+      {cluster && (
+        <MetricRow
+          items={[
+            { label: 'Signals', value: String(cluster.volume) },
+            { label: 'Sentiment', value: sentLabel(cluster.sentiment), tone: sentColor(cluster.sentiment) },
+            { label: 'Damage', value: cluster.damage.toFixed(1) },
+          ]}
         />
-      </div>
-      <p className="kicker" style={{ marginBottom: 10 }}>
-        Topic clusters driving this dimension
-      </p>
-      <div className="drill-list">
-        {clusters.map((c) => (
-          <button key={c.id} className="drill-row" onClick={() => onCluster(c.id)}>
-            <div
-              className="lead"
-              style={{
-                background: `color-mix(in srgb, ${sentColor(c.sentiment)} 16%, transparent)`,
-                color: sentColor(c.sentiment),
-              }}
-            >
-              {c.sentiment > 0 ? '＋' : '－'}
-            </div>
-            <div className="body">
-              <div className="nm">{c.title}</div>
-              <div className="ds">
-                {c.volume.toLocaleString()} signals · {sentLabel(c.sentiment)}{' '}
-                {c.sentiment.toFixed(2)} ·{' '}
-                <span style={{ color: c.trend < 0 ? 'var(--coral)' : 'var(--mint)' }}>
-                  {c.trend > 0 ? '+' : ''}
-                  {c.trend} pts
-                </span>
-              </div>
-              <div className="mixbar" style={{ marginTop: 7 }}>
-                {Object.entries(c.mix).map(([k, v]) => {
-                  const t = Object.values(c.mix).reduce((a, b) => a + b, 0);
-                  return (
-                    <span
-                      key={k}
-                      style={{ width: `${(v / t) * 100}%`, background: PS_SOURCES[k]?.tone }}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-            <span className="arr">→</span>
-          </button>
-        ))}
-      </div>
-      <div className="prov">
-        <b>How this is computed.</b> {dim.label} = weighted mean of sentiment for items tagged to
-        this dimension, recency-decayed. Clusters ranked by damage = volume × negativity × recency.
-      </div>
-    </div>
-  );
-}
+      )}
 
-function ClusterLevel({ clusterId }: { clusterId: string }) {
-  const c = clusterById(clusterId)!;
-  const signals = PS_SIGNALS[clusterId] || signalsFor(clusterId, c.mix);
-  const dam = useCountUp(c.damage, { duration: 1100 });
-  return (
-    <div>
-      <p className="kicker">
-        Topic cluster · {PS_DIMENSIONS.find((d) => d.key === c.dimKey)?.label}
-      </p>
-      <h2 className="drill-title">{c.title}</h2>
-      <p className="drill-sub">{c.summary}</p>
-      <div className="metric-row">
-        <div className="metric">
-          <div className="l">Damage score</div>
-          <div className="v" style={{ color: c.damage > 50 ? 'var(--coral)' : 'var(--mint)' }}>
-            {dam}
-          </div>
+      {signals.loading ? (
+        <p className="drill-sub">Loading…</p>
+      ) : items.length === 0 ? (
+        <p className="prov">
+          No individual signals are available for this topic. The cluster is computed from scored
+          results; the underlying signals may have been collected before topic tagging.
+        </p>
+      ) : (
+        <div className="drill-list">
+          {items.map((s) => {
+            const meta = sourceMeta(s.source);
+            return (
+              <div className="signal" key={s.id}>
+                <div className="sig-top">
+                  <SourceGlyph name={s.source} size={16} />
+                  <span className="auth">{meta.label}</span>
+                  <span className="when">{s.publishedAt?.slice(0, 10)}</span>
+                </div>
+                {/* No quotation is rendered. The API returns signal METADATA — the verbatim text
+                    lives in object storage and is not exposed by any endpoint. The previous
+                    version filled this space with invented quotations attributed to invented
+                    authors, which is the single most damaging thing this file could do. The
+                    honest affordance is a link to where it was actually published. */}
+                <div className="sig-foot">
+                  {s.sourceUrl ? (
+                    <a className="link" href={s.sourceUrl} target="_blank" rel="noopener noreferrer">
+                      read the original ↗
+                    </a>
+                  ) : (
+                    <span className="conf">no source URL recorded</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
-        <div className="metric">
-          <div className="l">Volume</div>
-          <div className="v">{c.volume.toLocaleString()}</div>
-        </div>
-        <div className="metric">
-          <div className="l">Sentiment</div>
-          <div className="v" style={{ color: sentColor(c.sentiment) }}>
-            {c.sentiment > 0 ? '+' : ''}
-            {c.sentiment.toFixed(2)}
-          </div>
-        </div>
-      </div>
-      <p className="kicker" style={{ marginBottom: 10 }}>
-        Where this signal comes from
-      </p>
-      <MixBar mix={c.mix} />
-      <p className="kicker" style={{ margin: '24px 0 10px' }}>
-        Contributing items · {signals.length} of {c.volume.toLocaleString()} shown
-      </p>
-      <div className="drill-list">
-        {signals.map((s, i) => (
-          <div className="signal" key={i} style={{ animation: `viewIn .4s ${i * 0.05}s both` }}>
-            <div className="sig-top">
-              <SourceBadge name={s.source} />
-              <Stars n={s.rating} />
-              <span className="when">{s.when}</span>
-            </div>
-            <div className="auth" style={{ marginBottom: 6, color: 'var(--t2)' }}>
-              {s.author}
-            </div>
-            <div className="txt">{s.text}</div>
-            <div className="sig-foot">
-              <SentChip value={s.sentiment} />
-              {s.topics.slice(0, 3).map((t) => (
-                <span className="tag" key={t}>
-                  {t}
-                </span>
-              ))}
-              <span className="conf">
-                conf <b>{Math.round(s.confidence * 100)}%</b>
-              </span>
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <a className="link" href="#" onClick={(e) => e.preventDefault()}>
-                open source ↗
-              </a>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="prov">
-        <b>Audit trail.</b> Every item retains source URL, capture timestamp, raw text, model
-        version & confidence in Cloud Storage for 12 months. This is the evidence chain behind the
-        score above.
-      </div>
-    </div>
+      )}
+    </>
   );
 }
 
 export function DrillDown({ path, nav }: { path: NavLevel[]; nav: NavActions }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') nav.close();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [nav]);
+  if (path.length === 0) return null;
+  const current = path[path.length - 1]!;
 
-  if (!path.length) return null;
-
-  const labelFor = (lvl: NavLevel) => {
+  const crumb = (lvl: NavLevel): string => {
     if (lvl.kind === 'overview') return 'Index';
-    if (lvl.kind === 'dimension')
-      return PS_DIMENSIONS.find((d) => d.key === lvl.dimKey)?.label ?? lvl.dimKey;
-    return clusterById(lvl.clusterId)?.title ?? lvl.clusterId;
+    if (lvl.kind === 'dimension') {
+      const key = (lvl as { dimKey: string }).dimKey;
+      return isDimensionKey(key) ? DIMENSION_LABELS[key] : key;
+    }
+    return (lvl as { clusterId: string }).clusterId;
   };
-  const spineNum = (i: number) => String(i + 1).padStart(2, '0');
 
   return (
     <>
-      <div className="drill-scrim" onClick={nav.close} />
+      <div className="drill-scrim" onClick={nav.close} aria-hidden="true" />
       <div className="drill-stack">
-        {path.map((lvl, i) => {
-          const isLast = i === path.length - 1;
-          if (!isLast) {
-            return (
-              <div className="drill-panel stacked" key={i} onClick={() => nav.to(i)}>
-                <div className="drill-spine">
-                  <span className="lvl">{spineNum(i)}</span>&nbsp;&nbsp;{labelFor(lvl)}
-                </div>
-              </div>
-            );
-          }
-          return (
-            <div className="drill-panel" key={i}>
-              <div className="drill-head">
-                <div className="crumbs">
-                  {path.map((p, j) => (
-                    <span key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                      {j > 0 && <span className="sep">›</span>}
-                      <span
-                        className={`c ${j === path.length - 1 ? 'cur' : ''}`}
-                        onClick={() => nav.to(j)}
-                      >
-                        {labelFor(p)}
-                      </span>
-                    </span>
-                  ))}
-                </div>
-                <button className="drill-close" onClick={nav.close} aria-label="Close">
-                  ✕
-                </button>
-                <div style={{ height: 4 }} />
-              </div>
-              <div className="drill-body" key={`body${i}`}>
-                {lvl.kind === 'overview' && <OverviewLevel onDim={nav.openDimension} />}
-                {lvl.kind === 'dimension' && (
-                  <DimensionLevel
-                    dimKey={lvl.dimKey}
-                    onCluster={(cid) => nav.openCluster(cid, lvl.dimKey)}
-                  />
-                )}
-                {lvl.kind === 'cluster' && <ClusterLevel clusterId={lvl.clusterId} />}
-              </div>
+        <div className="drill-panel" data-testid="drill-panel">
+          <div className="drill-head">
+            <div className="crumbs">
+              {path.map((lvl, i) => (
+                <span key={i}>
+                  {i > 0 && <span className="sep"> / </span>}
+                  <span
+                    className={`c${i === path.length - 1 ? ' cur' : ''}`}
+                    onClick={() => nav.to(i)}
+                  >
+                    {crumb(lvl)}
+                  </span>
+                </span>
+              ))}
             </div>
-          );
-        })}
+            <button className="drill-close" onClick={nav.close} aria-label="Close drill-down">
+              ✕
+            </button>
+          </div>
+
+          <div className="drill-body">
+            {current.kind === 'overview' && <OverviewLevel onDim={nav.openDimension} />}
+            {current.kind === 'dimension' && (
+              <DimensionLevel
+                dimKey={(current as { dimKey: string }).dimKey}
+                onCluster={(topic) => nav.openCluster(topic, (current as { dimKey: string }).dimKey)}
+              />
+            )}
+            {current.kind === 'cluster' && (
+              <ClusterLevel topic={(current as { clusterId: string }).clusterId} />
+            )}
+          </div>
+        </div>
       </div>
     </>
   );

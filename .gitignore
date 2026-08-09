@@ -46,3 +46,7 @@ infra/bootstrap/*.tfvars
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Playwright e2e artefacts — traces and screenshots are per-run diagnostics
+test-results/
+playwright-report/

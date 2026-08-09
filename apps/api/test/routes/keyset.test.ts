@@ -45,3 +45,38 @@ describe('keysetBefore', () => {
     expect(normalised).toContain('<');
   });
 });
+
+describe('topic filter SQL', () => {
+  /**
+   * The topic filter renders raw `sql`, so — exactly like the keyset predicate above — a mocked
+   * database would pass while Postgres rejected it. This renders the fragment through drizzle's
+   * real dialect to check both that it is valid and, more importantly, that the topic is a BOUND
+   * PARAMETER.
+   *
+   * That matters more here than anywhere else in this file: the topic arrives from a URL and,
+   * via the assistant's tools, can be chosen by a language model. Interpolated into the SQL text
+   * it would be an injection point reachable by asking a chatbot nicely.
+   */
+  it('binds the topic as a parameter rather than interpolating it', async () => {
+    const { topicFilter } = await import('../../src/routes/signals.js');
+    const dialect = new PgDialect();
+    const evil = "delivery'); DROP TABLE signals; --";
+    const { sql: text, params } = dialect.sqlToQuery(topicFilter(evil));
+
+    expect(params).toContain(evil);
+    expect(text).not.toContain('DROP TABLE');
+    expect(text.toLowerCase()).toContain('exists');
+    expect(text.toLowerCase()).toContain('any');
+  });
+
+  it('matches against the scored row rather than joining it', () => {
+    /* A join would multiply the signal row by its topics, silently breaking the page size and
+       the keyset cursor, both of which assume one row per signal. */
+    const dialect = new PgDialect();
+    return import('../../src/routes/signals.js').then(({ topicFilter }) => {
+      const { sql: text } = dialect.sqlToQuery(topicFilter('delivery'));
+      expect(text.toLowerCase()).toContain('select 1');
+      expect(text.toLowerCase()).not.toContain('join');
+    });
+  });
+});
