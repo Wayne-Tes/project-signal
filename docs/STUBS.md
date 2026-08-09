@@ -15,38 +15,7 @@ recording that it had done so. **Last reviewed:** 2026-08-09.
 
 ## Open
 
-### 1. Export button — stub, never implemented
-
-**Where:** top bar, all views except Report.
-
-**State:** rendered, **disabled**, with a tooltip saying so. It has never had a handler — not in
-the current code and not in the prototype it came from. The original was enabled and did
-nothing at all when clicked, which is worse than disabled.
-
-**To finish:** decide what Export produces — CSV of signals, JSON of the current view's data, or
-a PDF like the Report view. `GET /brands/:id/signals` already paginates, so a CSV export is the
-smallest real implementation.
-
----
-
-### 2. Period label — reads mock data
-
-**Where:** top bar, left of the role badge.
-
-**State:** renders `PS_BRAND.period` from `apps/web/src/lib/data.ts` — the prototype's fictional
-bank fixture. The value is a plausible-looking reporting window that **corresponds to nothing**.
-
-**Why it is still here:** removing it silently is exactly the failure this file exists to record.
-It is marked instead.
-
-**To finish:** the API exposes no reporting window. Either derive it from the
-`dimension_scores` date range already returned by `GET /brands/:id/dimension-scores`, or drop the
-label deliberately. **It must not survive the deletion of `lib/data.ts`** (KNOWN-GAPS #13) — that
-deletion is blocked on this decision.
-
----
-
-### 3. Views still on legacy markup
+### 1. Views still on legacy markup
 
 `Dashboard`, `Admin`, `Roadmap`, `Report`, `BrandManager`, `UserManager`, `DrillDown` and the
 charts still use the legacy class names in `app/globals.css` rather than design-system
@@ -63,7 +32,7 @@ on any view.
 
 ---
 
-### 4. Sources modelled but not collecting
+### 2. Sources modelled but not collecting
 
 **Where:** Admin → Manage brand → Sources.
 
@@ -81,6 +50,20 @@ select so the product does not silently accept a configuration it cannot honour.
 ---
 
 ## Closed
+
+### ~~Export button~~ — implemented 2026-08-09
+
+Exports the brand's signals as CSV: id, source, published, ingested, source URL. Pages the
+signals endpoint to completion, bounded at 20 pages so a very large history cannot spin the
+browser. Fields are quoted unconditionally, and a value beginning `=`, `+`, `-` or `@` is
+prefixed so a spreadsheet does not execute it — signal URLs come from the public internet, so
+CSV injection is a live path here rather than a theoretical one.
+
+### ~~Period label~~ — real as of 2026-08-09
+
+Now the range the brand's own `dimension_scores` actually cover. Absent entirely when there is
+no data, rather than showing an invented window. This was the last thing blocking the deletion of
+`lib/data.ts`, which is now gone.
 
 ### ~~Dashboard hero style~~ — restored and working
 

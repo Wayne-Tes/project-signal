@@ -210,3 +210,58 @@ export function toHeelCards(clusters: readonly ApiCluster[]): HeelCard[] {
 function capitalise(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
+
+// --- Action roadmap ----------------------------------------------------------
+
+export type ActionPriority = 'Critical' | 'High' | 'Medium';
+
+export interface ActionCard {
+  topic: string;
+  title: string;
+  priority: ActionPriority;
+  /** Share of current total damage this subject accounts for, 0-100. */
+  impactShare: number;
+  volume: number;
+  sentiment: number;
+  dimensionKey: DimensionKey | null;
+  dimensionLabel: string | null;
+}
+
+/**
+ * Derives the action roadmap from real Brand impact clusters.
+ *
+ * WHAT THIS REPLACES. The Roadmap view rendered `PS_ROADMAP` — a hand-written list of
+ * recommendations for a fictional bank, complete with invented "+3.4 pts" impacts, effort
+ * estimates and confidence percentages. Every number on that page was fabricated, and the page
+ * described them as "generated weekly by Gemini Pro", which was untrue on both counts.
+ *
+ * WHAT IT DOES INSTEAD. Each ranked cluster becomes one action, ordered by the damage the API
+ * already computes (volume x negativity x recency). Priority is a band over that ranking, and
+ * `impactShare` is this subject's share of total current damage.
+ *
+ * WHAT IT DELIBERATELY DOES NOT CLAIM. No "points of uplift", no effort estimate, no confidence
+ * score. The product cannot know any of those: it has no model of what a fix costs, and the
+ * index moves on a 90-day half-life so no honest point prediction exists. A share of current
+ * damage is a real, defensible quantity derived from real signals — an invented uplift is not,
+ * and inventing one is how a user comes to distrust every other number on the page.
+ */
+export function toActionCards(clusters: readonly ApiCluster[]): ActionCard[] {
+  const totalDamage = clusters.reduce((sum, c) => sum + (c.damage ?? 0), 0);
+
+  return clusters.map((c, index) => {
+    const dimension = c.dimensions.find(isDimensionKey) ?? null;
+    return {
+      topic: c.topic,
+      title: c.topic,
+      /* Bands over the existing ranking rather than thresholds on the raw damage value:
+         damage is unbounded and scale-dependent, so a fixed threshold would mark everything
+         Critical for a high-volume brand and nothing for a small one. */
+      priority: index === 0 ? 'Critical' : index === 1 ? 'High' : 'Medium',
+      impactShare: totalDamage > 0 ? roundScore(((c.damage ?? 0) / totalDamage) * 100) : 0,
+      volume: c.volume,
+      sentiment: c.sentiment,
+      dimensionKey: dimension,
+      dimensionLabel: dimension ? DIMENSION_LABELS[dimension] : null,
+    };
+  });
+}

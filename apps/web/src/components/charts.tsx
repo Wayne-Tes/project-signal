@@ -13,7 +13,7 @@ export interface ChartRow {
   label: string;
   [series: string]: number | string | Date | undefined;
 }
-import { PS_SOURCES } from '@/lib/data';
+import { sourceMeta } from '@/config/sources';
 
 /** Series values are numbers; anything else (the label) reads as absent. */
 function asNumber(value: number | string | Date | undefined): number {
@@ -252,7 +252,7 @@ export function VolumeBars({
                   width={bw}
                   height={Math.max(0, h - 1)}
                   rx="1.5"
-                  fill={PS_SOURCES[s]?.tone}
+                  fill={sourceMeta(s).tone}
                   style={{
                     opacity: 0.85,
                     transformOrigin: 'bottom',
@@ -298,7 +298,7 @@ export function MixDonut({ mix, size = 96 }: { mix: Record<string, number>; size
             cy={cx}
             r={r}
             fill="none"
-            stroke={PS_SOURCES[k]?.tone || 'var(--t3)'}
+            stroke={sourceMeta(k).tone}
             strokeWidth="10"
             strokeDasharray={`${c * frac} ${c}`}
             strokeDashoffset={-c * acc}

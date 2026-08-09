@@ -37,7 +37,7 @@
 | 10  | ~~`dimension_scores` is never written~~                            | ✅ resolved | Epic 11               |
 | 11  | ~~Unused denormalised sentiment columns on `signals`~~             | ✅ resolved | schema                |
 | 12  | `POST /admin/users` gating fixed; users UI unverified              | 🟠 partial  | API + web             |
-| 13  | Four of six views wired; Roadmap + Report remain                   | 🟠 partial  | web ↔ API             |
+| 13  | ~~Views on mock data; `lib/data.ts` fixture~~                       | ✅ resolved | web ↔ API             |
 | 14  | ~~Hardcoded contractor fallbacks in the web client~~               | ✅ resolved | web config            |
 | 15  | ~~Working directory is not a git repository~~                      | ✅ resolved | repo                  |
 | 16  | No cloud environment — AWS discovery done, libs ported, undeployed | 🔴          | infra                 |
@@ -395,7 +395,26 @@ before it is complete.
 
 ---
 
-## 13. 🟠 Dashboard views on mock data — **four of six wired**
+## 13. ✅ Dashboard views on mock data — **resolved (2026-08-09), `lib/data.ts` deleted**
+
+`apps/web/src/lib/data.ts` is **gone**. It was 588 lines of generated data for a fictional bank:
+an invented index and history, invented topic clusters, a hand-written roadmap with fabricated
+point-uplifts and confidence scores, and — worst — invented "verbatim" quotations attributed to
+invented authors on real-looking dates.
+
+Everything that read it now reads the API:
+
+| Surface | Now |
+| --- | --- |
+| **Roadmap** | Derived from real Brand impact clusters. Effort, confidence and projected uplift are GONE rather than reimplemented — the product has no model of what a fix costs, and with a 90-day half-life there is no honest point prediction. Share of current damage is real; "+3.4 pts" was not. |
+| **Report** | Real index, dimensions, trend, clusters and volumes. Says "not scored yet" rather than printing a number — this is the one page a user prints and hands to someone who cannot check it. |
+| **DrillDown** | Every level reads the API. The cluster level shows real signals via a new `?topic=` filter, and renders **no quotation at all**: the API returns signal metadata, the verbatim text lives in object storage and is exposed by no endpoint. A link to the original is the honest affordance. |
+| **Top-bar period** | The range `dimension_scores` actually covers, absent when there is none. |
+| **Source metadata** | Moved to `config/sources.ts` and keyed by the real `SignalSource` union. It was never mock data — a label and colour per source is real configuration — and deleting it with the fixture would have taken working presentation with it. It also fixes a live defect: the old map was keyed on display prose ("Google", "News"), so every real API id fell through to a grey bullet. |
+
+**The original entry, for context:**
+
+### Original: 🟠 four of six wired
 
 **Where:** `apps/web/src/lib/data.ts` (~574 lines) and the views that consume it.
 

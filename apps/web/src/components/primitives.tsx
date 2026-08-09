@@ -1,5 +1,5 @@
 'use client';
-import { PS_SOURCES } from '@/lib/data';
+import { sourceMeta } from '@/config/sources';
 import { sentColor, sentLabel } from '@/lib/utils';
 
 export function Delta({
@@ -30,32 +30,22 @@ export function Delta({
 }
 
 export function SourceGlyph({ name, size = 16 }: { name: string; size?: number }) {
-  const tone = (PS_SOURCES[name] || {}).tone || 'var(--t3)';
-  const letter: Record<string, string> = {
-    Google: 'G',
-    Trustpilot: '★',
-    'App Store': '⌘',
-    YouTube: '▶',
-    News: '≡',
-    X: '𝕏',
-  };
-  const char = letter[name] ?? '•';
+  /* `name` is the API's source id (`google_reviews`), not a display string. The previous
+     version keyed a literal map on prose ("Google", "News"), so every real id fell through to a
+     bullet — the glyph looked deliberate and told you nothing. */
+  const { tone, glyph } = sourceMeta(name);
   return (
     <span
       className="src-glyph"
       style={{ width: size, height: size, borderColor: tone, color: tone, fontSize: size * 0.62 }}
     >
-      {name === 'App Store' ? (
-        <span style={{ fontSize: size * 0.8, lineHeight: '1' }}>⌘</span>
-      ) : (
-        char
-      )}
+      {glyph}
     </span>
   );
 }
 
 export function SourceBadge({ name }: { name: string }) {
-  const s = PS_SOURCES[name] || { label: name, short: name, tone: 'var(--t3)' };
+  const s = sourceMeta(name);
   return (
     <span className="src-badge">
       <SourceGlyph name={name} size={14} />

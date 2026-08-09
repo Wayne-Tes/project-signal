@@ -30,6 +30,8 @@ export default defineConfig({
         'src/design-system/personalisation.ts',
         'src/features/help/Markdown.tsx',
         'src/features/tour/Tour.tsx',
+        'src/lib/export-csv.ts',
+        'src/config/sources.ts',
       ],
       thresholds: { lines: 80, branches: 80, functions: 80, statements: 80 },
     },

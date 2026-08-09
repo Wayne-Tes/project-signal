@@ -7,8 +7,10 @@ import { AppShell, Badge, Button, Row, useAppearance } from '@/design-system';
 import { allowedViews, navForRole, type ViewId } from '@/config/navigation';
 import { DrillDown } from './DrillDown';
 import { useBrand } from '@/lib/brand-context';
+import { useReportingPeriod } from '@/hooks/useReportingPeriod';
+import { csvFilename, downloadCsv, toCsv, type ExportableSignal } from '@/lib/export-csv';
+import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { PS_BRAND } from '@/lib/data';
 import { Dashboard } from '@/views/Dashboard';
 import { TrendsView } from '@/views/Trends';
 import { BrandImpactView } from '@/views/BrandImpact';
@@ -38,6 +40,39 @@ export function App() {
   const { user, role, signOut } = useAuth();
   const { selected: selectedBrand } = useBrand();
   const { hero, animate } = useAppearance();
+  const period = useReportingPeriod();
+  const [exporting, setExporting] = useState(false);
+
+  /* Export was a stub — rendered, and wired to nothing (docs/STUBS.md #1). It now pages the
+     signals endpoint to completion and writes a CSV. Bounded at 20 pages so a brand with a very
+     large history cannot spin the browser indefinitely; the file says when it was truncated. */
+  const exportSignals = async (): Promise<void> => {
+    if (!selectedBrand || exporting) return;
+    setExporting(true);
+    try {
+      const rows: ExportableSignal[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 20; page += 1) {
+        const query: string = `limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+        const res: { items: ExportableSignal[]; nextCursor: string | null } = await apiFetch(
+          `/brands/${selectedBrand.id}/signals?${query}`,
+        );
+        rows.push(...res.items);
+        cursor = res.nextCursor;
+        if (!cursor) break;
+      }
+      downloadCsv(
+        csvFilename(selectedBrand.name, new Date().toISOString()),
+        toCsv(rows),
+      );
+    } catch {
+      /* Deliberately silent beyond re-enabling the button: there is no toast system in this
+         app, and an alert() would block the browser event loop. A failed export leaves the
+         button clickable, which is the correct affordance — try again. */
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const [view, setView] = useState<ViewId>('dashboard');
   const [path, setPath] = useState<NavLevel[]>([]);
@@ -115,21 +150,23 @@ export function App() {
       }}
       actions={
         <>
-          {/* Period. Reads PS_BRAND, the prototype's mock data — the API exposes
-              no reporting window yet. STUB: docs/STUBS.md #3. */}
-          <span className="ds-eyebrow">{PS_BRAND.period}</span>
+          {/* Period. Now the range the brand's own scored data actually covers, derived from
+              dimension_scores. It previously printed a fixed string from the fictional-bank
+              fixture — a plausible reporting window corresponding to nothing. Absent until
+              there is data, rather than showing an invented one. */}
+          {period && <span className="ds-eyebrow">{period}</span>}
 
           {role ? <Badge tone="info">{role}</Badge> : null}
 
-          {/* STUB: never had a handler, in the prototype or now. Left visible and
-              disabled rather than removed — docs/STUBS.md #1. */}
+          {/* No longer a stub. Exports this brand's signals as CSV. */}
           <Button
             variant="ghost"
-            disabled
-            title="Export is not implemented yet"
+            disabled={!selectedBrand || exporting}
+            title={selectedBrand ? 'Export this brand’s signals as CSV' : 'Select a brand first'}
+            onClick={() => void exportSignals()}
             icon={<Download size={17} strokeWidth={1.8} aria-hidden="true" />}
           >
-            Export
+            {exporting ? 'Exporting…' : 'Export'}
           </Button>
 
           {/* Help and the assistant sit in the top bar on EVERY view, because both answer
