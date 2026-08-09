@@ -24,3 +24,5 @@ export function getPublisher(): MessagePublisher {
 export function resetPublisher(): void {
   _publisher = undefined;
 }
+
+export { SqsConsumer, type ConsumerOptions } from './consumer.js';
