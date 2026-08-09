@@ -34,6 +34,9 @@ describe('scoreSignal', () => {
       confidence: 0.9,
       dimensions: ['service'],
       topics: ['fees'],
+      /* Always present, even when a tenant tracks no products — a caller should never have
+         to distinguish "no mentions" from "this field does not exist". */
+      mentions: [],
       modelVersion: MODEL,
     });
   });
@@ -94,5 +97,107 @@ describe('scoreSignal', () => {
     mockStructured.mockRejectedValue(new Error('ThrottlingException'));
     const { scoreSignal } = await import('../src/scorer.js');
     await expect(scoreSignal('x')).rejects.toThrow(/ThrottlingException/);
+  });
+});
+
+describe('mention detection', () => {
+  const CANDIDATES = [
+    { id: 'p-assess', name: 'Tes Assess', aliases: ['Assess', 'TA'] },
+    { id: 'p-teach', name: 'Blendspace', aliases: [] },
+  ];
+
+  it('omits the candidate block entirely when a tenant tracks no products', async () => {
+    /* Most tenants have none. Sending an empty list would spend tokens on every signal telling
+       the model about nothing. */
+    const { PROMPT_TEMPLATE } = await import('../src/scorer.js');
+    expect(PROMPT_TEMPLATE('a review')).not.toMatch(/tracked/i);
+    expect(PROMPT_TEMPLATE('a review', [])).not.toMatch(/tracked/i);
+  });
+
+  it('lists candidates with their aliases', async () => {
+    const { PROMPT_TEMPLATE } = await import('../src/scorer.js');
+    const prompt = PROMPT_TEMPLATE('a review', CANDIDATES);
+    expect(prompt).toContain('Tes Assess (also: Assess, TA)');
+    expect(prompt).toContain('- Blendspace');
+    /* The instruction that stops the model attributing from general subject matter. */
+    expect(prompt).toMatch(/do not invent/i);
+  });
+
+  it('asks for names, never ids', async () => {
+    /* Asking a model to echo a uuid invites it to invent a plausible-looking one, which either
+       breaks a foreign key or — worse — matches an unrelated row. */
+    const { PROMPT_TEMPLATE } = await import('../src/scorer.js');
+    expect(PROMPT_TEMPLATE('a review', CANDIDATES)).not.toContain('p-assess');
+  });
+
+  describe('resolveMentions', () => {
+    it('resolves a name to its entity id', async () => {
+      const { resolveMentions } = await import('../src/scorer.js');
+      expect(resolveMentions([{ name: 'Tes Assess', confidence: 0.9 }], CANDIDATES)).toEqual([
+        { brandEntityId: 'p-assess', confidence: 0.9 },
+      ]);
+    });
+
+    it('resolves an alias', async () => {
+      const { resolveMentions } = await import('../src/scorer.js');
+      expect(resolveMentions([{ name: 'TA', confidence: 0.5 }], CANDIDATES)[0]?.brandEntityId).toBe(
+        'p-assess',
+      );
+    });
+
+    it('tolerates case and whitespace the model did not preserve', async () => {
+      /* Told "exactly as written", a model will still return "TES ASSESS". Failing on that would
+         throw away correct attributions over capitalisation. */
+      const { resolveMentions } = await import('../src/scorer.js');
+      for (const name of ['  tes assess ', 'TES ASSESS', 'Tes  Assess']) {
+        const got = resolveMentions([{ name, confidence: 1 }], CANDIDATES);
+        expect(got[0]?.brandEntityId, name).toBe('p-assess');
+      }
+    });
+
+    it('DROPS a name that is not a candidate', async () => {
+      /* The model was told not to invent names. When it does anyway, ignoring it is right —
+         one hallucinated product must not cost us a real sentiment score, and a fabricated id
+         would either break a foreign key or match something unrelated. */
+      const { resolveMentions } = await import('../src/scorer.js');
+      expect(resolveMentions([{ name: 'Tes Invented', confidence: 0.99 }], CANDIDATES)).toEqual([]);
+    });
+
+    it('deduplicates a name and its alias resolving to the same entity', async () => {
+      const { resolveMentions } = await import('../src/scorer.js');
+      const got = resolveMentions(
+        [
+          { name: 'Tes Assess', confidence: 0.9 },
+          { name: 'Assess', confidence: 0.4 },
+        ],
+        CANDIDATES,
+      );
+      expect(got).toHaveLength(1);
+    });
+
+    it('clamps confidence into range', async () => {
+      const { resolveMentions } = await import('../src/scorer.js');
+      expect(resolveMentions([{ name: 'Blendspace', confidence: 1.4 }], CANDIDATES)[0]?.confidence).toBe(1);
+      expect(resolveMentions([{ name: 'Blendspace', confidence: -3 }], CANDIDATES)[0]?.confidence).toBe(0);
+    });
+
+    it('handles a missing or non-numeric confidence', async () => {
+      const { resolveMentions } = await import('../src/scorer.js');
+      const got = resolveMentions([{ name: 'Blendspace' } as never], CANDIDATES);
+      expect(got[0]?.confidence).toBe(0);
+    });
+
+    it('records one article mentioning several products', async () => {
+      /* The case a single foreign key cannot express, and the reason signal_mentions exists. */
+      const { resolveMentions } = await import('../src/scorer.js');
+      const got = resolveMentions(
+        [
+          { name: 'Tes Assess', confidence: 0.8 },
+          { name: 'Blendspace', confidence: 0.6 },
+        ],
+        CANDIDATES,
+      );
+      expect(got.map((m) => m.brandEntityId)).toEqual(['p-assess', 'p-teach']);
+    });
   });
 });
