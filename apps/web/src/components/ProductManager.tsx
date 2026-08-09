@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
-import { Check, ChevronRight, Package, Pencil, Plus, X } from 'lucide-react';
+import { Check, ChevronRight, Package, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { Badge, Button, Input, Select } from '@/design-system';
 
@@ -28,6 +28,13 @@ interface Entity {
   children?: Entity[];
 }
 
+/** The editable fields, which are exactly the ones `PATCH /brands/:id` accepts. */
+interface Draft {
+  name: string;
+  kind: string;
+  isOwned: boolean;
+}
+
 /** Flattens the tree, carrying depth, for the list and the parent picker. */
 function flatten(nodes: Entity[], depth = 0): { node: Entity; depth: number }[] {
   return nodes.flatMap((n) => [{ node: n, depth }, ...flatten(n.children ?? [], depth + 1)]);
@@ -39,10 +46,14 @@ export function ProductManager() {
   const [busy, setBusy] = useState(false);
 
   const [name, setName] = useState('');
-  /* Which row is being renamed, and the draft value. Only one at a time: two open editors invite
-     a half-typed name being left behind on a row the user has stopped looking at. */
+  /* Which row is open for editing, and its draft. Only one at a time: two open editors invite a
+     half-typed name being left behind on a row the user has stopped looking at. */
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState<Draft>({ name: '', kind: 'product', isOwned: true });
+  /* Delete confirms in place rather than through `window.confirm`. A native dialog blocks the
+     whole page, cannot be styled, and cannot be driven by the e2e suite — and this button removes
+     something. Two deliberate clicks on the row itself is both safer and testable. */
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [parentId, setParentId] = useState('');
   const [kind, setKind] = useState('product');
 
@@ -86,22 +97,43 @@ export function ProductManager() {
     }
   }
 
-  async function rename(id: string): Promise<void> {
-    const next = draft.trim();
-    /* An unchanged or empty name is a no-op, not an error. Sending it would rewrite the slug for
-       nothing, and refusing it loudly would be a lecture for pressing Enter. */
+  async function save(id: string): Promise<void> {
+    const next = draft.name.trim();
+    /* An empty name is a no-op, not an error. Refusing it loudly would be a lecture for pressing
+       Enter on a field the user had already decided to leave alone. */
     if (!next || busy) {
       setEditingId(null);
       return;
     }
     setBusy(true);
     try {
-      await apiFetch(`/brands/${id}`, { method: 'PATCH', body: JSON.stringify({ name: next }) });
+      await apiFetch(`/brands/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: next, kind: draft.kind, isOwned: draft.isOwned }),
+      });
       setEditingId(null);
       await load();
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not rename.');
+      setError(err instanceof Error ? err.message : 'Could not save.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: string): Promise<void> {
+    setBusy(true);
+    try {
+      await apiFetch(`/brands/${id}`, { method: 'DELETE' });
+      setConfirmingId(null);
+      await load();
+      setError(null);
+    } catch (err) {
+      /* The API's refusals name the specific thing in the way — children, collected signals, an
+         assigned user — so they are shown verbatim. Replacing them with "could not delete" would
+         throw away the only part that tells the user what to do next. */
+      setError(err instanceof Error ? err.message : 'Could not delete.');
+      setConfirmingId(null);
     } finally {
       setBusy(false);
     }
@@ -169,83 +201,137 @@ export function ProductManager() {
                 <>
                   <Input
                     autoFocus
-                    aria-label={`Rename ${node.name}`}
-                    value={draft}
+                    aria-label={`Name of ${node.name}`}
+                    value={draft.name}
                     disabled={busy}
-                    onChange={(e) => setDraft(e.target.value)}
+                    onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
                     onKeyDown={(e) => {
                       /* Enter saves, Escape abandons — the convention everywhere else, and the
                          two keys a person reaches for without thinking. */
-                      if (e.key === 'Enter') void rename(node.id);
+                      if (e.key === 'Enter') void save(node.id);
                       if (e.key === 'Escape') setEditingId(null);
                     }}
-                    style={{ width: 240 }}
+                    style={{ width: 210 }}
                   />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    iconOnly
+                  <Select
+                    aria-label={`Type of ${node.name}`}
+                    value={draft.kind}
                     disabled={busy}
-                    onClick={() => void rename(node.id)}
+                    onChange={(e) => setDraft((d) => ({ ...d, kind: e.target.value }))}
+                    style={{ width: 115 }}
+                  >
+                    <option value="product">Product</option>
+                    <option value="brand">Brand</option>
+                  </Select>
+                  <Select
+                    aria-label={`Ownership of ${node.name}`}
+                    value={draft.isOwned ? 'owned' : 'competitor'}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, isOwned: e.target.value === 'owned' }))
+                    }
+                    style={{ width: 135 }}
+                  >
+                    <option value="owned">Ours</option>
+                    <option value="competitor">Competitor</option>
+                  </Select>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => void save(node.id)}
                     icon={<Check size={15} strokeWidth={1.8} aria-hidden="true" />}
                   >
-                    Save name
+                    Save
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    iconOnly
                     onClick={() => setEditingId(null)}
                     icon={<X size={15} strokeWidth={1.8} aria-hidden="true" />}
                   >
-                    Cancel rename
+                    Cancel
                   </Button>
                 </>
               ) : (
                 <>
                   <span style={{ fontWeight: 600, fontSize: 14 }}>{node.name}</span>
+                  <Badge tone={node.isOwned ? 'info' : 'neutral'}>
+                    {node.isOwned ? node.kind : 'competitor'}
+                  </Badge>
+
+                  <span style={{ flex: 1 }} />
+
+                  <label style={{ fontSize: 12, color: 'var(--t3)' }} htmlFor={`parent-${node.id}`}>
+                    Parent
+                  </label>
+                  <Select
+                    id={`parent-${node.id}`}
+                    value={node.parentId ?? ''}
+                    disabled={busy}
+                    onChange={(e) => void reparent(node.id, e.target.value)}
+                    style={{ width: 165 }}
+                  >
+                    <option value="">— none (top level) —</option>
+                    {rows
+                      /* An entity cannot be its own parent. Deeper cycles are refused by the API,
+                         which is the only place that can see the whole chain. */
+                      .filter((r) => r.node.id !== node.id)
+                      .map((r) => (
+                        <option key={r.node.id} value={r.node.id}>
+                          {' '.repeat(r.depth * 2)}
+                          {r.node.name}
+                        </option>
+                      ))}
+                  </Select>
+
+                  {/* A labelled button, not a bare ghost icon. The previous version was an
+                      icon-only pencil wedged between a name and a badge, and it read as
+                      decoration: the owner added sixteen products and reported there was no way
+                      to edit them. An affordance nobody finds is an affordance that is not
+                      there. */}
                   <Button
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
-                    iconOnly
+                    disabled={busy}
                     onClick={() => {
+                      setConfirmingId(null);
                       setEditingId(node.id);
-                      setDraft(node.name);
+                      setDraft({ name: node.name, kind: node.kind, isOwned: node.isOwned });
                     }}
                     icon={<Pencil size={14} strokeWidth={1.8} aria-hidden="true" />}
                   >
-                    Rename {node.name}
+                    Edit
                   </Button>
+
+                  {confirmingId === node.id ? (
+                    <>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => void remove(node.id)}
+                      >
+                        Confirm delete
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setConfirmingId(null)}>
+                        Keep
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      disabled={busy}
+                      onClick={() => setConfirmingId(node.id)}
+                      icon={<Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />}
+                    >
+                      Delete {node.name}
+                    </Button>
+                  )}
                 </>
               )}
-              <Badge tone={node.isOwned ? 'info' : 'neutral'}>
-                {node.isOwned ? node.kind : 'competitor'}
-              </Badge>
-
-              <span style={{ flex: 1 }} />
-
-              <label style={{ fontSize: 12, color: 'var(--t3)' }} htmlFor={`parent-${node.id}`}>
-                Parent
-              </label>
-              <Select
-                id={`parent-${node.id}`}
-                value={node.parentId ?? ''}
-                disabled={busy}
-                onChange={(e) => void reparent(node.id, e.target.value)}
-                style={{ width: 190 }}
-              >
-                <option value="">— none (top level) —</option>
-                {rows
-                  /* An entity cannot be its own parent. Deeper cycles are refused by the API,
-                     which is the only place that can see the whole chain. */
-                  .filter((r) => r.node.id !== node.id)
-                  .map((r) => (
-                    <option key={r.node.id} value={r.node.id}>
-                      {' '.repeat(r.depth * 2)}
-                      {r.node.name}
-                    </option>
-                  ))}
-              </Select>
             </li>
           ))}
         </ul>

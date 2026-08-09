@@ -1,6 +1,16 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { db, brandEntities } from '@project-signal/db';
-import { and, eq } from 'drizzle-orm';
+import {
+  db,
+  brandAliases,
+  brandEntities,
+  dimensionScores,
+  scanRuns,
+  signalMentions,
+  signals,
+  sourceConfigs,
+  users,
+} from '@project-signal/db';
+import { and, count, eq } from 'drizzle-orm';
 import { requireBrandAccess, requireRole } from '../plugins/auth.js';
 
 const BRAND_SCHEMA = {
@@ -291,6 +301,132 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
         .returning();
 
       return reply.send(updated);
+    },
+  );
+
+  /**
+   * Delete an entity — but only one that has never been used.
+   *
+   * There is no soft-delete column on `brand_entities`, and adding one would mean teaching every
+   * read path in the codebase to filter on it; miss one and archived brands quietly reappear. So
+   * this is a real delete, and it is therefore narrow on purpose.
+   *
+   * **Seven tables reference `brand_entities.id`** — signals, dimension_scores, signal_mentions,
+   * scan_runs, brand_aliases, source_configs and `users.brand_entity_id`. Cascading through all
+   * of them would destroy collected intelligence on a misclick, and the `users` one is worse than
+   * that: `brand_entity_id` is an AUTHORISATION scope. Nulling it silently widens what that person
+   * can see. Neither belongs behind a bin icon.
+   *
+   * So: refuse whenever anything real is attached, and say which thing, because "cannot delete" on
+   * its own sends someone to a database they cannot reach. What is left is exactly the case that
+   * prompted this — an entity typed in wrongly a minute ago, with nothing behind it yet.
+   *
+   * A wrong NAME is not a reason to delete. That is what PATCH is for, and it keeps the history.
+   */
+  fastify.delete<{ Params: { id: string } }>(
+    '/brands/:id',
+    {
+      preHandler: [requireBrandAccess, requireRole('admin', 'owner')],
+      schema: {
+        security: [{ BearerAuth: [] }],
+        description:
+          'Delete an entity that has no children, signals, scores, mentions or assigned users. Rename instead if you only need to correct the name.',
+        params: { type: 'object', properties: { id: { type: 'string' } } },
+        response: { 204: { type: 'null' } },
+      },
+    },
+    async (request, reply) => {
+      const tenantId = request.user.tenantId;
+      const id = request.params.id;
+
+      const [entity] = await db
+        .get()
+        .select({ id: brandEntities.id })
+        .from(brandEntities)
+        .where(and(eq(brandEntities.id, id), eq(brandEntities.tenantId, tenantId)))
+        .limit(1);
+
+      /* Tenant-scoped, so a brand in someone else's tenant is "not found" rather than
+         "forbidden" — the same non-answer either way, which is what stops this being an
+         existence oracle. */
+      if (!entity) return reply.notFound('Brand not found.');
+
+      /* Every dependency is counted, and the FIRST blocker is reported, in the order a person
+         would care about. Each count carries its own tenant predicate: `requireBrandAccess` has
+         already established that the ENTITY is the caller's, but these are different tables, and
+         a blocker that silently skips rows is a blocker that lets the delete through. Tenant
+         scoping in this codebase is manual everywhere; it is manual here too. */
+      const [children, signalCount, scores, mentions, assigned] = await Promise.all([
+        db
+          .get()
+          .select({ n: count() })
+          .from(brandEntities)
+          .where(and(eq(brandEntities.parentId, id), eq(brandEntities.tenantId, tenantId))),
+        db
+          .get()
+          .select({ n: count() })
+          .from(signals)
+          .where(and(eq(signals.brandEntityId, id), eq(signals.tenantId, tenantId))),
+        db
+          .get()
+          .select({ n: count() })
+          .from(dimensionScores)
+          .where(and(eq(dimensionScores.brandEntityId, id), eq(dimensionScores.tenantId, tenantId))),
+        db
+          .get()
+          .select({ n: count() })
+          .from(signalMentions)
+          .where(and(eq(signalMentions.brandEntityId, id), eq(signalMentions.tenantId, tenantId))),
+        db
+          .get()
+          .select({ n: count() })
+          .from(users)
+          .where(and(eq(users.brandEntityId, id), eq(users.tenantId, tenantId))),
+      ]);
+
+      const blockers: [number, string][] = [
+        [
+          children[0]?.n ?? 0,
+          'it has products or sub-brands underneath it. Move or delete those first.',
+        ],
+        [
+          signalCount[0]?.n ?? 0,
+          'signals have been collected for it. Rename it instead — deleting would discard that history.',
+        ],
+        [
+          scores[0]?.n ?? 0,
+          'it has been scored. Rename it instead — deleting would discard that history.',
+        ],
+        [mentions[0]?.n ?? 0, 'it has been mentioned in collected signals.'],
+        [assigned[0]?.n ?? 0, 'a user is assigned to it. Reassign them first.'],
+      ];
+
+      for (const [n, reason] of blockers) {
+        if (n > 0) return reply.conflict(`Cannot delete this entity because ${reason}`);
+      }
+
+      /* What IS removed with it. All three are configuration or operational history that belong
+         to the entity and mean nothing without it — an alias for a brand that no longer exists,
+         a feed pointed at it, a record of a sweep that found nothing. None of it is intelligence.
+
+         Not a transaction. If a later statement fails, what remains is orphaned configuration for
+         a row that still exists, and repeating the delete finishes the job. Wrapping it would be
+         tidier; it would not change what a user has to do. */
+      await db.get().delete(scanRuns).where(and(eq(scanRuns.brandEntityId, id), eq(scanRuns.tenantId, tenantId)));
+      await db
+        .get()
+        .delete(sourceConfigs)
+        .where(and(eq(sourceConfigs.brandEntityId, id), eq(sourceConfigs.tenantId, tenantId)));
+      await db
+        .get()
+        .delete(brandAliases)
+        .where(and(eq(brandAliases.brandEntityId, id), eq(brandAliases.tenantId, tenantId)));
+      await db
+        .get()
+        .delete(brandEntities)
+        .where(and(eq(brandEntities.id, id), eq(brandEntities.tenantId, tenantId)));
+
+      return reply.code(204).send();
     },
   );
 };
