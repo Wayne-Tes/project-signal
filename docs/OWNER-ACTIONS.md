@@ -10,7 +10,30 @@ anything I am building.
 
 ---
 
-## 1. 🟠 WORTH DOING — Submit the Anthropic use case form in Bedrock
+## 1. ✅ DONE — Anthropic use case form submitted
+
+> **UPDATE 2026-08-09T10:20Z — form submitted, and `agreementAvailability` is NOT trustworthy.**
+>
+> The Anthropic use case form was submitted for `290304998906` (Tes Global, Education, noting the
+> existing enterprise agreement with Anthropic). `get-use-case-for-model-access` now returns the
+> submitted form rather than an error.
+>
+> **Haiku 4.5 and Sonnet 4.5 invoke successfully — while `get-foundation-model-availability`
+> still reports `agreementAvailability.status: NOT_AVAILABLE` for both.** That field is either
+> lagging or does not mean what its name suggests. It joins `list-inference-profiles` on the list
+> of checks that look authoritative and are not.
+>
+> **There is exactly one reliable test: invoke the model.** That is now the third time a weaker
+> signal has been believed here and been wrong. Do not record a model id as verified on the
+> strength of anything else.
+>
+> Opus 4.5, Sonnet 4.6 and Opus 4.6 were still refusing at the time of writing — likely still
+> propagating. Re-invoke before assuming either way.
+>
+> All three model slots now default to `eu.anthropic.claude-haiku-4-5-20251001-v1:0`.
+> Sonnet 5 and Opus 5 never required the form and remain available as a fallback.
+
+
 
 > **Downgraded from 🔴 BLOCKING on 2026-08-09.** Two profiles — `eu.anthropic.claude-sonnet-5`
 > and `eu.anthropic.claude-opus-5` — **do** answer in this account, so nothing is blocked. Every

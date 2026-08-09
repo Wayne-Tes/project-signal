@@ -90,7 +90,7 @@ describe('getEnv', () => {
    * All three default to the same profile deliberately. Asserting that keeps them from drifting
    * apart silently onto a value nobody has invoked.
    */
-  const VERIFIED_MODEL = 'eu.anthropic.claude-sonnet-5';
+  const VERIFIED_MODEL = 'eu.anthropic.claude-haiku-4-5-20251001-v1:0';
 
   it('applies SCORER_MODEL default', async () => {
     delete process.env['SCORER_MODEL'];

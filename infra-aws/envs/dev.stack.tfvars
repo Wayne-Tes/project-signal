@@ -89,14 +89,14 @@ secret_recovery_window_days = 0
 # model id it could no longer invoke. Runs once per signal, so it is the cost-sensitive slot;
 # Sonnet 5 is more expensive per call than Haiku and that is the price of it working at all.
 # Move back to a cheaper profile once the use case form re-opens them, having re-invoked first.
-scorer_model = "eu.anthropic.claude-sonnet-5"
+scorer_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 # REPORTER: deliberately the SAME model as the scorer. Opus 5 also works and the reporter is the
 # slot that would benefit — but nothing reads it until Epic 12 and no output has been measured.
 # Shipping an unmeasured "better" default is a smaller version of how this project came to ship
 # gemini-2.0-pro-001, a model that never existed. Change it when Epic 12 can compare two outputs.
-reporter_model = "eu.anthropic.claude-sonnet-5"
+reporter_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 # ASSISTANT: the interactive in-product assistant. Separate variable so a latency-sensitive
 # surface can be tuned without disturbing the queue-driven scoring pipeline.
-assistant_model = "eu.anthropic.claude-sonnet-5"
+assistant_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
