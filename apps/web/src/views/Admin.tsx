@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { BrandManager } from '@/components/BrandManager';
 import { ProductManager } from '@/components/ProductManager';
+import { ScanPanel } from '@/components/ScanPanel';
 import { UserManager } from '@/components/UserManager';
 
 type CreatedTenant = {
@@ -123,6 +124,7 @@ export function AdminView() {
         </div>
       )}
 
+      <ScanPanel />
       <ProductManager />
       <BrandManager />
       <UserManager />

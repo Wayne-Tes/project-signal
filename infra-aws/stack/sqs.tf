@@ -11,7 +11,7 @@
 # never trigger — do not reintroduce a catch-all in the consumer.
 
 locals {
-  queues = toset(["item", "report"])
+  queues = toset(["item", "report", "scan"])
 }
 
 resource "aws_sqs_queue" "dlq" {

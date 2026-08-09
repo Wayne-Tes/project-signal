@@ -114,6 +114,14 @@ resource "aws_iam_role_policy" "task_api" {
         Resource = "${aws_s3_bucket.reports.arn}/*"
       },
       {
+        # On-demand scans. The API publishes a request and ingestion consumes it — it cannot call
+        # ingestion directly, which has no ingress at all. Send only: the API never reads or
+        # deletes from this queue.
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage", "sqs:GetQueueUrl", "sqs:GetQueueAttributes"]
+        Resource = [aws_sqs_queue.main["scan"].arn]
+      },
+      {
         # The assistant. Same scoping as the sentiment worker's grant and for the same reason:
         # an inference profile fans out to foundation models across EU regions, so both the
         # profile and the underlying models must be permitted, and confining the model arn to
@@ -158,6 +166,20 @@ resource "aws_iam_role_policy" "task_ingestion" {
         Effect   = "Allow"
         Action   = ["sqs:SendMessage", "sqs:GetQueueUrl", "sqs:GetQueueAttributes"]
         Resource = [aws_sqs_queue.main["item"].arn, aws_sqs_queue.main["report"].arn]
+      },
+      {
+        # Ingestion CONSUMES the scan queue — the on-demand scan path. Deliberately separate from
+        # the grant above: it publishes to item and report, and reads from scan. Merging them
+        # would let it consume its own output.
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:ChangeMessageVisibility",
+          "sqs:GetQueueUrl",
+          "sqs:GetQueueAttributes",
+        ]
+        Resource = [aws_sqs_queue.main["scan"].arn]
       },
     ]
   })

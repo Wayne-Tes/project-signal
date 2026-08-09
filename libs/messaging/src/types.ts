@@ -2,7 +2,12 @@
  * The two logical queues in the pipeline. Callers name the role, never the concrete queue —
  * the concrete name and URL differ per environment and come from configuration.
  */
-export type LogicalQueue = 'item' | 'report';
+/**
+ * `scan` carries a request to collect for one brand. It is a QUEUE rather than an HTTP call to
+ * ingestion for two reasons: ingestion has no ingress at all, and a collection run blocks on
+ * third-party APIs for minutes, which is not a thing to hold an HTTP request open for.
+ */
+export type LogicalQueue = 'item' | 'report' | 'scan';
 
 /**
  * Publishing side of the pipeline.
