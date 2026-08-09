@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { db, scanRuns, sourceConfigs } from '@project-signal/db';
 import { SqsConsumer } from '@project-signal/messaging';
 import { handleIngestionJob } from './handler.js';
+import { rollupDimensionScores } from './rollup.js';
 
 /**
  * The scan consumer — the other half of the on-demand scan button.
@@ -22,13 +23,83 @@ export interface ScanRequest {
   brandEntityId: string;
 }
 
+/**
+ * A message from the scheduler rather than from a user.
+ *
+ * EventBridge Scheduler writes straight to the queue — it cannot enumerate brands, and it cannot
+ * reach ingestion over HTTP any more than the API can. So it sends a job name and this service
+ * works out the rest.
+ *
+ * `rollup` is here because NOTHING has ever called it either. Scanning and scoring alone produce
+ * no index: `dimension_scores` is written by the rollup, and until now no timer, queue or route
+ * has invoked it in a deployed environment.
+ */
+export interface ScheduledJob {
+  job: 'scan-all' | 'rollup';
+}
+
+export type QueueMessage = ScanRequest | ScheduledJob;
+
+export function isScheduledJob(m: QueueMessage): m is ScheduledJob {
+  return typeof (m as ScheduledJob).job === 'string';
+}
+
 /** Parses a queue message, or throws — a malformed body is permanent, not transient. */
-export function parseScanRequest(body: string): ScanRequest {
-  const parsed = JSON.parse(body) as Partial<ScanRequest>;
+export function parseScanRequest(body: string): QueueMessage {
+  const parsed = JSON.parse(body) as Partial<ScanRequest & ScheduledJob>;
+
+  if (parsed.job === 'scan-all' || parsed.job === 'rollup') return { job: parsed.job };
+
   if (!parsed.scanRunId || !parsed.tenantId || !parsed.brandEntityId) {
-    throw new Error(`Scan message missing required fields: ${body.slice(0, 160)}`);
+    throw new Error(`Queue message missing required fields: ${body.slice(0, 160)}`);
   }
-  return parsed as ScanRequest;
+  return { scanRunId: parsed.scanRunId, tenantId: parsed.tenantId, brandEntityId: parsed.brandEntityId };
+}
+
+/**
+ * The scheduled sweep: one run per brand that has an enabled source.
+ *
+ * A scan_run is created for each, exactly as the button does, so scheduled and manual collection
+ * are visible in the same list and distinguishable by `trigger`. Without that, a user seeing new
+ * signals appear could not tell whether the schedule was working.
+ *
+ * Brands are scanned SEQUENTIALLY. Firing every brand's sources at once would hit third-party
+ * per-account quotas — shared across tenants — in a single burst, which is the one thing the
+ * on-demand debounce exists to prevent. A slow sweep is fine; a rate-limited one is not.
+ */
+export async function scanAll(): Promise<number> {
+  const database = db.get();
+
+  const brands = await database
+    .selectDistinct({ tenantId: sourceConfigs.tenantId, brandEntityId: sourceConfigs.brandEntityId })
+    .from(sourceConfigs)
+    .where(eq(sourceConfigs.isEnabled, true));
+
+  for (const brand of brands) {
+    const [run] = await database
+      .insert(scanRuns)
+      .values({
+        tenantId: brand.tenantId,
+        brandEntityId: brand.brandEntityId,
+        status: 'queued',
+        trigger: 'scheduled',
+      })
+      .returning();
+
+    if (!run) continue;
+    try {
+      await runScan({
+        scanRunId: run.id,
+        tenantId: brand.tenantId,
+        brandEntityId: brand.brandEntityId,
+      });
+    } catch {
+      /* runScan has already marked this run failed with a reason. Swallowed deliberately: one
+         brand's broken source must not abort the sweep for every other brand. */
+    }
+  }
+
+  return brands.length;
 }
 
 /**
@@ -120,13 +191,24 @@ export function createScanConsumer(log: {
   return new SqsConsumer({
     queue: 'scan',
     handle: async (body) => {
-      let request: ScanRequest;
+      let request: QueueMessage;
       try {
         request = parseScanRequest(body);
       } catch (err) {
         /* Permanent: the message will never parse. Resolve so the consumer deletes it rather
            than spending the redrive policy's retries on a conclusion known immediately. */
         log.error({ err, body }, 'unparseable scan message — discarding');
+        return;
+      }
+
+      if (isScheduledJob(request)) {
+        if (request.job === 'rollup') {
+          const result = await rollupDimensionScores();
+          log.info({ result }, 'scheduled rollup finished');
+          return;
+        }
+        const brands = await scanAll();
+        log.info({ brands }, 'scheduled sweep finished');
         return;
       }
 

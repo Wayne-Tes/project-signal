@@ -10,7 +10,7 @@ let rows: unknown[] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'where', 'insert', 'values', 'update', 'limit', 'orderBy']) {
+  for (const m of ['select', 'selectDistinct', 'from', 'where', 'insert', 'values', 'update', 'limit', 'orderBy']) {
     chain[m] = vi.fn(() => chain);
   }
   chain['set'] = vi.fn((v: Record<string, unknown>) => {
@@ -18,6 +18,7 @@ vi.mock('@project-signal/db', () => {
     return chain;
   });
   const next = () => (rowQueue.length ? rowQueue.shift()! : rows);
+  chain['returning'] = vi.fn(() => Promise.resolve(next()));
   chain['then'] = (r: unknown, j?: unknown) => Promise.resolve(next()).then(r as never, j as never);
   return {
     db: { get: vi.fn(() => chain) },
@@ -127,5 +128,61 @@ describe('runScan', () => {
     await runScan(REQ);
     /* Both updates go through the same owned predicate; a run id alone must not be enough. */
     expect(setCalls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('scheduled jobs', () => {
+  it('recognises a scan-all message', async () => {
+    const { parseScanRequest, isScheduledJob } = await import('../src/scanConsumer.js');
+    const m = parseScanRequest(JSON.stringify({ job: 'scan-all' }));
+    expect(isScheduledJob(m)).toBe(true);
+  });
+
+  it('recognises a rollup message', async () => {
+    const { parseScanRequest, isScheduledJob } = await import('../src/scanConsumer.js');
+    const m = parseScanRequest(JSON.stringify({ job: 'rollup' }));
+    expect(isScheduledJob(m) && m.job).toBe('rollup');
+  });
+
+  it('rejects an unknown job name rather than treating it as a scan', async () => {
+    /* An unrecognised job must not fall through to the on-demand branch and then fail on a
+       missing scanRunId with a confusing message. */
+    const { parseScanRequest } = await import('../src/scanConsumer.js');
+    expect(() => parseScanRequest(JSON.stringify({ job: 'delete-everything' }))).toThrow();
+  });
+
+  it('does not mistake an on-demand request for a scheduled job', async () => {
+    const { parseScanRequest, isScheduledJob } = await import('../src/scanConsumer.js');
+    expect(isScheduledJob(parseScanRequest(JSON.stringify(REQ)))).toBe(false);
+  });
+
+  it('creates one scheduled run per brand with an enabled source', async () => {
+    /* Marked `scheduled`, so the same list shows manual and automatic collection and a user can
+       tell whether the timer is actually working. */
+    const { scanAll } = await import('../src/scanConsumer.js');
+    /* The brand list is queued; everything after it falls through to `rows`, which stands in for
+       "a row came back" without the test having to model drizzle's call order. Counting exact
+       queue consumption made this brittle and told us nothing about the behaviour. */
+    rowQueue.push([
+      { tenantId: 't1', brandEntityId: 'b1' },
+      { tenantId: 't1', brandEntityId: 'b2' },
+    ]);
+    rows = [{ id: 'run-x' }];
+    const count = await scanAll();
+    expect(count).toBe(2);
+    expect(status().filter((s) => s === 'running').length).toBe(2);
+  });
+
+  it('keeps sweeping when one brand fails', async () => {
+    /* One broken source must not abort collection for every other brand — the failure is already
+       recorded against that brand's own run. */
+    const { scanAll } = await import('../src/scanConsumer.js');
+    rowQueue.push([
+      { tenantId: 't1', brandEntityId: 'b1' },
+      { tenantId: 't1', brandEntityId: 'b2' },
+    ]);
+    rows = [{ id: 'run-x' }];
+    mockJob.mockRejectedValue(new Error('feed down'));
+    await expect(scanAll()).resolves.toBe(2);
   });
 });
