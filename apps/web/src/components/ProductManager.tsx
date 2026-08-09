@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
-import { ChevronRight, Package, Plus } from 'lucide-react';
+import { Check, ChevronRight, Package, Pencil, Plus, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { Badge, Button, Input, Select } from '@/design-system';
 
@@ -39,6 +39,10 @@ export function ProductManager() {
   const [busy, setBusy] = useState(false);
 
   const [name, setName] = useState('');
+  /* Which row is being renamed, and the draft value. Only one at a time: two open editors invite
+     a half-typed name being left behind on a row the user has stopped looking at. */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
   const [parentId, setParentId] = useState('');
   const [kind, setKind] = useState('product');
 
@@ -77,6 +81,27 @@ export function ProductManager() {
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rename(id: string): Promise<void> {
+    const next = draft.trim();
+    /* An unchanged or empty name is a no-op, not an error. Sending it would rewrite the slug for
+       nothing, and refusing it loudly would be a lecture for pressing Enter. */
+    if (!next || busy) {
+      setEditingId(null);
+      return;
+    }
+    setBusy(true);
+    try {
+      await apiFetch(`/brands/${id}`, { method: 'PATCH', body: JSON.stringify({ name: next }) });
+      setEditingId(null);
+      await load();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not rename.');
     } finally {
       setBusy(false);
     }
@@ -140,7 +165,59 @@ export function ProductManager() {
               {node.kind === 'product' && (
                 <Package size={15} strokeWidth={1.8} style={{ color: 'var(--accent)' }} aria-hidden="true" />
               )}
-              <span style={{ fontWeight: 600, fontSize: 14 }}>{node.name}</span>
+              {editingId === node.id ? (
+                <>
+                  <Input
+                    autoFocus
+                    aria-label={`Rename ${node.name}`}
+                    value={draft}
+                    disabled={busy}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      /* Enter saves, Escape abandons — the convention everywhere else, and the
+                         two keys a person reaches for without thinking. */
+                      if (e.key === 'Enter') void rename(node.id);
+                      if (e.key === 'Escape') setEditingId(null);
+                    }}
+                    style={{ width: 240 }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconOnly
+                    disabled={busy}
+                    onClick={() => void rename(node.id)}
+                    icon={<Check size={15} strokeWidth={1.8} aria-hidden="true" />}
+                  >
+                    Save name
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconOnly
+                    onClick={() => setEditingId(null)}
+                    icon={<X size={15} strokeWidth={1.8} aria-hidden="true" />}
+                  >
+                    Cancel rename
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{node.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconOnly
+                    onClick={() => {
+                      setEditingId(node.id);
+                      setDraft(node.name);
+                    }}
+                    icon={<Pencil size={14} strokeWidth={1.8} aria-hidden="true" />}
+                  >
+                    Rename {node.name}
+                  </Button>
+                </>
+              )}
               <Badge tone={node.isOwned ? 'info' : 'neutral'}>
                 {node.isOwned ? node.kind : 'competitor'}
               </Badge>
