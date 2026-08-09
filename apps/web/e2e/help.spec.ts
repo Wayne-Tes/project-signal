@@ -68,8 +68,9 @@ test.describe('help centre', () => {
     await openHelpIndex(page);
     await page.getByRole('button', { name: /understanding the brand perception index/i }).click();
     const panel = page.getByTestId('help-centre');
-    await expect(panel.locator('table')).toBeVisible();
-    await expect(panel.locator('pre')).toBeVisible();
+    await expect(panel.locator('table').first()).toBeVisible();
+    /* The article has several formula blocks; one visible is the assertion. */
+    await expect(panel.locator('pre').first()).toBeVisible();
     /* If the renderer ever fails open, this is what the user would see instead. */
     await expect(panel).not.toContainText('| --- |');
     await expect(panel).not.toContainText('**');

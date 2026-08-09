@@ -6,6 +6,7 @@ import {
   luminance,
   presetAppearance,
   signIn,
+  TOPBAR_TITLE,
 } from './helpers';
 
 /**
@@ -100,7 +101,7 @@ test.describe('light theme paints light surfaces', () => {
        `--t1: #f4f3ef` text ramp white-on-white, which is worse than black
        tiles because it looks like missing data rather than a styling fault. */
     const colour = await page
-      .locator('.ds-topbar h1, h1')
+      .locator(TOPBAR_TITLE)
       .first()
       .evaluate((el) => getComputedStyle(el).color);
     expect(luminance(colour), `heading colour ${colour} should be dark`).toBeLessThan(0.5);
@@ -133,7 +134,7 @@ test.describe('dark theme still paints dark surfaces', () => {
   test('Dashboard cards are dark and text is legible on them', async ({ page }) => {
     await goToView(page, /dashboard/i);
     const heading = await page
-      .locator('.ds-topbar h1, h1')
+      .locator(TOPBAR_TITLE)
       .first()
       .evaluate((el) => getComputedStyle(el).color);
     expect(luminance(heading), `heading colour ${heading} should be light on dark`).toBeGreaterThan(

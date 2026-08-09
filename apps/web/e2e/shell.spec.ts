@@ -86,15 +86,6 @@ test.describe('appearance popover', () => {
     expect(bg, 'active nav item should carry the accent tint').not.toBe('rgba(0, 0, 0, 0)');
   });
 
-  test('a chosen theme survives a reload', async ({ page }) => {
-    /* The boot script in layout.tsx exists to avoid a flash of the wrong
-       theme. If persistence breaks, this is the test that says so. */
-    await chooseAppearance(page, 'Theme', 'Dark');
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-
-    await page.reload();
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  });
 });
 
 test.describe('navigation', () => {

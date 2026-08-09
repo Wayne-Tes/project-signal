@@ -105,8 +105,20 @@ export async function chooseAppearance(page: Page, group: string, option: string
   const trigger = page.getByRole('button', { name: /appearance/i });
   const popover = page.getByRole('radiogroup', { name: group });
   if (!(await popover.isVisible().catch(() => false))) await trigger.click();
+  /* Wait for the group before reaching into it. The popover animates in, and clicking during
+     the entrance can land on a position the element has since left — Playwright's actionability
+     checks cover a moving target, but not one whose ancestor is still being inserted. */
+  await expect(popover).toBeVisible();
   await popover.getByRole('radio', { name: option, exact: true }).click();
 }
+
+/**
+ * The top bar's page title.
+ *
+ * It is an `h2`, not an `h1` — the shell has no h1 at all. Selecting `h1` matched nothing and
+ * every assertion on it died on a 45-second timeout rather than saying "no such element".
+ */
+export const TOPBAR_TITLE = '.ds-topbar__title';
 
 /**
  * Opens the help centre AT ITS INDEX.
