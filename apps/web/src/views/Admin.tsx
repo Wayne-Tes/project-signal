@@ -4,6 +4,7 @@ import { useState, type CSSProperties, type FormEvent } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { BrandManager } from '@/components/BrandManager';
+import { ProductManager } from '@/components/ProductManager';
 import { UserManager } from '@/components/UserManager';
 
 type CreatedTenant = {
@@ -122,6 +123,7 @@ export function AdminView() {
         </div>
       )}
 
+      <ProductManager />
       <BrandManager />
       <UserManager />
     </div>
