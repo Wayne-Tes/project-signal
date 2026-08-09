@@ -9,8 +9,16 @@
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "baseUrl": ".",
+    /* TypeScript REPLACES `paths` on extend rather than merging it, so declaring `@/*` here
+       silently discarded every `@project-signal/*` mapping inherited from tsconfig.base.json.
+       apps/web was then the only project resolving workspace packages through node_modules to
+       `dist/` — which exists locally after a build and never in CI. Every "implicitly has an
+       'any' type" and "Object is possibly 'undefined'" error in that job was downstream of this
+       one line. The workspace packages web actually imports are restated here. */
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@project-signal/help-content": ["../../libs/help-content/src/index.ts"],
+      "@project-signal/shared-types": ["../../libs/shared-types/src/index.ts"]
     }
   },
   "include": [

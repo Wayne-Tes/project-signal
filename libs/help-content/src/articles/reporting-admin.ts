@@ -1,4 +1,4 @@
-import type { HelpArticle } from '../types.js';
+import type { HelpArticle } from '../types';
 
 /**
  * Reporting, administration, and the assistant.

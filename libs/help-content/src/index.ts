@@ -1,10 +1,10 @@
-import { GETTING_STARTED } from './articles/getting-started.js';
-import { MANAGING_DATA } from './articles/managing-data.js';
-import { REPORTING_ADMIN } from './articles/reporting-admin.js';
-import { UNDERSTANDING_SCORES } from './articles/understanding-scores.js';
-import type { HelpArticle, HelpCategory, HelpCategoryMeta, TourStep } from './types.js';
+import { GETTING_STARTED } from './articles/getting-started';
+import { MANAGING_DATA } from './articles/managing-data';
+import { REPORTING_ADMIN } from './articles/reporting-admin';
+import { UNDERSTANDING_SCORES } from './articles/understanding-scores';
+import type { HelpArticle, HelpCategory, HelpCategoryMeta, TourStep } from './types';
 
-export type { HelpArticle, HelpCategory, HelpCategoryMeta, TourStep } from './types.js';
+export type { HelpArticle, HelpCategory, HelpCategoryMeta, TourStep } from './types';
 
 /** Presentation order of the help centre. */
 export const HELP_CATEGORIES: readonly HelpCategoryMeta[] = [
