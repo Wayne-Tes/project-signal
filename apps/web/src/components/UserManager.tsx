@@ -275,8 +275,12 @@ const select: CSSProperties = {
 const btn: CSSProperties = {
   marginTop: 20,
   padding: '10px 18px',
-  background: 'var(--mint)',
-  color: 'var(--bg)',
+  /* The user's chosen highlight, not the status ramp. `--mint` is the legacy "positive" colour
+     and painted this action olive regardless of the accent selected. `--accent-on` rather than
+     `--bg`: the page background is not a text colour, and on a light theme it produced
+     near-white text on lime. */
+  background: 'var(--accent)',
+  color: 'var(--accent-on)',
   border: 'none',
   borderRadius: 'var(--r-sm)',
   fontWeight: 600,

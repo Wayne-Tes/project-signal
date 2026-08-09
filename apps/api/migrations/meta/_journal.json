@@ -50,6 +50,13 @@
       "when": 1786024307788,
       "tag": "0006_familiar_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786264744329,
+      "tag": "0007_productive_patriot",
+      "breakpoints": true
     }
   ]
 }

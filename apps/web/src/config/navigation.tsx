@@ -1,4 +1,14 @@
-import { BarChart3, FileText, Gauge, ListChecks, Settings, Target, TrendingUp } from 'lucide-react';
+import {
+  BarChart3,
+  BookOpen,
+  FileText,
+  Gauge,
+  ListChecks,
+  MessagesSquare,
+  Settings,
+  Target,
+  TrendingUp,
+} from 'lucide-react';
 import type { NavGroup } from '@/design-system';
 import type { Role } from '@/lib/auth';
 
@@ -20,6 +30,8 @@ export type ViewId =
   | 'roadmap'
   | 'competitors'
   | 'report'
+  | 'assistant'
+  | 'documentation'
   | 'admin';
 
 const ICON = { size: 19, strokeWidth: 1.8 } as const;
@@ -59,6 +71,22 @@ const NAV: NavDef[] = [
     icon: <BarChart3 {...ICON} />,
   },
   { id: 'report', label: 'Weekly report', group: 'Delivery', icon: <FileText {...ICON} /> },
+  /* The assistant and the documentation are reachable from the top bar on every view — that is
+     where they answer a question raised by what you are looking at. These are the other half:
+     places you go ON PURPOSE, to work through a conversation or to read. A pop-over cannot hold
+     a chat history, and a slide-over is the wrong shape for reading documentation end to end. */
+  {
+    id: 'assistant',
+    label: 'Assistant',
+    group: 'Workspace',
+    icon: <MessagesSquare {...ICON} />,
+  },
+  {
+    id: 'documentation',
+    label: 'Documentation',
+    group: 'Workspace',
+    icon: <BookOpen {...ICON} />,
+  },
   {
     id: 'admin',
     label: 'Admin',
@@ -69,7 +97,7 @@ const NAV: NavDef[] = [
 ];
 
 /** Group order is fixed here so a new item cannot reorder the sidebar. */
-const GROUP_ORDER = ['Brand', 'Intelligence', 'Delivery', 'Manage'];
+const GROUP_ORDER = ['Brand', 'Intelligence', 'Delivery', 'Workspace', 'Manage'];
 
 /**
  * The nav for a given role.
@@ -82,12 +110,26 @@ const GROUP_ORDER = ['Brand', 'Intelligence', 'Delivery', 'Manage'];
 export function navForRole(role: Role): NavGroup[] {
   const visible = NAV.filter((item) => !item.roles || (role && item.roles.includes(role)));
 
-  return GROUP_ORDER.map((label) => ({
-    label,
-    items: visible
-      .filter((i) => i.group === label)
-      .map((i) => ({ id: i.id, label: i.label, icon: i.icon })),
-  })).filter((g) => g.items.length > 0);
+  /* Any group NOT named in GROUP_ORDER is appended rather than dropped.
+
+     Mapping over GROUP_ORDER alone means a nav item in an unlisted group vanishes silently: it
+     is in NAV, it is in ViewId, its view renders when reached — and no user can ever reach it.
+     That is exactly what happened when the Workspace group was added and GROUP_ORDER was not
+     updated, and nothing failed except an e2e click that timed out with no clue as to why.
+     Ordering stays explicit; only the failure mode changes, from invisible to merely last. */
+  const ordered = [
+    ...GROUP_ORDER,
+    ...[...new Set(visible.map((i) => i.group))].filter((g) => !GROUP_ORDER.includes(g)),
+  ];
+
+  return ordered
+    .map((label) => ({
+      label,
+      items: visible
+        .filter((i) => i.group === label)
+        .map((i) => ({ id: i.id, label: i.label, icon: i.icon })),
+    }))
+    .filter((g) => g.items.length > 0);
 }
 
 /** Every view id the current role may reach — used to validate the active view. */

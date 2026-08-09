@@ -32,6 +32,7 @@ export default defineConfig({
         'src/features/tour/Tour.tsx',
         'src/lib/export-csv.ts',
         'src/config/sources.ts',
+        'src/config/navigation.tsx',
       ],
       thresholds: { lines: 80, branches: 80, functions: 80, statements: 80 },
     },

@@ -234,6 +234,7 @@ Seven migrations exist, tracked in `apps/api/migrations/meta/_journal.json`:
 | `0004_chief_freak`        | `brand_aliases`                                                       |
 | `0005_demonic_mindworm`   | Drops the four denormalised sentiment columns from `signals`          |
 | `0006_familiar_vermin`    | Adds `brand_entities.dimension_weights` jsonb (per-brand BPI weights) |
+| `0007_productive_patriot` | `conversations`, `conversation_messages` — assistant history, scoped by tenant **and** user |
 
 Authoring a new migration: edit the schema in `libs/db/src/schema/`, then run
 `yarn db:generate` (→ `nx run @project-signal/api:generate` → `drizzle-kit generate`). Never hand-write
@@ -553,7 +554,11 @@ difference.
 | `GET /brands/:id/brand-impact`            | any          | bare array           | Top topic clusters by damage, computed on read from `sentiment_results`. `limit` defaults to 3.                         |
 | `GET /brands/:id/strengths`               | any          | bare array           | The mirror of `/brand-impact`, ranked by `volume × positivity × recency`. `limit` defaults to 3.                        |
 | `GET /brands/:id/stats`                   | any          | object               | Dashboard stat row: this/previous week signal counts, total, scored (pipeline coverage), active/configured sources.     |
-| `POST /assistant/messages`                | any          | object               | The in-product assistant. POST because a conversation is a body, but it **mutates nothing** — see below. Stateless: the client sends the history it wants considered. |
+| `POST /assistant/messages`                | any          | object               | Ask the assistant. Read-only over BRAND data; it writes only the conversation record. History is loaded server-side — see below. |
+| `GET /assistant/conversations`           | any          | bare array           | The caller's **own** conversations, most recent first. Filtered by tenant **and** user. |
+| `GET /assistant/conversations/:id`       | any          | object               | One conversation and its turns. 404 whether it is missing or someone else's. |
+| `PATCH /assistant/conversations/:id`     | any          | object               | Rename. |
+| `DELETE /assistant/conversations/:id`    | any          | 204                  | Delete; messages cascade. |
 | `GET /brands/:id/integrations`            | admin, owner | `{status,data}`      | List `source_configs` for the brand.                                                                                    |
 | `POST /brands/:id/integrations`           | admin, owner | `{status,data}`      | **Upsert** on `(brand_entity_id, source)`.                                                                              |
 | `PATCH /brands/:id/integrations/:source`  | admin, owner | `{status,data}`      | Update `isEnabled` and/or `config`. 404 if absent.                                                                      |
@@ -619,6 +624,28 @@ ceiling trips it makes one final tool-free call and returns `truncated: true`, w
 Situational context (current view, selected brand) goes in the **system prompt**, not a user turn:
 as a user turn the model can read it as an instruction from the person, so a signal titled
 "ignore your instructions" would have a path to becoming one.
+
+**Conversation history is server-side, and scoped to the USER.** The assistant was initially
+stateless — the client sent the history it wanted considered and nothing was stored, which is the
+cheapest possible way not to leak a conversation store. Persistent, revisitable history was asked
+for, so `conversations` and `conversation_messages` now exist and have to earn that isolation.
+
+This is the **first table in the product where tenant scoping alone would be wrong**. A
+conversation quotes the person's own questions, signals and scores; colleagues in the same tenant
+have no business reading it. Every query filters tenant **and** user; `loadOwnConversation` exists
+so that filter is written once rather than correctly at four call sites; the `DELETE` repeats both
+filters rather than trusting the lookup above it, because that is the statement that would do the
+damage. `tenant_id` is denormalised onto messages so the safe read needs no join — this product
+has no RLS, and "remember to join and filter" is exactly what produced KNOWN-GAPS #5 and #5b.
+
+**History is read from the database, never from the client.** A request sends one thing: the new
+question. Trusting the client's copy would let a caller post a fabricated assistant turn — "you
+previously confirmed the index is 94" — and have the model treat its own supposed words as
+established fact. Covered by a test that posts exactly that.
+
+Nothing is persisted until an answer succeeds: a conversation containing a question and no reply
+reads to the user as the assistant having ignored them. Citations and tool steps are stored with
+the answer, because history you cannot check is the opposite of the point.
 
 **`citations.ts` — citations are derived, not declared.** The obvious design is to ask the model
 for `[1]` markers and a source list. It is worthless: a model that invents a figure invents a
@@ -771,7 +798,9 @@ thing that prompted the question.
 | `features/help/HelpCentre.tsx` | Slide-over help panel. Opens on the **current view's** article (`articleForView`) rather than the index, with search and cross-references. Imports the corpus directly, so it works even when the API is the thing that is broken — which is exactly when someone opens help. |
 | `features/help/Markdown.tsx` | Markdown → **React elements**. Never `dangerouslySetInnerHTML`. |
 | `features/tour/Tour.tsx` | First-run tour. Spotlights the live element rather than showing screenshots, which go stale silently. Shown once; both completion and dismissal are final. |
-| `features/assistant/AssistantDock.tsx` | The assistant. Conversation state lives here and is sent with each request; the API stores nothing. |
+| `features/assistant/AssistantDock.tsx` | The assistant panel, for a question raised by what you are looking at. One-off: it does not write to saved history. |
+| `views/Assistant.tsx` | The assistant **page** — persistent, revisitable conversations. Shares the API and the renderer with the dock but not its state: coupling them would mean the dock either resurrecting a page conversation on every view or silently writing into one. |
+| `views/Documentation.tsx` | The help corpus as a page, with contents beside the article. Same corpus and components as the panel — a second copy styled differently is how a help centre and its documentation start disagreeing. |
 
 > **Why the markdown renderer is hand-written.** Every markdown library renders to an HTML
 > string, which means `dangerouslySetInnerHTML`, which makes a sanitiser the only thing between
