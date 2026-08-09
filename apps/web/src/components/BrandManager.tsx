@@ -43,7 +43,7 @@ export function BrandManager() {
 
   return (
     <div style={{ ...card, marginTop: 16 }}>
-      <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 18, margin: '0 0 4px' }}>
+      <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, margin: '0 0 4px' }}>
         Manage brand
       </h2>
       <p style={{ color: 'var(--t2)', fontSize: 13, margin: '0 0 16px' }}>

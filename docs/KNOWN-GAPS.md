@@ -48,7 +48,7 @@
 | 21  | ~~No committed e2e harness; no component tests~~                   | ✅ resolved | testing               |
 | 22  | ~~Deployed model id could no longer be invoked~~                   | ✅ resolved | llm ↔ infra           |
 | 23  | ~~Workspace import undeclared; container crashed on boot~~         | ✅ resolved | build ↔ deploy        |
-| 24  | Four source types are offered in Admin and collect nothing         | 🟠 open     | ingestion ↔ web       |
+| 24  | ~~A source with no collector could be configured via the API~~     | ✅ resolved | API ↔ ingestion       |
 | 25  | `firebaseUid` naming survives in the schema and API contract       | 🟡 open     | db ↔ API ↔ web        |
 
 ---
@@ -802,19 +802,27 @@ that a new API prefix must be added there — the warning was correct and was no
 
 ---
 
-## 24. 🟠 Four source types are offered in Admin and collect nothing
+## 24. ✅ A source with no collector could be configured — **resolved (2026-08-09)**
 
-`SignalSource` models nine sources; five have adapters (`rss`, `google_reviews`, `app_store`,
-`play_store`, `youtube`). **`trustpilot`, `news_api`, `x` and `survey` have none.** The type, the
-schema and the Admin UI all accept them, so configuring one records intent and produces no
-signals — with no warning anywhere. A user reasonably concludes the product is broken.
+> **Correction.** This was first recorded as "four source types are offered in Admin and collect
+> nothing". **That was wrong, and it was written without checking the UI.** `BrandManager`
+> builds its source select from `SOURCE_FIELDS`, which contains exactly the five sources that do
+> collect. No user can pick a dead source from the interface.
 
-Documented for users in the help centre (`available-sources`), which states plainly which five
-collect. That is honest but insufficient: the UI still offers all nine without distinction.
+The real defect was one layer down. `POST /brands/:id/integrations` accepted **any string** as a
+source. The row was written, the source listed as configured and enabled, and every collection
+run then threw `No adapter for source` — an error the dispatcher counts as a failed source and
+drops. Nothing surfaced to whoever configured it, so the only symptom was a source producing no
+signals, which is indistinguishable from nobody talking about the brand.
 
-**To close:** either implement the adapters, or mark the non-collecting options in the Admin
-select so the product stops accepting a configuration it cannot honour. The second is small and
-should not wait for the first.
+Reachable through the API directly, and through anything else that posts to it.
+
+**Resolved** by `COLLECTING_SOURCES` in `shared-types` — what the pipeline can actually fetch, as
+distinct from `SignalSource`, which is what the schema models. The API validates against it and
+names the available sources in the error; `apps/ingestion` has a test asserting its adapter
+registry matches the list exactly, because drift fails silently in **both** directions: an
+adapter added without updating the list is a collector the API refuses to configure, and one
+removed is a config the pipeline can never honour.
 
 ---
 

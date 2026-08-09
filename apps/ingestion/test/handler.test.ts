@@ -381,3 +381,21 @@ describe('reconcilePendingSignals', () => {
     expect(chain.limit).toHaveBeenCalledWith(250);
   });
 });
+
+describe('adapter registry', () => {
+  /**
+   * The registry and `COLLECTING_SOURCES` must agree exactly.
+   *
+   * The API validates new source configs against that list. If an adapter is added here without
+   * updating it, the collector exists but the API refuses to configure it — a feature that is
+   * built and unreachable. If one is removed without updating it, the API happily accepts a
+   * source whose every collection run throws "No adapter for source", and that error is counted
+   * as a failed source and dropped, so nobody is told. Both directions fail silently, which is
+   * why this is a test rather than a comment.
+   */
+  it('matches COLLECTING_SOURCES exactly', async () => {
+    const { COLLECTING_SOURCES } = await import('@project-signal/shared-types');
+    const { ADAPTER_SOURCES } = await import('../src/handler.js');
+    expect([...ADAPTER_SOURCES].sort()).toEqual([...COLLECTING_SOURCES].sort());
+  });
+});

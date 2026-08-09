@@ -82,11 +82,11 @@ difference matters: configuring a source with no collector produces no signals a
 | **Play Store** | Android app reviews. |
 | **YouTube** | Video and comment signals. |
 
-## Modelled but not yet collecting
+## Recognised, but not available
 
-**Trustpilot**, **News API**, **X**, and **Survey** are recognised throughout the product — the
-schema, the types and the UI all handle them — but no collector runs for them yet. Configuring one
-records your intent; it does not start collecting.
+**Trustpilot**, **News API**, **X** and **Survey** appear in the product's data model, but no
+collector exists for them. They are **not offered** when you add a source, and the API refuses
+them — so you cannot end up with a source that looks configured and quietly collects nothing.
 
 If you need one of these, that is a product request rather than a configuration problem.
 

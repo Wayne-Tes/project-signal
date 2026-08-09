@@ -13,6 +13,7 @@ import { db, sourceConfigs } from '@project-signal/db';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { requireRole } from '../plugins/auth.js';
+import { COLLECTING_SOURCES, isCollectingSource } from '@project-signal/shared-types';
 
 interface BrandParams {
   id: string;
@@ -79,6 +80,20 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
 
       if (!source || typeof source !== 'string') {
         return reply.status(400).send({ status: 'error', error: 'source is required' });
+      }
+      /* Reject a source with no collector rather than storing a configuration the pipeline can
+         never honour.
+
+         Any string was previously accepted. The row was written, the UI listed the source as
+         configured and enabled, and every collection run then threw "No adapter for source" —
+         an error the dispatcher counts as a failed source and drops. Nothing ever surfaced to
+         the person who configured it, so the only symptom was a source that silently produced
+         no signals, which is indistinguishable from nobody talking about the brand. */
+      if (!isCollectingSource(source)) {
+        return reply.status(400).send({
+          status: 'error',
+          error: `No collector exists for source '${source}'. Available: ${COLLECTING_SOURCES.join(', ')}.`,
+        });
       }
       if (!config || typeof config !== 'object') {
         return reply.status(400).send({ status: 'error', error: 'config must be an object' });

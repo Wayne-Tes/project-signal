@@ -32,24 +32,27 @@ on any view.
 
 ---
 
-### 2. Sources modelled but not collecting
+### 2. Views still using inline styles rather than design-system primitives
 
-**Where:** Admin → Manage brand → Sources.
+`BrandManager`, `UserManager`, `SignIn` and parts of `Admin` paint surfaces from inline style
+objects. They read design-system tokens, so they theme correctly — this is a consistency cost,
+not something a user can see.
 
-**State:** `trustpilot`, `news_api`, `x` and `survey` are accepted throughout — the type union,
-the schema and the UI all handle them — but **no collector runs for them**. Configuring one
-records intent and produces no signals, with no warning anywhere.
-
-Documented for users in the help centre (`available-sources`), which states plainly which five
-sources actually collect. That is honest, but the UI itself still offers all nine without
-distinction.
-
-**To finish:** either implement the adapters, or mark the non-collecting options in the Admin
-select so the product does not silently accept a configuration it cannot honour.
+It did hide one thing, though, and that is why it is still listed: a surface painted from an
+inline style carries no class, so `apps/web/e2e/theme.spec.ts` could not find it and **skipped**
+the Admin check rather than running it. A test that skips itself reports green while covering
+nothing. Admin's panels now carry `.ds-card`; the rest should follow.
 
 ---
 
 ## Closed
+
+### ~~Sources offered in Admin that collect nothing~~ — was not true
+
+Recorded here on 2026-08-08 without checking the UI. `BrandManager` builds its source select
+from `SOURCE_FIELDS`, which contains exactly the five sources that do collect — a user has never
+been able to pick a dead one. The real defect was that the **API** accepted any string; that is
+KNOWN-GAPS #24 and is fixed.
 
 ### ~~Export button~~ — implemented 2026-08-09
 
