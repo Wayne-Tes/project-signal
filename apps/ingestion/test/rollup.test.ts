@@ -31,6 +31,8 @@ vi.mock('@project-signal/db', () => {
     brandEntities: {},
     signals: {},
     sentimentResults: {},
+    /* The rollup now counts signals that MENTION an entity, not only those attributed to it. */
+    signalMentions: {},
     dimensionScores: { brandEntityId: {}, date: {}, dimension: {} },
     sourceConfigs: {},
     client: { get: vi.fn() },

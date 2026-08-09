@@ -14,6 +14,7 @@ import { integrationsRoutes } from './routes/integrations.js';
 import { aliasesRoutes } from './routes/aliases.js';
 import { adminRoutes } from './routes/admin.js';
 import { assistantRoutes } from './routes/assistant.js';
+import { portfolioRoutes } from './routes/portfolio.js';
 
 const HEALTH_SCHEMA = {
   response: {
@@ -65,6 +66,7 @@ const start = async () => {
     await app.register(aliasesRoutes);
     await app.register(adminRoutes);
     await app.register(assistantRoutes);
+    await app.register(portfolioRoutes);
 
     app.log.info('applying database migrations');
     await runMigrations();

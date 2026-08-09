@@ -8,3 +8,4 @@ export * from './dimensionScores';
 export * from './sourceConfigs';
 export * from './conversations';
 export * from './signalMentions';
+export * from './scanRuns';
