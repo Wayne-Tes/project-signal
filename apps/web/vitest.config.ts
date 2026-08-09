@@ -8,7 +8,15 @@ import { resolve } from 'node:path';
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { '@': resolve(__dirname, 'src') },
+    alias: {
+      '@': resolve(__dirname, 'src'),
+      /* Resolved to SOURCE, not to the built dist/. apps/web cannot use vite-tsconfig-paths
+         (ESM-only, see above), so workspace packages are aliased by hand. Without this the
+         tests resolve via node_modules -> "main" -> dist/, which does not exist until the libs
+         are built — green locally after a build, red in CI, which is exactly what happened. */
+      '@project-signal/help-content': resolve(__dirname, '../../libs/help-content/src/index.ts'),
+      '@project-signal/shared-types': resolve(__dirname, '../../libs/shared-types/src/index.ts'),
+    },
   },
   test: {
     // jsdom, not node: the design system and the help/assistant surfaces are components, and a

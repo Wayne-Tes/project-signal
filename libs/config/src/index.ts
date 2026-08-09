@@ -32,41 +32,43 @@ const envSchema = z
     // for it, and a wrong guess would publish into nowhere. queueUrl() throws when unset.
     ITEM_QUEUE_URL: z.string().optional(),
     REPORT_QUEUE_URL: z.string().optional(),
-    // Bedrock model ids. All three default to the Claude Sonnet 5 EU inference profile.
+    // Bedrock model ids. All three default to the Claude Haiku 4.5 EU inference profile.
     //
-    // VERIFIED 2026-08-08T23:39Z in account 290304998906, eu-west-2, by invoking each profile:
-    //   aws bedrock-runtime invoke-model --region eu-west-2 --model-id <id> --body …
-    // Sonnet 5 and Opus 5 returned completions. SEVEN other EU Anthropic profiles — including
-    // Haiku 4.5, Sonnet 4.5, Opus 4.5, Sonnet 4.6 and Opus 4.6 — returned
-    // ResourceNotFoundException: "Model use case details have not been submitted for this
-    // account."
+    // VERIFIED 2026-08-09T10:20Z in account 290304998906, eu-west-2, by INVOKING it. That is the
+    // only check worth anything here, and this entry has now been wrong twice for believing a
+    // weaker one:
     //
-    // The previous default was Haiku 4.5, recorded here as verified on 2026-08-07. It no longer
-    // works. The reason is one unsubmitted form, not instability: get-foundation-model-availability
-    // reports every blocked model AUTHORIZED with entitlement and region AVAILABLE, differing only
-    // in agreementAvailability.status — the Anthropic use case form. Sonnet 5 and Opus 5 do not
-    // require it; the older models do. Two consequences worth stating rather than discovering later:
-    //   - This is a SHARED sandbox. The gate is account-level, so it is not ours to hold open
-    //     and a co-tenant project may see the same failure at the same moment.
-    //   - A model id in this file is a claim with a timestamp, not a constant. Re-verify before
-    //     relying on it. `docs/OWNER-ACTIONS.md` #1 (the Anthropic use case form) is what
-    //     re-opens the rest.
+    //   - `list-inference-profiles` lists profiles this account cannot invoke.
+    //   - `get-foundation-model-availability` reports this exact model
+    //     `agreementAvailability.status: NOT_AVAILABLE` WHILE IT ANSWERS. The field lags, or
+    //     means something other than what its name suggests. Either way it is not evidence.
+    //
+    // Haiku was blocked until the Anthropic use case form was submitted for the account
+    // (docs/OWNER-ACTIONS.md #1, submitted 2026-08-09). Sonnet 5 and Opus 5 never needed it and
+    // remain available as a fallback if Haiku proves insufficient for a given slot.
+    //
+    // WHY HAIKU FOR THE SCORER. It runs once per signal — the highest-volume, most cost-sensitive
+    // call in the system — and the task is classification against a fixed schema, with forced
+    // tool use doing the structuring rather than the model's reasoning. Paying Sonnet rates for
+    // that is paying for capability the job does not use.
     //
     // Three things about the VALUE are load-bearing:
     //   - The `eu.` prefix is an INFERENCE PROFILE, not a model. Bedrock rejects the bare
-    //     `anthropic.claude-sonnet-5` id with "on-demand throughput isn't supported".
+    //     `anthropic.claude-haiku-4-5-…` id with "on-demand throughput isn't supported".
     //   - `eu.` routes within the EU (verified: eu-west-2, -west-1, -west-3, -central-1,
     //     -north-1, -south-1, -south-2). `global.` profiles also exist and do not. Storage and
     //     the database stay in eu-west-2 regardless; this governs where inference runs.
-    //   - REPORTER_MODEL is the low-volume, higher-quality slot and could justify Opus 5. It
-    //     stays on Sonnet 5 because nothing reads it until Epic 12 and no output has been
-    //     measured; shipping an UNMEASURED default is a smaller version of how this project
-    //     came to ship `gemini-2.0-pro-001`, a model that never existed.
-    SCORER_MODEL: z.string().default('eu.anthropic.claude-sonnet-5'),
-    REPORTER_MODEL: z.string().default('eu.anthropic.claude-sonnet-5'),
+    //   - `temperature` must NOT be sent to Sonnet 5 — it rejects the request outright. See
+    //     libs/llm/src/bedrock.ts.
+    SCORER_MODEL: z.string().default('eu.anthropic.claude-haiku-4-5-20251001-v1:0'),
+    REPORTER_MODEL: z.string().default('eu.anthropic.claude-haiku-4-5-20251001-v1:0'),
     // The interactive assistant. Separate from the two above so an interactive, latency-
     // sensitive surface can be tuned without touching the queue-driven scoring pipeline.
-    ASSISTANT_MODEL: z.string().default('eu.anthropic.claude-sonnet-5'),
+    // The interactive assistant. Separate from the two above so a latency-sensitive surface can
+    // be tuned without touching the queue-driven pipeline — and on Haiku deliberately: the
+    // assistant is the surface a person judges, so it is where right-sizing has to be proven
+    // rather than assumed. Raise it to Sonnet 5 if answer quality does not hold.
+    ASSISTANT_MODEL: z.string().default('eu.anthropic.claude-haiku-4-5-20251001-v1:0'),
     // Cloud Storage buckets, injected per environment by Terraform. RAW_BUCKET holds the
     // verbatim ingested payloads that sentiment scoring reads back.
     RAW_BUCKET: z.string().optional(),

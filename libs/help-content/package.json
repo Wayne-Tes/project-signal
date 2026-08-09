@@ -6,8 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js && tsc -p tsconfig.build.json --emitDeclarationOnly",
-    "test": "vitest run --coverage"
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js && tsc -p tsconfig.build.json --emitDeclarationOnly"
   },
   "devDependencies": {
     "@project-signal/scoring": "workspace:*",
