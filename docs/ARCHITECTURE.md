@@ -547,6 +547,10 @@ difference.
 | `GET /admin/users`                        | owner, admin | bare array           | Users in the caller's tenant.                                                                                           |
 | `GET /brands`                             | any          | bare array           | Tenant-scoped. A `user` with a `brandEntityId` sees **only** that brand.                                                |
 | `GET /brands/:id`                         | any          | bare row             | Tenant-scoped + `requireBrandAccess`; 404 otherwise.                                                                    |
+| `GET /brands/tree`                        | any          | bare array           | The whole hierarchy as nested `children`. Built from one flat select in a map, not N queries. Orphans surface as roots rather than vanishing. |
+| `POST /brands`                            | admin, owner | bare row             | Create a brand or a product. `parentId` optional; the parent is checked inside the caller's tenant.                      |
+| `PATCH /brands/:id`                       | admin, owner | bare row             | Rename, re-type, re-own or re-parent. `parentId: null` promotes to a root — distinct from omitting it. Refuses cycles via `wouldCreateCycle`. |
+| `DELETE /brands/:id`                      | admin, owner | 204                  | **Only when nothing is attached.** 409 naming the blocker if it has children, signals, dimension scores, mentions or an assigned user. Aliases, source configs and scan runs are removed with it. See below. |
 | `GET /brands/:id/signals`                 | any          | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`; `limit` max 100, default 50.                            |
 | `GET /brands/:id/sentiment-summary`       | any          | object               | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results.    |
 | `GET /brands/:id/dimension-scores`        | any          | bare array           | Dimension history from `dimension_scores`, `from`/`to` optional, default last 90 days. Lives in `routes/scores.ts`.     |
@@ -569,6 +573,18 @@ difference.
 
 Every route declares JSON Schema (`body` / `params` / `querystring` / `response`) so Swagger
 output stays accurate and Fastify serialises responses fast.
+
+**Why `DELETE /brands/:id` is so narrow.** Seven tables reference `brand_entities.id`: `signals`,
+`dimension_scores`, `signal_mentions`, `scan_runs`, `brand_aliases`, `source_configs` and
+`users.brand_entity_id`. Cascading through all of them would discard collected intelligence on a
+misclick, and the `users` one is worse than that — `brand_entity_id` is an **authorisation scope**,
+so nulling it silently widens what that person can see. There is no soft-delete column, and adding
+one would mean teaching every read path to filter on it; miss one and archived brands quietly
+reappear. So the route refuses whenever anything real is attached and names the specific blocker,
+leaving exactly the case it was built for: an entity typed in wrongly a minute ago with nothing
+behind it. **A wrong name is not a reason to delete** — that is what `PATCH` is for, and it keeps
+the history. Covered by `apps/api/test/routes/brand-delete.test.ts` and, end to end, by
+`apps/web/e2e/products.spec.ts`.
 
 **Brand scoping.** Every `/brands/:id...` route — including `GET /brands/:id` itself — carries
 the shared `requireBrandAccess` preHandler from `plugins/auth.ts`, which 403s when a `user`
@@ -917,8 +933,19 @@ Three groups sit outside the switchable palette, deliberately:
 
 **Live:** the four analytical views above, plus `views/Admin.tsx` (POST `/admin/tenants`),
 `components/BrandManager.tsx` (reads `/brands`, full CRUD against `/brands/:id/integrations`
-and `/brands/:id/aliases`, dynamic add-source form driven by `SOURCE_FIELDS`) and
+and `/brands/:id/aliases`, dynamic add-source form driven by `SOURCE_FIELDS`),
+`components/ProductManager.tsx` (the hierarchy — `/brands/tree`, create, edit, re-parent, delete),
+`components/ScanPanel.tsx` (`POST /brands/:id/scan` and the run list it polls) and
 `components/UserManager.tsx` (`/admin/users`).
+
+> **`ProductManager` renders a labelled `Edit` button, not an icon.** It shipped once as an
+> icon-only ghost pencil between a name and a badge. Every unit test passed and the control
+> worked; the owner added sixteen products and reported there was no way to edit them. Nothing in
+> the repository could catch it, because every assertion looked the button up by an accessible
+> name that was **visually hidden**. `apps/web/test/product-manager.test.tsx` and
+> `apps/web/e2e/products.spec.ts` now assert on the visible word. Delete confirms in place rather
+> than through `window.confirm` — a native dialog blocks the page, cannot be styled, and cannot be
+> driven by the e2e suite.
 
 Three pieces carry that wiring and are worth knowing before you touch a view:
 
