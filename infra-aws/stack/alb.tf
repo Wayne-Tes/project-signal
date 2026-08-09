@@ -129,7 +129,11 @@ resource "aws_lb_listener_rule" "api_app" {
 
   condition {
     path_pattern {
-      values = ["/admin*", "/brands*", "/docs*"]
+      # `/assistant*` added 2026-08-09 with the in-product assistant. Its absence was exactly the
+      # failure the note above predicts: POST /assistant/messages reached the WEB target group,
+      # which has no such route, and the dock reported "something went wrong" — a message that
+      # points at the API rather than at the load balancer in front of it.
+      values = ["/admin*", "/assistant*", "/brands*", "/docs*"]
     }
   }
 }

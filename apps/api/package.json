@@ -22,6 +22,7 @@
     "@project-signal/config": "workspace:*",
     "@project-signal/db": "workspace:*",
     "@project-signal/help-content": "workspace:*",
+    "@project-signal/llm": "workspace:*",
     "@project-signal/scoring": "workspace:*",
     "@project-signal/shared-types": "workspace:*",
     "aws-jwt-verify": "^5.2.1",

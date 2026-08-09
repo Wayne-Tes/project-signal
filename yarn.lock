@@ -4870,6 +4870,7 @@ __metadata:
     "@project-signal/config": "workspace:*"
     "@project-signal/db": "workspace:*"
     "@project-signal/help-content": "workspace:*"
+    "@project-signal/llm": "workspace:*"
     "@project-signal/scoring": "workspace:*"
     "@project-signal/shared-types": "workspace:*"
     aws-jwt-verify: "npm:^5.2.1"
@@ -4938,7 +4939,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@project-signal/llm@workspace:^, @project-signal/llm@workspace:libs/llm":
+"@project-signal/llm@workspace:*, @project-signal/llm@workspace:^, @project-signal/llm@workspace:libs/llm":
   version: 0.0.0-use.local
   resolution: "@project-signal/llm@workspace:libs/llm"
   dependencies:

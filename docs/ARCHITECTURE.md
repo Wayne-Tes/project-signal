@@ -323,10 +323,42 @@ wrapped its answer in a sentence used to raise `PermanentScoringError`, **which 
 message**, so the signal was dropped permanently and silently. **If you change this lib, do not
 reintroduce prose-then-parse.**
 
-> **Model ids on Bedrock are inference profiles.** `eu.anthropic.claude-haiku-4-5-20251001-v1:0`
-> is what works; the bare `anthropic.claude-haiku-4-5-…` is rejected with _"on-demand throughput
-> isn't supported"_. The `eu.` prefix scopes routing to EU regions — `global.` variants exist and
-> do not. See `HANDOVER.md` §3.4.
+The client exposes two methods with genuinely different jobs. `structured()` forces a single tool
+whose schema _is_ the shape wanted, and is what the scoring pipeline uses — it never wants prose.
+`converse()` runs one round of a tool-using exchange and is what the assistant uses. The **loop is
+not in this library**: running a tool is an authorisation decision, and the provider adapter must
+not be what makes it. See `apps/api/src/assistant/agent.ts`.
+
+> **Model ids on Bedrock are inference profiles**, and availability is per account and changes.
+> The bare `anthropic.claude-…` id is rejected with _"on-demand throughput isn't supported"_; the
+> `eu.` prefix scopes routing to EU regions and `global.` variants exist that do not.
+>
+> **Listing a profile does not mean this account may invoke it.** Verified 2026-08-08T23:39Z in
+> `290304998906`: only `eu.anthropic.claude-sonnet-5` and `eu.anthropic.claude-opus-5` answered.
+> Seven others — Haiku 4.5 among them, which was the deployed `SCORER_MODEL` — returned
+> `ResourceNotFoundException: Model use case details have not been submitted`, while still
+> appearing in `list-inference-profiles`. Six of those seven were answering an hour earlier the
+> same evening. Verify by invoking, at the moment of use. See `docs/OWNER-ACTIONS.md` #1.
+
+### `libs/help-content`
+
+The user-facing help corpus: 18 articles, five categories, and the first-run tour definition.
+
+Typed objects, not markdown files. Two consumers need it — the web help centre in a browser and
+the API assistant in Node — and a directory of `.md` files would need a loader in each, which
+would drift until the assistant answered from an article the UI does not show. One module, both
+import it, and the compiler checks every cross-reference. Article bodies are still markdown,
+because prose wants to be prose.
+
+`searchHelp()` is weighted field matching, deliberately not a vector index: the corpus is a few
+dozen short articles that ship with the code, and an embedding index would add a build step, a
+storage decision and a staleness problem to a search over ~20k words. It applies a **relevance
+floor** — on a query of three or more words, matching fewer than half of them is coincidence, and
+handing a weak hit to the assistant turns it into a confident wrong answer with a source attached.
+
+Tests pin the constants the articles quote (half-life, dimension names, default weights, the
+Brand impact top-N) against `libs/scoring`. Change the scoring model and the help centre fails the
+build rather than silently becoming a liar the assistant then cites.
 
 ### `libs/messaging`
 
@@ -521,6 +553,7 @@ difference.
 | `GET /brands/:id/brand-impact`            | any          | bare array           | Top topic clusters by damage, computed on read from `sentiment_results`. `limit` defaults to 3.                         |
 | `GET /brands/:id/strengths`               | any          | bare array           | The mirror of `/brand-impact`, ranked by `volume × positivity × recency`. `limit` defaults to 3.                        |
 | `GET /brands/:id/stats`                   | any          | object               | Dashboard stat row: this/previous week signal counts, total, scored (pipeline coverage), active/configured sources.     |
+| `POST /assistant/messages`                | any          | object               | The in-product assistant. POST because a conversation is a body, but it **mutates nothing** — see below. Stateless: the client sends the history it wants considered. |
 | `GET /brands/:id/integrations`            | admin, owner | `{status,data}`      | List `source_configs` for the brand.                                                                                    |
 | `POST /brands/:id/integrations`           | admin, owner | `{status,data}`      | **Upsert** on `(brand_entity_id, source)`.                                                                              |
 | `PATCH /brands/:id/integrations/:source`  | admin, owner | `{status,data}`      | Update `isEnabled` and/or `config`. 404 if absent.                                                                      |
@@ -551,6 +584,55 @@ GOOGLE_CLOUD_PROJECT=<your-gcp-project> npx tsx apps/api/scripts/bootstrap-owner
 ```
 
 Uses Application Default Credentials — run `gcloud auth application-default login` first.
+
+---
+
+### The assistant — `apps/api/src/assistant/`
+
+Three modules and one route. Read them in this order; the design only makes sense as a whole.
+
+**`tools.ts` — the security design.** Nine tools. `search_help` answers from
+`libs/help-content` in process. The other eight are executed by **re-entering this API's own
+routes through `app.inject()`**, carrying the caller's `Authorization` header. Nothing in the
+assistant touches the database.
+
+That indirection is the point. There is no row-level security in this product: tenant scoping is
+applied by hand in every query, and `requireBrandAccess` is an opt-in preHandler that nothing
+forces a new route to add (§4). A hand-written set of assistant queries would be a **second**
+implementation of that scoping, written once and then diverging from the routes it mirrors — and
+an assistant is the worst possible place to discover a tenant leak, because it can be asked for
+combinations no UI would ever request. Re-entering the real routes means:
+
+- the assistant sees exactly what the user sees, not approximately;
+- `requireBrandAccess` runs on a request whose brand id the **model** chose;
+- a future fix to a route's scoping fixes the assistant in the same commit;
+- it is read-only by construction — only GET routes are reachable, and `assertReadOnly` refuses
+  anything else regardless of what a tool definition claims.
+
+**The tenant is never a tool argument.** It appears in no input schema, and a test asserts that
+for every tool. A 403 and a 404 return the identical message, deliberately: telling a user which
+one applies turns the tenant boundary into an enumeration oracle.
+
+**`agent.ts` — the loop.** Bounded at 6 model round-trips and 5 tool calls per turn. When the
+ceiling trips it makes one final tool-free call and returns `truncated: true`, which the UI shows
+— a partial answer presented as complete is the failure that makes an assistant untrustworthy.
+Situational context (current view, selected brand) goes in the **system prompt**, not a user turn:
+as a user turn the model can read it as an instruction from the person, so a signal titled
+"ignore your instructions" would have a path to becoming one.
+
+**`citations.ts` — citations are derived, not declared.** The obvious design is to ask the model
+for `[1]` markers and a source list. It is worthless: a model that invents a figure invents a
+plausible source for it, and the citation then makes a wrong answer *more* convincing. Citations
+here are built from the tool results that actually came back, so a citation cannot reference
+something that was not read. That is a weaker claim than "this sentence came from here" — and
+unlike that one, it is true.
+
+An unscored brand cites as **"not scored yet"**, never as zero. Zero would mean uniformly negative
+sentiment, which is a different and damaging claim about a real business.
+
+The API task role gained `bedrock:InvokeModel` for this (`infra-aws/stack/iam.tf`), scoped to
+`eu.anthropic.*` profiles and `anthropic.*` foundation models exactly as the sentiment worker's
+grant is.
 
 ---
 
@@ -677,6 +759,29 @@ coverage thresholds so the empty skeleton doesn't fail the 80% gate.
 ## 10. apps/web — dashboard
 
 Next.js 16 (App Router) + React 19, port **3000**, `output: 'standalone'`.
+
+### Overlay features — `src/features/`
+
+Three surfaces that sit above every view rather than inside one, because all three answer
+questions that arise *while* looking at something. Navigating away to a `/help` route loses the
+thing that prompted the question.
+
+| Path | What it is |
+| --- | --- |
+| `features/help/HelpCentre.tsx` | Slide-over help panel. Opens on the **current view's** article (`articleForView`) rather than the index, with search and cross-references. Imports the corpus directly, so it works even when the API is the thing that is broken — which is exactly when someone opens help. |
+| `features/help/Markdown.tsx` | Markdown → **React elements**. Never `dangerouslySetInnerHTML`. |
+| `features/tour/Tour.tsx` | First-run tour. Spotlights the live element rather than showing screenshots, which go stale silently. Shown once; both completion and dismissal are final. |
+| `features/assistant/AssistantDock.tsx` | The assistant. Conversation state lives here and is sent with each request; the API stores nothing. |
+
+> **Why the markdown renderer is hand-written.** Every markdown library renders to an HTML
+> string, which means `dangerouslySetInnerHTML`, which makes a sanitiser the only thing between
+> model output and script execution in an authenticated page. This one emits React elements, so
+> text can never become markup. The one remaining live capability is an `href`, and `safeHref`
+> permits only `http(s)` and in-app paths — `javascript:` and `data:` render as inert text.
+> Assistant answers can quote a hostile signal, so this is a real path, not a theoretical one.
+
+The tour anchors on `data-tour="..."` attributes in `components/App.tsx`. A selector matching
+nothing degrades to a centred step; it must never spotlight the top-left corner.
 
 ### Rendering strategy
 

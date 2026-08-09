@@ -11,7 +11,8 @@
     "db:up": "docker compose up postgres -d",
     "db:generate": "nx run api:generate",
     "db:seed": "nx run api:seed",
-    "prepare": "husky"
+    "prepare": "husky",
+    "check:deps": "node scripts/check-workspace-deps.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.0.0",
