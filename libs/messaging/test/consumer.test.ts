@@ -182,15 +182,27 @@ describe('SqsConsumer', () => {
     expect(c.isRunning).toBe(false);
   });
 
-  it('is idempotent on repeated start', async () => {
+  it('is idempotent on repeated start — no orphaned second loop', async () => {
+    /* Counting receives inside a time window was the first version of this test, and it was
+       flaky: how many iterations fit in 15ms depends on the machine, and CI is not this one.
+
+       The real property is that a second start() must not leave a loop running that stop() does
+       not know about. So: start twice, stop, then prove nothing sends again. Deterministic, and
+       it tests the thing that would actually hurt — an orphaned loop double-processing every
+       message forever. */
     receiveOnce([]);
     const c = new SqsConsumer({ queue: 'item', handle: async () => {} });
     c.start();
     c.start();
     await new Promise((r) => setTimeout(r, 15));
     await c.stop();
-    /* Two loops would double every receive and process each message twice. */
-    expect(mockSend.mock.calls.filter((x) => x[0]._type === 'receive').length).toBeLessThan(4);
+
+    const afterStop = mockSend.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockSend.mock.calls.length, 'a second loop would keep polling after stop()').toBe(
+      afterStop,
+    );
+    expect(c.isRunning).toBe(false);
   });
 
   it('does not treat a failed delete as a processing failure', async () => {
