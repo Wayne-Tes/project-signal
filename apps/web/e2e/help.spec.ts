@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { goToView, presetAppearance, signIn } from './helpers';
+import { goToView, openHelpIndex, presetAppearance, signIn } from './helpers';
 
 /**
  * The help centre and the first-run tour.
@@ -9,19 +9,24 @@ import { goToView, presetAppearance, signIn } from './helpers';
  * check is that the content is actually reachable and readable in the product.
  */
 
-test.beforeEach(async ({ page }) => {
-  await presetAppearance(page, { theme: 'light' });
-  /* Suppress the first-run tour for the help tests — it covers the screen, and it has its own
-     describe block below where it is the subject rather than an obstacle. */
-  await page.addInitScript(() => window.localStorage.setItem('ps_tour_completed', '1'));
-  await signIn(page);
-});
-
 test.describe('help centre', () => {
-  test('opens from the top bar on any view', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
+    await presetAppearance(page, { theme: 'light' });
+    /* Suppress the first-run tour for these tests — it covers the screen, and it is the subject
+       of its own block below rather than an obstacle here. */
+    await page.addInitScript(() => window.localStorage.setItem('ps_tour_completed', '1'));
+    await signIn(page);
+  });
+
+  test('opens from the top bar and reaches the full index', async ({ page }) => {
+    /* Clicking Help lands on the current view's article — contextual help, asserted in the next
+       test. The index is one step further back, and both routes must work. */
     await page.getByRole('button', { name: /^help$/i }).click();
     await expect(page.getByTestId('help-centre')).toBeVisible();
-    await expect(page.getByRole('heading', { name: /getting started/i })).toBeVisible();
+
+    await page.getByRole('button', { name: /all articles/i }).click();
+    await expect(page.getByLabel('Search help')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Getting started' })).toBeVisible();
   });
 
   test('opens the article for the view the user is on', async ({ page }) => {
@@ -34,13 +39,13 @@ test.describe('help centre', () => {
   });
 
   test('finds an article by a phrase the prose never uses', async ({ page }) => {
-    await page.getByRole('button', { name: /^help$/i }).click();
+    await openHelpIndex(page);
     await page.getByLabel('Search help').fill('nothing showing');
     await expect(page.getByTestId('help-centre')).toContainText('Why is my dashboard empty');
   });
 
   test('says what to do next when nothing matches', async ({ page }) => {
-    await page.getByRole('button', { name: /^help$/i }).click();
+    await openHelpIndex(page);
     await page.getByLabel('Search help').fill('kubernetes ingress sidecar');
     /* Reporting failure alone leaves the user stuck; the assistant can answer things the
        corpus cannot, and this is the moment they need to know that. */
@@ -48,7 +53,7 @@ test.describe('help centre', () => {
   });
 
   test('follows a cross-reference and comes back', async ({ page }) => {
-    await page.getByRole('button', { name: /^help$/i }).click();
+    await openHelpIndex(page);
     await page.getByRole('button', { name: /understanding the brand perception index/i }).click();
     await expect(page.getByTestId('help-centre')).toContainText('50 is genuinely neutral');
 
@@ -60,7 +65,7 @@ test.describe('help centre', () => {
   });
 
   test('renders tables and formulae rather than raw markdown', async ({ page }) => {
-    await page.getByRole('button', { name: /^help$/i }).click();
+    await openHelpIndex(page);
     await page.getByRole('button', { name: /understanding the brand perception index/i }).click();
     const panel = page.getByTestId('help-centre');
     await expect(panel.locator('table')).toBeVisible();
@@ -91,10 +96,16 @@ test.describe('help centre', () => {
 });
 
 test.describe('first-run tour', () => {
-  test('offers itself to a new user and can be dismissed for good', async ({ page }) => {
-    await page.evaluate(() => window.localStorage.removeItem('ps_tour_completed'));
-    await page.reload();
+  /* NO tour-suppressing init script here. `addInitScript` re-runs on EVERY navigation,
+     including `reload()`, so a beforeEach that sets the completed flag would put it back the
+     moment the test cleared it and reloaded — the tour would never appear and the test would
+     fail on a timeout that says nothing about why. */
+  test.beforeEach(async ({ page }) => {
+    await presetAppearance(page, { theme: 'light' });
+    await signIn(page);
+  });
 
+  test('offers itself to a new user and can be dismissed for good', async ({ page }) => {
     const tour = page.getByTestId('tour');
     await expect(tour).toBeVisible();
     await expect(tour).toContainText('Step 1 of');
@@ -113,7 +124,11 @@ test.describe('first-run tour', () => {
 
   test('can be restarted from the help centre', async ({ page }) => {
     /* Someone who skipped it needs a way back, and the help centre is where they will look. */
-    await page.getByRole('button', { name: /^help$/i }).click();
+    const open = page.getByTestId('tour');
+    if (await open.isVisible().catch(() => false)) {
+      await open.getByRole('button', { name: /^skip$/i }).click();
+    }
+    await openHelpIndex(page);
     await page.getByRole('button', { name: /start tour/i }).click();
     await expect(page.getByTestId('tour')).toBeVisible();
     await page.getByTestId('tour').getByRole('button', { name: /^skip$/i }).click();

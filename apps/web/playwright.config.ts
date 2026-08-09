@@ -30,8 +30,11 @@ const isRemote = !baseURL.includes('localhost') && !baseURL.includes('127.0.0.1'
 export default defineConfig({
   testDir: './e2e',
   /* A cold Next dev compile of a route can exceed the 30s default. */
-  timeout: 90_000,
-  expect: { timeout: 15_000 },
+  /* Deliberately tight. The first full run took over an hour because a full-screen overlay
+     covered every locator and each test burned its whole 90s budget waiting. A suite that takes
+     an hour to tell you something simple is a suite nobody runs. */
+  timeout: 45_000,
+  expect: { timeout: 10_000 },
 
   /* Serial locally, so a failure is reproducible; parallel is a false economy
      on a suite this size and makes trace reading harder. */

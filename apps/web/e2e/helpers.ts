@@ -107,3 +107,18 @@ export async function chooseAppearance(page: Page, group: string, option: string
   if (!(await popover.isVisible().catch(() => false))) await trigger.click();
   await popover.getByRole('radio', { name: option, exact: true }).click();
 }
+
+/**
+ * Opens the help centre AT ITS INDEX.
+ *
+ * Clicking Help lands on the CURRENT VIEW's article, which is the contextual-help behaviour the
+ * panel is built for and is asserted separately. Reaching the index therefore needs the "All
+ * articles" step — a test that assumes the index without it waits for a search box that is not
+ * on screen, and fails on a timeout that says nothing about the cause.
+ */
+export async function openHelpIndex(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /^help$/i }).click();
+  const back = page.getByRole('button', { name: /all articles/i });
+  if (await back.isVisible().catch(() => false)) await back.click();
+  await expect(page.getByLabel('Search help')).toBeVisible();
+}

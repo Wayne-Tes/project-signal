@@ -13,6 +13,11 @@ import { chooseAppearance, goToView, presetAppearance, signIn } from './helpers'
 
 test.beforeEach(async ({ page }) => {
   await presetAppearance(page, { theme: 'light' });
+  /* Suppress the first-run tour. It is a full-screen overlay that intercepts every click, so
+     without this a fresh browser profile makes every test in this file time out on a locator
+     that is on screen but covered — a failure that points nowhere near its cause. The tour has
+     its own coverage in help.spec.ts. */
+  await page.addInitScript(() => window.localStorage.setItem('ps_tour_completed', '1'));
   await signIn(page);
 });
 
@@ -28,13 +33,13 @@ test.describe('restored top-bar controls', () => {
     await expect(page.locator('.drill-panel, [data-testid="drill-panel"]')).toBeVisible();
   });
 
-  test('Export is visible but disabled, not silently missing', async ({ page }) => {
-    /* STUBS.md #1. It has never had a handler. Disabled-and-tooltipped is the
-       honest state; enabled-and-inert (the original) lies to the user, and
-       removed hides a decision the owner never made. */
-    const exportBtn = page.getByRole('button', { name: /export/i });
+  test('Export is present and enabled once a brand is selected', async ({ page }) => {
+    /* It was a stub for the whole life of the prototype — rendered, and wired to nothing. It
+       now exports the brand's signals as CSV. Enabled state is tied to having a brand, because
+       an export with no brand has nothing to export. */
+    const exportBtn = page.getByRole('button', { name: /^export/i });
     await expect(exportBtn).toBeVisible();
-    await expect(exportBtn).toBeDisabled();
+    await expect(exportBtn).toBeEnabled();
   });
 
   test('the report view swaps "Dig into score" for "Download PDF"', async ({ page }) => {

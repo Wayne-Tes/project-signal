@@ -47,6 +47,11 @@ const SURFACE = '.card, .ds-card, .act, .heel, .signal, .metric, .drill-row';
 test.describe('light theme paints light surfaces', () => {
   test.beforeEach(async ({ page }) => {
     await presetAppearance(page, { theme: 'light' });
+    /* Suppress the first-run tour. It is a full-screen overlay that intercepts every click, so
+       without this a fresh browser profile makes every test in this file time out on a locator
+       that is on screen but covered — a failure that points nowhere near its cause. The tour has
+       its own coverage in help.spec.ts. */
+    await page.addInitScript(() => window.localStorage.setItem('ps_tour_completed', '1'));
     await signIn(page);
   });
 
@@ -108,6 +113,11 @@ test.describe('dark theme still paints dark surfaces', () => {
      asked to keep must survive. */
   test.beforeEach(async ({ page }) => {
     await presetAppearance(page, { theme: 'dark' });
+    /* Suppress the first-run tour. It is a full-screen overlay that intercepts every click, so
+       without this a fresh browser profile makes every test in this file time out on a locator
+       that is on screen but covered — a failure that points nowhere near its cause. The tour has
+       its own coverage in help.spec.ts. */
+    await page.addInitScript(() => window.localStorage.setItem('ps_tour_completed', '1'));
     await signIn(page);
   });
 
@@ -137,6 +147,11 @@ test.describe('the theme actually follows the user', () => {
     /* Drives the real control rather than localStorage, so the popover, the
        provider and the CSS are all exercised together. */
     await presetAppearance(page, { theme: 'dark' });
+    /* Suppress the first-run tour. It is a full-screen overlay that intercepts every click, so
+       without this a fresh browser profile makes every test in this file time out on a locator
+       that is on screen but covered — a failure that points nowhere near its cause. The tour has
+       its own coverage in help.spec.ts. */
+    await page.addInitScript(() => window.localStorage.setItem('ps_tour_completed', '1'));
     await signIn(page);
     expect(luminance(await backgroundOf(page, 'body'))).toBeLessThan(0.5);
 
