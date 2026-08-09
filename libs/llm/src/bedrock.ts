@@ -82,7 +82,7 @@ export class BedrockLlmClient implements LlmClient {
     messages,
     tools,
     maxTokens = 4096,
-    temperature = 0,
+    temperature,
   }: ConverseRequest): Promise<ConverseResult> {
     const res = await this.client.send(
       new ConverseCommand({
@@ -106,7 +106,17 @@ export class BedrockLlmClient implements LlmClient {
               },
             }
           : {}),
-        inferenceConfig: { maxTokens, temperature },
+        /* `temperature` is OMITTED unless a caller asks for one.
+
+           Sending it is not free: Claude Sonnet 5 rejects the request outright with
+           "ValidationException: The model returned the following errors: `temperature` is
+           deprecated for this model." A previous version defaulted it to 0 — a sensible-looking
+           choice for analytical work — and every assistant request 500'd against the only model
+           this account can currently invoke.
+
+           Spreading conditionally rather than passing `undefined`: the SDK serialises a present
+           key with an undefined value, so the field still reaches the provider. */
+        inferenceConfig: { maxTokens, ...(temperature === undefined ? {} : { temperature }) },
       }),
     );
 

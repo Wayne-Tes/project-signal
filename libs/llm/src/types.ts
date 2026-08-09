@@ -61,7 +61,12 @@ export interface ConverseRequest {
   messages: ConverseTurn[];
   tools?: ToolSpec[];
   maxTokens?: number;
-  /** 0 for analytical work. Defaults low, deliberately — see the note in bedrock.ts. */
+  /**
+   * Sampling temperature. **Omitted entirely when not set** — do not default it.
+   *
+   * Newer Anthropic models reject the parameter: Sonnet 5 fails the whole request with
+   * "`temperature` is deprecated for this model". Set it only for a model known to accept it.
+   */
   temperature?: number;
 }
 
