@@ -32,6 +32,8 @@ const envSchema = z
     // for it, and a wrong guess would publish into nowhere. queueUrl() throws when unset.
     ITEM_QUEUE_URL: z.string().optional(),
     REPORT_QUEUE_URL: z.string().optional(),
+    // On-demand and scheduled scan requests. The API publishes; ingestion consumes.
+    SCAN_QUEUE_URL: z.string().optional(),
     // Bedrock model ids. All three default to the Claude Haiku 4.5 EU inference profile.
     //
     // VERIFIED 2026-08-09T10:20Z in account 290304998906, eu-west-2, by INVOKING it. That is the

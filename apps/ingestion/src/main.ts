@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import Fastify from 'fastify';
 import { handleIngestionJob, reconcilePendingSignals } from './handler.js';
 import { rollupDimensionScores } from './rollup.js';
+import { createScanConsumer } from './scanConsumer.js';
 
 const app = Fastify({ logger: true });
 
@@ -49,6 +50,10 @@ app.post('/rollup', async (_request, reply) => {
   return reply.status(200).send({ status: 'ok', data: result });
 });
 
+/* On-demand scans arrive on the queue, because nothing can reach this service over HTTP: it has
+   no ALB target group and no listener rule. */
+const scanConsumer = createScanConsumer(app.log);
+
 const start = async () => {
   try {
     await client.get()`SELECT 1 AS ping`;
@@ -59,11 +64,27 @@ const start = async () => {
     // accept a scheduler trigger and fail halfway through a fan-out.
     app.log.info({ itemQueue: queueUrl('item') }, 'SQS item queue resolved');
 
+    scanConsumer.start();
+    app.log.info('SQS consumer started on the scan queue');
+
     await app.listen({ port: Number(process.env['PORT'] ?? 8081), host: '0.0.0.0' });
   } catch (err) {
     app.log.error(err);
     process.exit(1);
   }
 };
+
+/* Stop polling before exit so an in-flight scan is not abandoned half-way; an unfinished message
+   simply reappears after the visibility timeout. */
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(sig, () => {
+    void (async () => {
+      app.log.info(`${sig} received — stopping scan consumer`);
+      await scanConsumer.stop();
+      await app.close();
+      process.exit(0);
+    })();
+  });
+}
 
 start();

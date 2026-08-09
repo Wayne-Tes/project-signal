@@ -58,6 +58,7 @@ locals {
     { name = "REPORTS_BUCKET", value = aws_s3_bucket.reports.id },
     { name = "ITEM_QUEUE_URL", value = aws_sqs_queue.main["item"].url },
     { name = "REPORT_QUEUE_URL", value = aws_sqs_queue.main["report"].url },
+    { name = "SCAN_QUEUE_URL", value = aws_sqs_queue.main["scan"].url },
     { name = "SCORER_MODEL", value = var.scorer_model },
     { name = "REPORTER_MODEL", value = var.reporter_model },
     { name = "ASSISTANT_MODEL", value = var.assistant_model },
