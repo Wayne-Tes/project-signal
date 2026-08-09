@@ -38,6 +38,7 @@ export default defineConfig({
         'src/design-system/personalisation.ts',
         'src/features/help/Markdown.tsx',
         'src/features/tour/Tour.tsx',
+        'src/lib/api.ts',
         'src/lib/export-csv.ts',
         'src/config/sources.ts',
         'src/config/navigation.tsx',
