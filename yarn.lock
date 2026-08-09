@@ -5046,6 +5046,7 @@ __metadata:
   dependencies:
     "@playwright/test": "npm:1.50.0"
     "@project-signal/help-content": "workspace:*"
+    "@project-signal/shared-types": "workspace:*"
     "@testing-library/dom": "npm:10.4.0"
     "@testing-library/jest-dom": "npm:6.6.3"
     "@testing-library/react": "npm:16.1.0"

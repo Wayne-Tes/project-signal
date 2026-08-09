@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@project-signal/help-content": "workspace:*",
+    "@project-signal/shared-types": "workspace:*",
     "amazon-cognito-identity-js": "^6.3.20",
     "lucide-react": "^1.30.0",
     "next": "^16.0.0",
