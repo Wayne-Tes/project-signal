@@ -42,9 +42,10 @@ const envSchema = z
     // account."
     //
     // The previous default was Haiku 4.5, recorded here as verified on 2026-08-07. It no longer
-    // works. Six of those seven profiles were still answering at 22:5x on 2026-08-08 and were
-    // refusing by 23:39 — access is being tightened underneath us, account-wide, mid-day. Two
-    // consequences worth stating rather than discovering later:
+    // works. The reason is one unsubmitted form, not instability: get-foundation-model-availability
+    // reports every blocked model AUTHORIZED with entitlement and region AVAILABLE, differing only
+    // in agreementAvailability.status — the Anthropic use case form. Sonnet 5 and Opus 5 do not
+    // require it; the older models do. Two consequences worth stating rather than discovering later:
     //   - This is a SHARED sandbox. The gate is account-level, so it is not ours to hold open
     //     and a co-tenant project may see the same failure at the same moment.
     //   - A model id in this file is a claim with a timestamp, not a constant. Re-verify before
