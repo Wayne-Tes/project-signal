@@ -13,13 +13,31 @@ import type { LogicalQueue, MessagePublisher } from './types.js';
  * constant that existed in no deployed environment, and nothing failed until the messages
  * silently went nowhere. Failing loudly at the point of use is the whole point.
  */
+/**
+ * Logical queue -> environment variable.
+ *
+ * A `Record<LogicalQueue, …>` rather than a ternary, and that is the whole point: this was
+ * `logical === 'item' ? ITEM : REPORT`, so adding 'scan' to the union routed it to the REPORT
+ * queue — publisher and consumer both — and nothing failed to compile. The scan queue sat empty
+ * while messages piled into report, and the only reason it surfaced at all is that ingestion's
+ * least-privilege IAM had no receive permission on report and said so.
+ *
+ * As a Record, adding a queue to `LogicalQueue` without adding it here is a type error.
+ */
+const QUEUE_ENV_VAR: Record<LogicalQueue, 'ITEM_QUEUE_URL' | 'REPORT_QUEUE_URL' | 'SCAN_QUEUE_URL'> =
+  {
+    item: 'ITEM_QUEUE_URL',
+    report: 'REPORT_QUEUE_URL',
+    scan: 'SCAN_QUEUE_URL',
+  };
+
 export function queueUrl(logical: LogicalQueue): string {
   const env = getEnv();
-  const url = logical === 'item' ? env.ITEM_QUEUE_URL : env.REPORT_QUEUE_URL;
+  const varName = QUEUE_ENV_VAR[logical];
+  const url = env[varName];
   if (!url) {
-    const varName = logical === 'item' ? 'ITEM_QUEUE_URL' : 'REPORT_QUEUE_URL';
     throw new Error(
-      `${varName} must be set to publish to the '${logical}' queue. Terraform injects it into ` +
+      `${varName} must be set to use the '${logical}' queue. Terraform injects it into ` +
         `the services that publish; set it in .env (or point AWS_ENDPOINT_URL at LocalStack) ` +
         `for local development.`,
     );
