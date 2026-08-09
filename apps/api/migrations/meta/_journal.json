@@ -57,6 +57,20 @@
       "when": 1786264744329,
       "tag": "0007_productive_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786282709668,
+      "tag": "0008_famous_baron_strucker",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786284022894,
+      "tag": "0009_lean_franklin_richards",
+      "breakpoints": true
     }
   ]
 }

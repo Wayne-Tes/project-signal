@@ -7,3 +7,4 @@ export * from './sentimentResults';
 export * from './dimensionScores';
 export * from './sourceConfigs';
 export * from './conversations';
+export * from './signalMentions';

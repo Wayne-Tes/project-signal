@@ -1,7 +1,14 @@
-import { db, signals, sentimentResults } from '@project-signal/db';
+import {
+  db,
+  signals,
+  sentimentResults,
+  brandEntities,
+  brandAliases,
+  signalMentions,
+} from '@project-signal/db';
 import { getObjectStore, keyFromRef } from '@project-signal/storage';
-import { eq } from 'drizzle-orm';
-import { scoreSignal } from './scorer.js';
+import { and, eq, ne } from 'drizzle-orm';
+import { scoreSignal, resolveMentions, type MentionCandidate } from './scorer.js';
 
 /**
  * Thrown for failures that will never succeed on retry: a missing signal row, an unresolvable
@@ -52,9 +59,20 @@ export async function handlePubSubMessage(signalId: string): Promise<void> {
     throw err;
   }
 
+  /* The tenant's other entities, as mention candidates.
+
+     Loaded per signal rather than cached: a product added in Admin must start being detected on
+     the very next signal, not after a redeploy. A tenant has tens of entities, so this is one
+     small indexed query alongside a call that is already crossing the network to Bedrock.
+
+     The signal's OWN entity is excluded — a review on Tes Assess's listing is already
+     hard-attributed to Tes Assess by `signals.brand_entity_id`, and recording it again as a
+     mention would double-count it in any rollup that reads both. */
+  const candidates = await loadMentionCandidates(signal.tenantId, signal.brandEntityId);
+
   let result;
   try {
-    result = await scoreSignal(text);
+    result = await scoreSignal(text, candidates);
   } catch (err) {
     // The model returning non-JSON is a permanent failure for this message: retrying sends
     // the identical prompt and gets the identical garbage.
@@ -90,5 +108,68 @@ export async function handlePubSubMessage(signalId: string): Promise<void> {
       },
     });
 
-  console.warn(`Scored signal ${signalId}: ${result.label} (${result.score})`);
+  /* Mentions are written AFTER the sentiment row, and a failure here must not fail the message:
+     the sentiment score is the valuable part and is already committed. Losing one attribution
+     costs a product some of its signal; losing the score costs everyone, and a retry would
+     re-invoke the model for a result we already have. */
+  const mentions = resolveMentions(result.mentions, candidates);
+  if (mentions.length > 0) {
+    try {
+      await db
+        .get()
+        .insert(signalMentions)
+        .values(
+          mentions.map((m) => ({
+            signalId,
+            brandEntityId: m.brandEntityId,
+            tenantId: signal.tenantId,
+            confidence: m.confidence,
+          })),
+        )
+        /* Re-scoring a signal must not duplicate its mentions. */
+        .onConflictDoNothing();
+    } catch (err) {
+      console.error(`Could not record mentions for ${signalId}`, err);
+    }
+  }
+
+  console.warn(
+    `Scored signal ${signalId}: ${result.label} (${result.score})` +
+      (mentions.length ? `, ${mentions.length} mention(s)` : ''),
+  );
+}
+
+/**
+ * Products and sub-brands the scorer may attribute a mention to.
+ *
+ * Scoped to the signal's OWN tenant. A model must never be shown another customer's product
+ * names — that would leak the fact that they are a customer at all, into a prompt, for every
+ * signal we score.
+ */
+export async function loadMentionCandidates(
+  tenantId: string,
+  excludeEntityId: string,
+): Promise<MentionCandidate[]> {
+  const entities = await db
+    .get()
+    .select({ id: brandEntities.id, name: brandEntities.name })
+    .from(brandEntities)
+    .where(and(eq(brandEntities.tenantId, tenantId), ne(brandEntities.id, excludeEntityId)));
+
+  if (entities.length === 0) return [];
+
+  const aliases = await db
+    .get()
+    .select({ brandEntityId: brandAliases.brandEntityId, alias: brandAliases.alias })
+    .from(brandAliases)
+    .where(eq(brandAliases.tenantId, tenantId));
+
+  const byEntity = new Map<string, string[]>();
+  for (const a of aliases) {
+    const list = byEntity.get(a.brandEntityId) ?? [];
+    list.push(a.alias);
+    byEntity.set(a.brandEntityId, list);
+  }
+
+  return entities.map((e) => ({ id: e.id, name: e.name, aliases: byEntity.get(e.id) ?? [] }));
 }

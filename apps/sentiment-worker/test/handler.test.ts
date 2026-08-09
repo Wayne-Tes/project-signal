@@ -11,7 +11,7 @@ const _dbRowQueue: unknown[][] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
-  ['select', 'from', 'where', 'insert', 'values', 'onConflictDoUpdate'].forEach((m) => {
+  ['select', 'from', 'where', 'insert', 'values', 'onConflictDoUpdate', 'onConflictDoNothing'].forEach((m) => {
     chain[m] = vi.fn(() => chain);
   });
   const nextRows = () => (_dbRowQueue.length ? _dbRowQueue.shift()! : _dbRows);
@@ -22,6 +22,11 @@ vi.mock('@project-signal/db', () => {
     db: { get: vi.fn(() => chain) },
     signals: {},
     sentimentResults: {},
+    /* Mention detection reads the tenant's other entities and their aliases, then writes to
+       signal_mentions. */
+    brandEntities: {},
+    brandAliases: {},
+    signalMentions: {},
   };
 });
 
@@ -34,7 +39,12 @@ vi.mock('@project-signal/storage', async (importOriginal) => {
   };
 });
 
-vi.mock('../src/scorer.js', () => ({ scoreSignal: mockScoreSignal }));
+vi.mock('../src/scorer.js', () => ({
+  scoreSignal: mockScoreSignal,
+  /* The handler resolves detected names to entity ids before writing signal_mentions. The real
+     implementation is unit-tested in scorer.test.ts; here it only needs to exist. */
+  resolveMentions: vi.fn(() => []),
+}));
 
 import { handlePubSubMessage, PermanentScoringError } from '../src/handler.js';
 
@@ -73,7 +83,9 @@ describe('handlePubSubMessage', () => {
     await handlePubSubMessage('signal-1');
 
     expect(mockGet).toHaveBeenCalledWith('tenant-1/brand-1/rss/ext-1.json');
-    expect(mockScoreSignal).toHaveBeenCalledWith('The app keeps crashing.');
+    /* Second argument is the mention candidates — the tenant's other entities, loaded per
+       signal so a product added in Admin is detected on the very next one. */
+    expect(mockScoreSignal).toHaveBeenCalledWith('The app keeps crashing.', expect.any(Array));
     expect(mockScoreSignal).not.toHaveBeenCalledWith(mockSignal.sourceUrl);
   });
 
