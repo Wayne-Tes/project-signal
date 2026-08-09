@@ -18,6 +18,27 @@ anything I am building.
 > which matters for the scorer specifically: it runs once per signal, and Sonnet 5 costs
 > materially more per call than the Haiku it replaced.
 >
+> **Diagnosis corrected 2026-08-09.** This was first recorded as access being "tightened
+> underneath us" during the working day — a guess, from watching models answer at 22:50 and
+> refuse by 23:39. `get-foundation-model-availability` gives the actual reason:
+>
+> | Model | `agreementAvailability.status` |
+> | --- | --- |
+> | Sonnet 5, Opus 5 | `AVAILABLE` |
+> | Haiku 4.5, Sonnet 4.5, Opus 4.5, Sonnet 4.6, Opus 4.6 | `NOT_AVAILABLE` |
+>
+> Every one of them is `AUTHORIZED`, `entitlementAvailability: AVAILABLE` and
+> `regionAvailability: AVAILABLE`. The single differing field is the **agreement** — the
+> Anthropic use case form. The newer models do not require it; the older ones do, and AWS
+> appears to have moved them behind it during that evening.
+>
+> So this is not instability and it will not lapse again on its own: it is one form, unsubmitted.
+> `aws bedrock get-use-case-for-model-access --region eu-west-2` returns "You have not filled out
+> the request form." Submitting it unblocks all five older models at once.
+>
+> Verify with:
+> `aws bedrock get-foundation-model-availability --region eu-west-2 --model-id <id>`
+>
 > **Verified 2026-08-08T23:39Z** by invoking each EU Anthropic profile in `290304998906`:
 >
 > | Profile | Result |
