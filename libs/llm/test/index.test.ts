@@ -246,3 +246,66 @@ describe('BedrockLlmClient.converse', () => {
     expect((await getLlmClient().converse(CONVERSE)).stopReason).toBe('other');
   });
 });
+
+describe('tool results must be JSON objects', () => {
+  /**
+   * REGRESSION, found only against real data. Bedrock rejects a bare array or primitive under
+   * `toolResult.content[].json` with "The format of the value … is invalid", and that fails the
+   * WHOLE conversation, not the one tool.
+   *
+   * Several of this product's routes legitimately return a bare array —
+   * `/brands/:id/brand-impact` among them — so asking the assistant "what is hurting my brand
+   * most?" failed every time while a question needing no tools answered perfectly. Every unit
+   * test passed throughout, because they all mock the SDK and the SDK is what refused it.
+   */
+  const CONVERSE = {
+    model: 'eu.anthropic.claude-sonnet-5',
+    system: 'sys',
+    messages: [] as never[],
+  };
+
+  async function sendResult(result: unknown) {
+    mockSend.mockResolvedValue({
+      output: { message: { content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+    const { getLlmClient } = await import('../src/index.js');
+    await getLlmClient().converse({
+      ...CONVERSE,
+      messages: [
+        { role: 'user', blocks: [{ kind: 'toolResult', id: 't1', result: result as never }] },
+      ],
+    });
+    /* The LAST call, not the first: mockSend accumulates within a test, so reading calls[0]
+       returns the first invocation's payload for every subsequent assertion. */
+    const calls = mockSend.mock.calls;
+    return calls[calls.length - 1]?.[0].input.messages[0].content[0].toolResult.content[0].json;
+  }
+
+  it('wraps a bare array, which is what a list endpoint returns', async () => {
+    expect(await sendResult([{ topic: 'delivery' }])).toEqual({ items: [{ topic: 'delivery' }] });
+  });
+
+  it('wraps a primitive', async () => {
+    expect(await sendResult(42)).toEqual({ value: 42 });
+    expect(await sendResult('text')).toEqual({ value: 'text' });
+  });
+
+  it('wraps null rather than sending it as the whole payload', async () => {
+    expect(await sendResult(null)).toEqual({ value: null });
+  });
+
+  it('leaves an object untouched — no pointless nesting on the common case', async () => {
+    expect(await sendResult({ score: 62 })).toEqual({ score: 62 });
+  });
+
+  it('always sends an object, whatever it was given', async () => {
+    for (const input of [[], {}, 0, false, null, 'x', [1, 2]]) {
+      const sent = await sendResult(input);
+      expect(Array.isArray(sent), JSON.stringify(input)).toBe(false);
+      expect(typeof sent, JSON.stringify(input)).toBe('object');
+      expect(sent, JSON.stringify(input)).not.toBeNull();
+    }
+  });
+});

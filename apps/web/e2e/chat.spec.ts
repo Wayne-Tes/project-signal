@@ -88,8 +88,13 @@ test.describe('assistant dock', () => {
     const answered = dock.locator('.ds-assistant__answer');
     const failed = dock.locator('.ds-assistant__error');
     await expect(answered.or(failed).first()).toBeVisible({ timeout: 90_000 });
-    test.skip(await failed.isVisible(), 'assistant unavailable in this environment');
 
+    /* This question NEEDS tools — it cannot be answered from the help centre — so it is the one
+       that exercises the tool loop end to end. It was skipping on every run, and the skip hid a
+       real defect: /brands/:id/brand-impact returns a bare array, and Bedrock rejects a bare
+       array under toolResult.content[].json, failing the whole conversation. A conditional skip
+       that is always taken is a test that does not exist. */
+    await expect(failed, 'a question requiring tools must not error').toHaveCount(0);
     await expect(dock.locator('.ds-assistant__steps')).toBeVisible();
   });
 

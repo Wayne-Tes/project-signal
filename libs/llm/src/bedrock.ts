@@ -141,6 +141,19 @@ const STOP_REASONS: Record<string, StopReason> = {
   stop_sequence: 'endTurn',
 };
 
+/**
+ * Coerces a tool result into the JSON OBJECT the provider demands.
+ *
+ * An array is wrapped under `items` and a primitive under `value`, both named so the model can
+ * read the shape without guessing. Returning the value untouched when it is already an object
+ * keeps the common case free of a pointless nesting level.
+ */
+function asJsonObject(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return { items: value };
+  if (value !== null && typeof value === 'object') return value;
+  return { value };
+}
+
 function toSdkMessage(turn: ConverseTurn): SdkMessage {
   return {
     role: turn.role,
@@ -154,7 +167,15 @@ function toSdkMessage(turn: ConverseTurn): SdkMessage {
           return {
             toolResult: {
               toolUseId: b.id,
-              content: [{ json: b.result }],
+              /* Bedrock requires an OBJECT here. A bare array or primitive is rejected with
+                 "The format of the value at …toolResult.content.0.json is invalid", which fails
+                 the whole conversation rather than the one tool.
+
+                 Several of this product's routes legitimately return a bare array —
+                 `/brands/:id/brand-impact` among them — so this is the common case, not an edge
+                 case. Wrapping here rather than at each call site keeps the provider's constraint
+                 in the provider adapter, which is the only place that knows about it. */
+              content: [{ json: asJsonObject(b.result) }],
               /* Surfacing failure as `error` rather than as a JSON blob that happens to
                  contain the word "error" lets the model retry or explain, instead of
                  reporting our failure text back to the user as though it were data. */
