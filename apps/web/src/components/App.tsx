@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Download, LogOut } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CircleHelp, Download, LogOut, Sparkles } from 'lucide-react';
 import type { NavActions, NavLevel } from '@/lib/types';
 import { AppShell, Badge, Button, Row, useAppearance } from '@/design-system';
 import { allowedViews, navForRole, type ViewId } from '@/config/navigation';
@@ -16,6 +16,9 @@ import { RoadmapView } from '@/views/Roadmap';
 import { CompetitorsView } from '@/views/Competitors';
 import { ReportView } from '@/views/Report';
 import { AdminView } from '@/views/Admin';
+import { HelpCentre } from '@/features/help/HelpCentre';
+import { AssistantDock } from '@/features/assistant/AssistantDock';
+import { Tour, hasSeenTour } from '@/features/tour/Tour';
 
 /**
  * The application root.
@@ -38,6 +41,23 @@ export function App() {
 
   const [view, setView] = useState<ViewId>('dashboard');
   const [path, setPath] = useState<NavLevel[]>([]);
+
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpSlug, setHelpSlug] = useState<string | undefined>();
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+
+  /* The tour offers itself once, to a genuinely new user. Deferred to an effect rather than
+     computed during render because `hasSeenTour` reads localStorage, which does not exist
+     during the server pass and would make the first client render disagree with it. */
+  useEffect(() => {
+    if (!hasSeenTour()) setTourOpen(true);
+  }, []);
+
+  const openArticle = (slug: string): void => {
+    setHelpSlug(slug);
+    setHelpOpen(true);
+  };
 
   const nav = useMemo(
     () => navForRole(role),
@@ -112,6 +132,35 @@ export function App() {
             Export
           </Button>
 
+          {/* Help and the assistant sit in the top bar on EVERY view, because both answer
+              questions that arise while looking at something. Moving either into a settings
+              menu is how a help system stops being used. */}
+          <span data-tour="help">
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              icon={<CircleHelp size={17} strokeWidth={1.8} aria-hidden="true" />}
+              onClick={() => {
+                setHelpSlug(undefined);
+                setHelpOpen(true);
+              }}
+            >
+              Help
+            </Button>
+          </span>
+
+          <span data-tour="assistant">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />}
+              onClick={() => setAssistantOpen(true)}
+            >
+              Ask
+            </Button>
+          </span>
+
           {activeView === 'report' ? (
             <Button variant="primary" onClick={() => window.print()}>
               Download PDF
@@ -119,9 +168,11 @@ export function App() {
           ) : (
             // The only entry point to the top-level drill-down. Removing it made
             // DrillDown reachable only by clicking into a dimension or cluster.
-            <Button variant="primary" onClick={drill.openOverview}>
-              Dig into score
-            </Button>
+            <span data-tour="drill">
+              <Button variant="primary" onClick={drill.openOverview}>
+                Dig into score
+              </Button>
+            </span>
           )}
         </>
       }
@@ -171,6 +222,27 @@ export function App() {
       </div>
 
       {path.length > 0 && <DrillDown path={path} nav={drill} />}
+
+      <HelpCentre
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        view={activeView}
+        initialSlug={helpSlug}
+        onStartTour={() => {
+          setHelpOpen(false);
+          setTourOpen(true);
+        }}
+      />
+
+      <AssistantDock
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        view={activeView}
+        brandId={selectedBrand?.id}
+        onOpenArticle={openArticle}
+      />
+
+      <Tour open={tourOpen} onClose={() => setTourOpen(false)} onOpenArticle={openArticle} />
     </AppShell>
   );
 }

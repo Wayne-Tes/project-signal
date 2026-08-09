@@ -74,16 +74,29 @@ secret_recovery_window_days = 0
 # bare model id (no prefix) is rejected at invoke time with "on-demand throughput isn't
 # supported".
 #
-# Verified ACTIVE in 290304998906 on 2026-08-08 via `aws bedrock list-inference-profiles`.
+# Verified by INVOKING each profile in eu-west-2 on 2026-08-08T23:39Z.
 #
-# SCORER: Haiku 4.5. Runs once per signal, so it is the cost-sensitive slot, and the task is
-# classification against a fixed schema rather than reasoning — forced tool use does the
-# structuring, not the model's cleverness.
-scorer_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+# `list-inference-profiles` was the previous evidence and it was NOT ENOUGH: every profile that
+# now refuses is still listed by it. Listing tells you a profile exists; only an invoke tells you
+# this account may use it. That distinction is why the previously-recorded value was wrong.
+#
+# Sonnet 5 and Opus 5 answered. Seven others — Haiku 4.5, Sonnet 4.5, Opus 4.5, Sonnet 4.6 and
+# Opus 4.6 among them — returned ResourceNotFoundException, "Model use case details have not been
+# submitted for this account". Six of those seven were still answering an hour earlier the same
+# evening, so account-level access is being tightened while we work. See docs/OWNER-ACTIONS.md #1.
+#
+# SCORER: was Haiku 4.5, which is now REFUSED — the deployed sentiment worker was carrying a
+# model id it could no longer invoke. Runs once per signal, so it is the cost-sensitive slot;
+# Sonnet 5 is more expensive per call than Haiku and that is the price of it working at all.
+# Move back to a cheaper profile once the use case form re-opens them, having re-invoked first.
+scorer_model = "eu.anthropic.claude-sonnet-5"
 
-# REPORTER: deliberately the SAME model, not a stronger one. Nine EU Anthropic profiles are
-# available including Sonnet 5 and Opus 5, and the reporter is the slot that would benefit — but
-# nothing reads it until Epic 12, and no output has been measured. Shipping an unverified
-# "better" default is exactly how this project came to ship gemini-2.0-pro-001, a model that
-# never existed. Change it when Epic 12 can compare two outputs.
-reporter_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+# REPORTER: deliberately the SAME model as the scorer. Opus 5 also works and the reporter is the
+# slot that would benefit — but nothing reads it until Epic 12 and no output has been measured.
+# Shipping an unmeasured "better" default is a smaller version of how this project came to ship
+# gemini-2.0-pro-001, a model that never existed. Change it when Epic 12 can compare two outputs.
+reporter_model = "eu.anthropic.claude-sonnet-5"
+
+# ASSISTANT: the interactive in-product assistant. Separate variable so a latency-sensitive
+# surface can be tuned without disturbing the queue-driven scoring pipeline.
+assistant_model = "eu.anthropic.claude-sonnet-5"

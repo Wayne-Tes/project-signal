@@ -99,18 +99,38 @@ resource "aws_iam_role_policy" "task_common" {
   })
 }
 
-# API: reads the reports bucket to serve generated reports (Epic 12). No queue, no Bedrock.
+# API: reads the reports bucket to serve generated reports (Epic 12), and invokes Bedrock for the
+# in-product assistant. Still no queue — the API neither produces nor consumes messages.
 resource "aws_iam_role_policy" "task_api" {
   name = "app"
   role = aws_iam_role.task["api"].id
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:GetObject"]
-      Resource = "${aws_s3_bucket.reports.arn}/*"
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.reports.arn}/*"
+      },
+      {
+        # The assistant. Same scoping as the sentiment worker's grant and for the same reason:
+        # an inference profile fans out to foundation models across EU regions, so both the
+        # profile and the underlying models must be permitted, and confining the model arn to
+        # `anthropic.*` stops this becoming a blanket bedrock:* grant in a shared account.
+        #
+        # The assistant is READ-ONLY over tenant data by design, and this grant does not change
+        # that: it lets the API talk to a model, not the model reach the database. Every tool the
+        # assistant can call runs through the API's own authenticated routes — see
+        # apps/api/src/assistant/tools.ts.
+        Effect = "Allow"
+        Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+        Resource = [
+          "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/eu.anthropic.*",
+          "arn:aws:bedrock:*::foundation-model/anthropic.*",
+        ]
+      },
+    ]
   })
 }
 

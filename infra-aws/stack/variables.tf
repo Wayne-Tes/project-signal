@@ -211,6 +211,11 @@ variable "scorer_model" {
   type        = string
 }
 
+variable "assistant_model" {
+  description = "Bedrock inference profile for the interactive in-product assistant. Separate from the scorer so a latency-sensitive surface can be tuned without disturbing the queue-driven pipeline. VERIFY BY INVOKING IT — listing a profile does not mean this account may use it."
+  type        = string
+}
+
 variable "reporter_model" {
   description = "Bedrock inference profile for weekly narrative reports. Low volume, higher quality — the slot that justifies a stronger model. Unused until Epic 12, so it stays on the verified scorer model until someone measures the alternative."
   type        = string
