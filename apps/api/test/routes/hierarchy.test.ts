@@ -209,6 +209,34 @@ describe('PATCH /brands/:id', () => {
     expect(JSON.parse(res.body).parentId).toBeNull();
   });
 
+  it('renames, and regenerates the slug to match', async () => {
+    /* A renamed entity whose slug still says "class-chart" is a link that lies about what it
+       points at. The slug is derived, so it moves with the name. */
+    rowQueue.push([{ id: 'p1' }], [{ ...CHILD, name: 'Class Charts', slug: 'class-charts' }]);
+    const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/brands/p1',
+      headers: AUTH,
+      payload: { name: 'Class Charts' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).slug).toBe('class-charts');
+  });
+
+  it('trims a name rather than storing the whitespace', async () => {
+    rowQueue.push([{ id: 'p1' }], [CHILD]);
+    const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/brands/p1',
+      headers: AUTH,
+      payload: { name: '  Class Charts  ' },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   it('404s for an entity in another tenant', async () => {
     rowQueue.push([]);
     const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
