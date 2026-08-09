@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { goToView, presetAppearance, signIn } from './helpers';
 
 /**
@@ -24,7 +24,7 @@ import { goToView, presetAppearance, signIn } from './helpers';
 const TEMP = 'ZZ E2E Scratch Entity';
 
 /** Removes any leftover scratch rows, whatever state a previous run died in. */
-async function sweep(page: import('@playwright/test').Page): Promise<void> {
+async function sweep(page: Page): Promise<void> {
   await goToView(page, /admin/i);
   const list = page.locator('.ds-card', { hasText: 'Brands and products' });
   for (let guard = 0; guard < 5; guard += 1) {
