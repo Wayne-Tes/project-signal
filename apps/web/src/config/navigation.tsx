@@ -1,4 +1,14 @@
-import { BarChart3, FileText, Gauge, ListChecks, Settings, Target, TrendingUp } from 'lucide-react';
+import {
+  BarChart3,
+  BookOpen,
+  FileText,
+  Gauge,
+  ListChecks,
+  MessagesSquare,
+  Settings,
+  Target,
+  TrendingUp,
+} from 'lucide-react';
 import type { NavGroup } from '@/design-system';
 import type { Role } from '@/lib/auth';
 
@@ -20,6 +30,8 @@ export type ViewId =
   | 'roadmap'
   | 'competitors'
   | 'report'
+  | 'assistant'
+  | 'documentation'
   | 'admin';
 
 const ICON = { size: 19, strokeWidth: 1.8 } as const;
@@ -59,6 +71,22 @@ const NAV: NavDef[] = [
     icon: <BarChart3 {...ICON} />,
   },
   { id: 'report', label: 'Weekly report', group: 'Delivery', icon: <FileText {...ICON} /> },
+  /* The assistant and the documentation are reachable from the top bar on every view — that is
+     where they answer a question raised by what you are looking at. These are the other half:
+     places you go ON PURPOSE, to work through a conversation or to read. A pop-over cannot hold
+     a chat history, and a slide-over is the wrong shape for reading documentation end to end. */
+  {
+    id: 'assistant',
+    label: 'Assistant',
+    group: 'Workspace',
+    icon: <MessagesSquare {...ICON} />,
+  },
+  {
+    id: 'documentation',
+    label: 'Documentation',
+    group: 'Workspace',
+    icon: <BookOpen {...ICON} />,
+  },
   {
     id: 'admin',
     label: 'Admin',

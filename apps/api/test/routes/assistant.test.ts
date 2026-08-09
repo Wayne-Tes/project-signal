@@ -8,6 +8,26 @@ vi.mock('@project-signal/llm', () => ({
   getAssistantModel: vi.fn(() => 'eu.anthropic.claude-sonnet-5'),
 }));
 
+/* The route persists conversations now, so it touches the database even when the test is only
+   asserting request validation. Mocked here rather than merged into conversations.test.ts,
+   which owns the isolation assertions — this file owns the endpoint's contract. */
+const rowQueue: unknown[][] = [];
+vi.mock('@project-signal/db', () => {
+  const chain: Record<string, unknown> = {};
+  for (const m of ['select', 'from', 'where', 'insert', 'values', 'update', 'set', 'delete', 'orderBy', 'limit']) {
+    chain[m] = vi.fn(() => chain);
+  }
+  const next = () => (rowQueue.length ? rowQueue.shift()! : []);
+  chain['returning'] = vi.fn(() => Promise.resolve(next()));
+  chain['then'] = (r: unknown, j?: unknown) => Promise.resolve(next()).then(r as never, j as never);
+  return {
+    db: { get: vi.fn(() => chain) },
+    conversations: {}, conversationMessages: {}, tenants: {}, brandEntities: {},
+    signals: {}, users: {}, sentimentResults: {}, dimensionScores: {}, sourceConfigs: {},
+    client: { get: vi.fn() },
+  };
+});
+
 const { assistantRoutes } = await import('../../src/routes/assistant.js');
 
 /**
@@ -34,6 +54,7 @@ const AUTH = { authorization: 'Bearer test-token' };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  rowQueue.length = 0;
 });
 
 describe('POST /assistant/messages', () => {

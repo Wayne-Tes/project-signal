@@ -18,6 +18,8 @@ import { RoadmapView } from '@/views/Roadmap';
 import { CompetitorsView } from '@/views/Competitors';
 import { ReportView } from '@/views/Report';
 import { AdminView } from '@/views/Admin';
+import { AssistantView } from '@/views/Assistant';
+import { DocumentationView } from '@/views/Documentation';
 import { HelpCentre } from '@/features/help/HelpCentre';
 import { AssistantDock } from '@/features/assistant/AssistantDock';
 import { Tour, hasSeenTour } from '@/features/tour/Tour';
@@ -255,6 +257,8 @@ export function App() {
         {activeView === 'roadmap' && <RoadmapView nav={drill} />}
         {activeView === 'competitors' && <CompetitorsView />}
         {activeView === 'report' && <ReportView />}
+        {activeView === 'assistant' && <AssistantView />}
+        {activeView === 'documentation' && <DocumentationView />}
         {activeView === 'admin' && <AdminView />}
       </div>
 

@@ -152,8 +152,10 @@ const btn: CSSProperties = {
   width: '100%',
   marginTop: 20,
   padding: '11px',
-  background: 'var(--mint)',
-  color: 'var(--ink-accent)',
+  /* The user's chosen highlight, not the status ramp. `--mint` is the legacy "positive"
+     colour and painted these actions olive regardless of the accent selected. */
+  background: 'var(--accent)',
+  color: 'var(--accent-on)',
   border: 'none',
   borderRadius: 8,
   fontWeight: 600,

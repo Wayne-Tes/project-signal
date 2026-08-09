@@ -352,12 +352,23 @@
 
 /* Primary is the brand navy, not the accent: the accent is a personalisation
    choice and primary actions must not change meaning when a user picks lime. */
+/* The primary button IS the user's highlight colour.
+
+   It was `--tes-navy`, which read as a black slab — fine against the dark theme, heavy and
+   out of place on a white one, and it ignored the accent the user had deliberately chosen.
+   Carrying the accent here makes every primary action on the page one colour, and gives the
+   light theme something to break up the white.
+
+   `--accent-on` rather than white: lime, yellow and orange accents all fail contrast against
+   white text, and it flips per theme so the label stays legible whichever accent is picked. */
 .ds-btn--primary {
-  background: var(--tes-navy);
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--accent-on);
 }
 .ds-btn--primary:hover:not(:disabled) {
-  background: #363c4d;
+  /* Darkening the accent itself rather than swapping to a fixed colour — a named hover colour
+     would be wrong for four of the five accents. */
+  filter: brightness(0.94);
 }
 
 .ds-btn--secondary {
@@ -377,12 +388,15 @@
   background: var(--surface-hover);
 }
 
+/* Retained as an alias of `primary`, which now carries the accent too. Kept rather than deleted
+   because `accent` states the intent explicitly at a call site that wants the highlight colour
+   for its own sake rather than because it is the page's main action. */
 .ds-btn--accent {
   background: var(--accent);
   color: var(--accent-on);
 }
 .ds-btn--accent:hover:not(:disabled) {
-  filter: brightness(0.95);
+  filter: brightness(0.94);
 }
 
 .ds-btn--danger {
@@ -1427,4 +1441,341 @@ button.ds-assistant__citation:hover {
 
 .ds-tour__spacer {
   flex: 1;
+}
+
+/* ============================================================
+   WORKSPACE PAGES — documentation and the assistant
+
+   Both are two-column: a navigation rail and a reading or
+   conversation surface. They collapse to one column on narrow
+   viewports, where a 240px rail beside prose leaves neither
+   enough room.
+
+   Semantic tokens only. No literal colour appears below.
+   ============================================================ */
+
+.ds-docs,
+.ds-chat {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: var(--s-5);
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .ds-docs,
+  .ds-chat {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- documentation ---------- */
+
+.ds-docs__nav {
+  position: sticky;
+  /* Clears the sticky top bar, so the contents do not slide under it. */
+  top: calc(var(--topbar-h) + var(--s-4));
+  max-height: calc(100vh - var(--topbar-h) - var(--s-8));
+  overflow-y: auto;
+  padding-right: var(--s-2);
+}
+
+@media (max-width: 1000px) {
+  .ds-docs__nav {
+    position: static;
+    max-height: none;
+  }
+}
+
+.ds-docs__search {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-3);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--text-muted);
+  margin-bottom: var(--s-4);
+}
+
+.ds-docs__search .ds-input {
+  border: none;
+  background: none;
+  padding-left: 0;
+  flex: 1;
+}
+
+.ds-docs__search .ds-input:focus {
+  box-shadow: none;
+  outline: none;
+}
+
+.ds-docs__category {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: var(--s-4) 0 var(--s-2);
+}
+
+.ds-docs__list {
+  list-style: none;
+  margin: 0 0 var(--s-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ds-docs__link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--s-2) var(--s-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-body);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.ds-docs__link:hover {
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+
+/* Selection is carried by the accent, matching the sidebar's active item — one visual language
+   for "you are here" across the whole product. */
+.ds-docs__link--active {
+  background: var(--accent-tint);
+  color: var(--text-heading);
+  font-weight: var(--fw-semibold);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.ds-docs__empty {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  padding: var(--s-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.ds-docs__article {
+  /* Prose wants a measure. Full-width body text across a wide monitor is unreadable however
+     well it is styled. */
+  max-width: 78ch;
+}
+
+.ds-docs__title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-semibold);
+  color: var(--text-heading);
+  letter-spacing: var(--ls-tight);
+  margin: 0 0 var(--s-2);
+}
+
+.ds-docs__summary {
+  color: var(--text-muted);
+  font-size: var(--fs-lead);
+  margin: 0 0 var(--s-5);
+}
+
+.ds-docs__related {
+  margin-top: var(--s-6);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--border-hairline);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  align-items: flex-start;
+}
+
+.ds-docs__related-item {
+  color: var(--text-link);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+}
+
+.ds-docs__related-item:hover {
+  color: var(--text-link-hover);
+  text-decoration: underline;
+}
+
+/* ---------- assistant workspace ---------- */
+
+.ds-chat__history {
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--s-4));
+  max-height: calc(100vh - var(--topbar-h) - var(--s-8));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding-right: var(--s-2);
+}
+
+@media (max-width: 1000px) {
+  .ds-chat__history {
+    position: static;
+    max-height: none;
+  }
+}
+
+.ds-chat__history-empty {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  margin: 0;
+}
+
+.ds-chat__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ds-chat__item {
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--radius-md);
+  transition: background var(--dur) var(--ease);
+}
+
+.ds-chat__item:hover {
+  background: var(--surface-hover);
+}
+
+.ds-chat__item--active {
+  background: var(--accent-tint);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.ds-chat__item-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  padding: var(--s-2) var(--s-3);
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.ds-chat__item-title {
+  color: var(--text-heading);
+  font-size: var(--fs-sm);
+  /* One line. A history list of wrapped three-line titles cannot be scanned. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-chat__item-when {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.ds-chat__item-delete {
+  display: grid;
+  place-items: center;
+  padding: 0 var(--s-2);
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.ds-chat__item-delete:hover {
+  color: var(--status-critical);
+  background: var(--status-critical-bg);
+}
+
+.ds-chat__pane {
+  display: flex;
+  flex-direction: column;
+  /* Tall enough that the composer sits at the bottom of the viewport rather than chasing the
+     content up the page as a conversation grows. */
+  height: calc(100vh - var(--topbar-h) - var(--s-16));
+  min-height: 460px;
+}
+
+.ds-chat__messages {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: var(--s-2);
+}
+
+.ds-chat__intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.ds-chat__suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  max-width: 60ch;
+}
+
+.ds-chat__suggestion {
+  text-align: left;
+  padding: var(--s-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--text-body);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.ds-chat__suggestion:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.ds-chat__question {
+  font-weight: var(--fw-semibold);
+  color: var(--text-heading);
+  background: var(--surface-sunken);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  padding: var(--s-3);
+  margin: 0 0 var(--s-3);
+  max-width: 78ch;
+}
+
+.ds-chat__answer {
+  margin: 0 0 var(--s-6);
+  max-width: 78ch;
+}
+
+.ds-chat__composer {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-2);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--border-hairline);
 }
