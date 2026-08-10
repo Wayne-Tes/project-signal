@@ -28,7 +28,26 @@ const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_
 /** Apple's default store. Overridden per feed — each territory is a different review population. */
 const DEFAULT_COUNTRY = 'us';
 
-/** One `<entry>` from the feed. The first entry is the FEED ITSELF, not a review — see below. */
+/**
+ * What people type, mapped to what Apple accepts.
+ *
+ * Apple uses ISO 3166-1 alpha-2, where the United Kingdom is **`gb`**. "UK" is not in that
+ * standard, and it is the first thing a British user types — this tenant's own App Store feed was
+ * configured as `UK` and returned `400` for it. A 400 from a store URL is indistinguishable from
+ * a wrong app id to anyone reading the error, so guessing correctly here saves a support round
+ * trip rather than papering over one.
+ */
+const COUNTRY_ALIASES: Record<string, string> = {
+  uk: 'gb',
+  en: 'gb',
+  eng: 'gb',
+  gbr: 'gb',
+  usa: 'us',
+  uae: 'ae',
+};
+
+/** One `<entry>` from the feed. Every entry is a customer review; the feed's own metadata sits
+    outside `<entry>` and never reaches here. */
 interface AppleEntry {
   id?: string | { '#text'?: string };
   title?: string;
@@ -51,15 +70,16 @@ export class AppStoreAdapter implements SourceAdapter {
 
     /* Lower-cased and stripped of anything that is not a letter: the field is free text and "GB"
        or "gb " both arrive from a form, while Apple's path segment is case-sensitive. */
-    const country = (config.credentials?.['country'] ?? DEFAULT_COUNTRY)
+    const typed = (config.credentials?.['country'] ?? DEFAULT_COUNTRY)
       .toLowerCase()
       .replace(/[^a-z]/g, '');
+    const country = COUNTRY_ALIASES[typed] ?? typed || DEFAULT_COUNTRY;
 
     /* A bare numeric id. A pasted store URL is the single most likely input error, so the digits
        are extracted rather than the request being sent to a URL that will 404. */
     const numericId = /^\d+$/.test(appId) ? appId : (appId.match(/id(\d+)/)?.[1] ?? appId);
 
-    const url = `https://itunes.apple.com/${country || DEFAULT_COUNTRY}/rss/customerreviews/id=${numericId}/sortby=mostrecent/xml`;
+    const url = `https://itunes.apple.com/${country}/rss/customerreviews/id=${numericId}/sortby=mostrecent/xml`;
 
     const res = await fetch(url, { headers: { Accept: 'application/atom+xml, application/xml' } });
     if (!res.ok) {

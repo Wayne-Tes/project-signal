@@ -186,3 +186,26 @@ describe('AppStoreAdapter', () => {
     });
   });
 });
+
+describe('country codes people actually type', () => {
+  /**
+   * Apple uses ISO 3166-1 alpha-2, where the United Kingdom is `gb`. "UK" is not in that
+   * standard, and it is the first thing a British user types — this tenant's own feed was
+   * configured as `UK` and Apple answered `400`. A 400 from a store URL is indistinguishable from
+   * a wrong app id to anyone reading the error.
+   */
+  it('maps UK to gb, which is what Apple accepts', async () => {
+    await adapter.fetch({ ...config, credentials: { appId: '6743850634', country: 'UK' } });
+    expect(requested()).toContain('/gb/rss/');
+  });
+
+  it('leaves a valid code alone', async () => {
+    await adapter.fetch({ ...config, credentials: { appId: '6743850634', country: 'de' } });
+    expect(requested()).toContain('/de/rss/');
+  });
+
+  it('falls back to the default when the field is blank', async () => {
+    await adapter.fetch({ ...config, credentials: { appId: '6743850634', country: '  ' } });
+    expect(requested()).toContain('/us/rss/');
+  });
+});
