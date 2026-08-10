@@ -17,6 +17,9 @@ import type { SignalSource } from '@project-signal/shared-types';
 /** Bounds one sweep so a large backlog cannot exceed the Cloud Run request timeout. */
 const RECONCILE_LIMIT = 500;
 
+/** Feed errors are shown in the UI; a full stack trace pasted into a table cell helps nobody. */
+const MAX_ERROR_LENGTH = 400;
+
 const ADAPTERS = {
   google_reviews: new GoogleReviewsAdapter(),
   app_store: new AppStoreAdapter(),
@@ -133,7 +136,31 @@ export async function handleIngestionJob(
     credentials: { ...getSystemCredentials(cfg.source), ...(cfg.config as Record<string, string>) },
   };
 
-  const { items } = await adapter.fetch(adapterConfig, since);
+  /* The attempt is stamped BEFORE the fetch, and cleared to a failure if the fetch throws.
+     Without this the row keeps whatever `lastFetchedAt` it last had — usually none — and reads
+     as "never run" however many times it has been tried. Five of this tenant's feeds showed
+     "never run" after twelve hourly scans had each attempted and failed them. */
+  await db
+    .get()
+    .update(sourceConfigs)
+    .set({ lastAttemptedAt: new Date() })
+    .where(eq(sourceConfigs.id, sourceConfigId));
+
+  let items;
+  try {
+    ({ items } = await adapter.fetch(adapterConfig, since));
+  } catch (err) {
+    /* Recorded on the row the user has to fix, then rethrown so the scan still counts it as a
+       failed source. The scan's own error string aggregates every failure into one line, which
+       says something broke but never which feed. */
+    const message = err instanceof Error ? err.message : String(err);
+    await db
+      .get()
+      .update(sourceConfigs)
+      .set({ lastError: message.slice(0, MAX_ERROR_LENGTH), updatedAt: new Date() })
+      .where(eq(sourceConfigs.id, sourceConfigId));
+    throw err;
+  }
 
   let signalsCreated = 0;
   const createdIds: string[] = [];
@@ -183,7 +210,9 @@ export async function handleIngestionJob(
   await db
     .get()
     .update(sourceConfigs)
-    .set({ lastFetchedAt: new Date(), updatedAt: new Date() })
+    /* `lastError: null` matters as much as the timestamp. A feed that recovers must stop showing
+       the failure it had three days ago, or the panel accumulates stale alarms nobody trusts. */
+    .set({ lastFetchedAt: new Date(), lastError: null, updatedAt: new Date() })
     .where(eq(sourceConfigs.id, sourceConfigId));
 
   return { signalsCreated, signalsPublished: createdIds.length };

@@ -548,3 +548,88 @@ describe('reddit', () => {
     expect(adapterConfig.credentials['query']).toBe('"Tes MyConcern"');
   });
 });
+
+/**
+ * A failed feed must say so on its own row.
+ *
+ * `lastFetchedAt` is written only at the END of a successful run, so a feed whose adapter throws
+ * never gets a timestamp — and the UI, which had only that column to read, showed **"never run"**
+ * forever. The owner saw five feeds marked "never run" after twelve hourly scans had each
+ * attempted and failed them. A feed that is broken and a feed that has never been tried need
+ * completely different responses, and the old data made them identical.
+ */
+describe('recording what happened to a feed', () => {
+  /** The `set()` payloads written to source_configs during this call. */
+  function updates(chain: { set: { mock: { calls: unknown[][] } } }): Record<string, unknown>[] {
+    return chain.set.mock.calls.map((c) => c[0] as Record<string, unknown>);
+  }
+
+  it('stamps the attempt BEFORE fetching, so a throw still leaves a trace', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValue([]);
+    mockFetch.mockRejectedValue(new Error('Apify start run failed: 401'));
+
+    await expect(handleIngestionJob('cfg-1')).rejects.toThrow(/401/);
+
+    const attempted = updates(chain).filter((u) => u['lastAttemptedAt'] instanceof Date);
+    expect(attempted, 'the attempt must be recorded even though the fetch threw').toHaveLength(1);
+  });
+
+  it('records the reason on the row, not only in the scan summary', async () => {
+    /* The scan aggregates every failure into one string on `scan_runs`, which says something
+       broke but never which feed. This puts it on the row the user has to fix. */
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValue([]);
+    mockFetch.mockRejectedValue(new Error('Apify start run failed: 401'));
+
+    await expect(handleIngestionJob('cfg-1')).rejects.toThrow();
+
+    const failure = updates(chain).find((u) => typeof u['lastError'] === 'string');
+    expect(failure?.['lastError']).toMatch(/Apify start run failed: 401/);
+  });
+
+  it('still rethrows, so the scan counts the source as failed', async () => {
+    /* Swallowing the error here would make a scan report 7/7 sources succeeded while collecting
+       nothing — a worse lie than the one being fixed. */
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValue([]);
+    mockFetch.mockRejectedValue(new Error('boom'));
+
+    await expect(handleIngestionJob('cfg-1')).rejects.toThrow('boom');
+  });
+
+  it('truncates a long error rather than putting a stack trace in a table cell', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValue([]);
+    mockFetch.mockRejectedValue(new Error('x'.repeat(5000)));
+
+    await expect(handleIngestionJob('cfg-1')).rejects.toThrow();
+
+    const failure = updates(chain).find((u) => typeof u['lastError'] === 'string');
+    expect((failure?.['lastError'] as string).length).toBeLessThanOrEqual(400);
+  });
+
+  it('CLEARS the error when a feed recovers', async () => {
+    /* Otherwise a feed that started working keeps showing the failure it had three days ago, and
+       the panel fills with stale alarms nobody trusts. */
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValue([]);
+    mockFetch.mockResolvedValue({ items: [] });
+
+    await handleIngestionJob('cfg-1');
+
+    const success = updates(chain).find((u) => u['lastFetchedAt'] instanceof Date);
+    expect(success).toBeDefined();
+    expect(success?.['lastError'], 'a recovered feed must stop reporting its old failure').toBeNull();
+  });
+});

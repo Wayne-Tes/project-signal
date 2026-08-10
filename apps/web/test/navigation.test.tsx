@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { AppShell } from '../src/design-system/shell/AppShell';
 import { allowedViews, navForRole } from '../src/config/navigation';
 
 /**
@@ -50,5 +53,93 @@ describe('navForRole', () => {
     for (const group of navForRole('user')) {
       expect(group.items.length, group.label).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('collapsible sidebar groups', () => {
+  /* Rendered through AppShell rather than by poking state, because the persistence is the point:
+     a nav that folds but forgets is more annoying than one that does not fold. */
+  const NAV = [
+    { label: 'Brand', items: [{ id: 'dashboard', label: 'Dashboard', icon: null }] },
+    { label: 'Manage', items: [{ id: 'admin', label: 'Admin', icon: null }] },
+  ];
+
+  function shell() {
+    return (
+      <AppShell
+        nav={NAV}
+        active="dashboard"
+        onNavigate={() => {}}
+        brand={{ mark: <span>M</span>, name: 'Tes' }}
+      >
+        <div>content</div>
+      </AppShell>
+    );
+  }
+
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('starts with every group open', async () => {
+    /* A product that hides sections on a first visit looks like it has fewer features than it
+       has. Folding is a preference, not a default. */
+    render(shell());
+    expect(await screen.findByRole('button', { name: 'Dashboard' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeTruthy();
+  });
+
+  it('makes each heading a real button that reports its state', async () => {
+    render(shell());
+    const heading = await screen.findByRole('button', { name: /brand/i });
+    expect(heading.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('folds a group away when its heading is pressed', async () => {
+    render(shell());
+    await userEvent.click(await screen.findByRole('button', { name: /^brand$/i }));
+
+    expect(screen.queryByRole('button', { name: 'Dashboard' })).toBeNull();
+    /* And only that group — folding one section must not take the others with it. */
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeTruthy();
+  });
+
+  it('unfolds again on a second press', async () => {
+    render(shell());
+    const heading = await screen.findByRole('button', { name: /^brand$/i });
+    await userEvent.click(heading);
+    await userEvent.click(heading);
+
+    expect(screen.getByRole('button', { name: 'Dashboard' })).toBeTruthy();
+  });
+
+  it('remembers what was folded, by LABEL', async () => {
+    /* Stored by name rather than index, so adding or reordering a group does not silently fold a
+       different section than the one the user closed — and GROUP_ORDER has already been
+       reordered once. */
+    render(shell());
+    await userEvent.click(await screen.findByRole('button', { name: /^manage$/i }));
+
+    expect(JSON.parse(window.localStorage.getItem('ps_nav_closed_groups') ?? '[]')).toEqual([
+      'Manage',
+    ]);
+  });
+
+  it('restores the folded state on the next visit', async () => {
+    window.localStorage.setItem('ps_nav_closed_groups', JSON.stringify(['Manage']));
+    render(shell());
+
+    expect(await screen.findByRole('button', { name: 'Dashboard' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Admin' })).toBeNull();
+  });
+
+  it('survives a corrupted preference rather than taking the shell down', async () => {
+    /* This value is user-editable. The nav is the only way out of a broken page, so a malformed
+       preference must not be what breaks it. */
+    window.localStorage.setItem('ps_nav_closed_groups', '{not json');
+    render(shell());
+
+    expect(await screen.findByRole('button', { name: 'Dashboard' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeTruthy();
   });
 });

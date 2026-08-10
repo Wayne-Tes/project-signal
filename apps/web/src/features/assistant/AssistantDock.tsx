@@ -9,9 +9,19 @@ import { Markdown } from '../help/Markdown';
 /**
  * The assistant dock.
  *
- * Reachable from every view, because the questions it answers arrive while looking at
- * something. Conversation state lives here and is sent with each request — the API stores
- * nothing, which is the cheapest way to not leak a conversation store across tenants.
+ * Reachable from every view, because the questions it answers arrive while looking at something.
+ *
+ * IT THREADS A CONVERSATION. It did not, and the consequence was worse than untidy history. This
+ * component never sent `conversationId`, so the API — which loads prior turns from its OWN record
+ * and deliberately ignores whatever the client sends — started a fresh conversation on every
+ * question and handed the model no context at all. Asking a follow-up, or saying "that is not
+ * what I meant", produced the same answer again, because as far as the model was concerned the
+ * question had never been asked. The Assistant list filled with one-message conversations, which
+ * is how it was noticed; the repeated answers were the same bug.
+ *
+ * The header used to say "the API stores nothing". That stopped being true when conversations
+ * were persisted, and this comment was left behind — which is precisely why the missing id was
+ * not obvious to anyone reading the file.
  *
  * The citation list is the point of the component. Answers are model-generated, so the value is
  * not the prose but whether the user can check it: every citation is built server-side from a
@@ -70,6 +80,15 @@ export function AssistantDock({ open, onClose, view, brandId, onOpenArticle }: A
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  /**
+   * The server-side conversation this dock is continuing.
+   *
+   * Held in a ref, not state. `send` reads it immediately after an await, and a state variable
+   * captured by that closure would still be the value from the render that started the request —
+   * so two quick questions would both post with `undefined` and open two conversations, which is
+   * the bug in miniature.
+   */
+  const conversationId = useRef<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -102,19 +121,9 @@ export function AssistantDock({ open, onClose, view, brandId, onOpenArticle }: A
     const pending: Exchange = { question: trimmed };
     setExchanges((prev) => [...prev, pending]);
 
-    /* Prior turns are replayed so the model has context. Built from the state BEFORE this
-       question, then the question itself — reading it from the updated state would race. */
-    const history = exchanges.flatMap((e) =>
-      e.answer
-        ? [
-            { role: 'user' as const, content: e.question },
-            { role: 'assistant' as const, content: e.answer },
-          ]
-        : [],
-    );
-
     try {
       const result = await apiFetch<{
+        conversationId: string;
         answer: string;
         citations: Citation[];
         steps: string[];
@@ -122,11 +131,23 @@ export function AssistantDock({ open, onClose, view, brandId, onOpenArticle }: A
       }>('/assistant/messages', {
         method: 'POST',
         body: JSON.stringify({
-          messages: [...history, { role: 'user', content: trimmed }],
+          /* ONLY the new question, plus the id of the conversation it belongs to. Prior turns
+             come from the server's own record; the client's copy is neither sent nor trusted, so
+             a forged assistant turn cannot be replayed to the model as established fact.
+
+             This component used to send its own history INSTEAD of the id. The API discards that
+             history by design, so the model received no context whatsoever — which is why a
+             follow-up, or "that is not what I meant", got the same answer again. */
+          messages: [{ role: 'user', content: trimmed }],
+          conversationId: conversationId.current ?? undefined,
           view,
           brandId,
         }),
       });
+
+      /* Recorded before the next question can be asked, so the second turn lands in the same
+         conversation as the first. */
+      conversationId.current ??= result.conversationId;
 
       setExchanges((prev) =>
         prev.map((e, i) => (i === prev.length - 1 ? { ...e, ...result } : e)),
