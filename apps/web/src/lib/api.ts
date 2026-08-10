@@ -29,7 +29,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API ${res.status}: ${body || res.statusText}`);
+    throw new Error(`${res.status}: ${messageFrom(body) || res.statusText}`);
   }
   /* 204 and other empty responses have no JSON to parse. `DELETE` returns 204, and calling
      .json() on it throws a SyntaxError that surfaces to the user as a failure of an operation
@@ -38,4 +38,39 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
     return undefined as T;
   }
   return res.json() as Promise<T>;
+}
+
+/**
+ * The human sentence inside an error response.
+ *
+ * The API answers a failure with a JSON envelope, and this used to be shown to the user raw.
+ * Adding a feed that already existed produced, on screen, in red:
+ *
+ *   API 409: {"status":"error","error":"This exact feed is already configured for this
+ *   brand.","data":{"id":"089b9c69-b327-4671-9a90-cf66c37d3de2"}}
+ *
+ * The sentence a person needs is in there, wrapped in punctuation and a uuid that means nothing
+ * to them. Every caller in the app shows these messages verbatim — deliberately, because the API
+ * names the specific thing in the way and a generic "could not save" throws that away — so the
+ * unwrapping belongs here, once, rather than in each catch block.
+ *
+ * Falls back to the raw body when it is not the expected shape. A truncated or unexpected error
+ * is still better shown than swallowed.
+ */
+function messageFrom(body: string): string {
+  if (!body) return '';
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed && typeof parsed === 'object') {
+      const record = parsed as Record<string, unknown>;
+      /* Fastify's own errors use `message`; this codebase's envelopes use `error`. */
+      for (const key of ['error', 'message']) {
+        const value = record[key];
+        if (typeof value === 'string' && value.length > 0) return value;
+      }
+    }
+  } catch {
+    /* Not JSON — an ALB error page, a proxy timeout. Show it as it came. */
+  }
+  return body;
 }
