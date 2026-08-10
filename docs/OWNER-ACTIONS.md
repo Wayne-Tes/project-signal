@@ -197,6 +197,108 @@ Automation workload.
 
 ---
 
+## 4b. 🔴 The Apify account is a FREE plan, and it belongs to the former contractor
+
+**Both halves of that sentence are a problem, and the first one is now silently corrupting data.**
+
+**Verified 2026-08-10** against the live Apify API with the token now deployed:
+
+```bash
+curl -s "https://api.apify.com/v2/users/me?token=$APIFY_API_KEY"
+#  → { "username": "LokimotiveUK", "plan": { "id": "FREE", "monthlyUsageCreditsUsd": 5 } }
+```
+
+### Why this is urgent: runs report SUCCESS and collect nothing
+
+A free-tier actor that has exhausted its quota does **not** fail. It finishes `SUCCEEDED` with an
+empty dataset, or writes placeholder `{"noResults": true}` rows. Nothing in our pipeline can tell
+that apart from "there was genuinely nothing new to collect", so the scan is recorded as a success
+and the feed shows a green timestamp.
+
+Read out of the last 25 runs on the account, 2026-08-10:
+
+| Actor | Used by | What the runs actually return |
+| --- | --- | --- |
+| `neatrat/google-play-store-reviews-scraper` | Play Store | **0 items on every run since the 5th.** Log: `[FREE USER] Quota: 54/500 reviews used; 5/5 runs used, 0 remaining` → `Free tier limit reached (5 total runs)` |
+| `apidojo/tweet-scraper` | (evaluated for X) | **10 × `{"noResults": true}` per run.** Log: `The developer of this actor doesn't allow the use of API in the Free Plan` |
+| `trudax/reddit-scraper-lite` | Reddit | 1 real item per run — working |
+| `compass/Google-Maps-Reviews-Scraper` | Google reviews | `FAILED` — see item 4c, a separate and unrelated defect |
+
+**So the Play Store gave us 54 reviews, once, and has collected nothing since — while reporting
+success.** Any earlier statement that ClassCharts was collecting from "6 of 6 sources" counted
+sources that ran without throwing, not sources that returned data. That was wrong, and this is
+the correction.
+
+### Why it blocks the social channels
+
+The marketing team's channel list (`Tes Social Channels.md`) is 90 accounts across 11 platforms.
+Every platform on it except YouTube needs a paid Apify actor, and the popular ones explicitly
+refuse API access on the Free plan — that is a policy the actor's author sets, not a quota we can
+work around. Verified live prices per item, if the plan is upgraded:
+
+| Platform | Actor | Price per item |
+| --- | --- | --- |
+| X (Twitter) | `apidojo/tweet-scraper` | $0.0004 |
+| TikTok comments | `clockworks/tiktok-comments-scraper` | $0.00125 |
+| Facebook comments | `apify/facebook-comments-scraper` | $0.0025 |
+| Instagram comments | `apify/instagram-comment-scraper` | $0.0026 |
+
+Those are the **comment** scrapers deliberately, not the post scrapers. Signal scores what the
+audience says; the brand's own marketing posts would score uniformly positive and pollute the
+index. The existing YouTube adapter already works this way — it collects comment threads, not
+videos — and any new social adapter must match it.
+
+### Why it is also a governance problem
+
+`LokimotiveUK` is the **previous contractor's** account — the same identity `CLAUDE.md` flags on
+the `old-origin` remote. TES brand-intelligence collection currently depends on a departed
+contractor's personal free-tier account: outside TES billing, outside TES audit, and revocable by
+someone who no longer works here. That is worth fixing regardless of the plan tier.
+
+### What to do
+
+1. **Create a TES-owned Apify account** and subscribe it to a paid plan. Their entry paid tier is
+   the one that lifts both the run cap and the "no API on Free" restriction.
+2. Put its token into `psignal-dev-apify-api-key` and force a new ingestion deployment — the same
+   two commands as item 5 below.
+3. Tell me the plan is live and I will build and wire the X, Facebook, Instagram and TikTok
+   comment adapters, and add the 90 channels.
+
+**Why an agent did not do this for you.** Creating accounts and entering payment details are
+prohibited actions under `CLAUDE.md`, and the spend is yours to authorise.
+
+**Until then**, the honest position is: Play Store is dead, Reddit works, and no other social
+platform can be added. I have not built adapters I cannot prove against real data — that is the
+`DEVRULES.md` "wire to real services only" rule, and a scraper mapper written against a guessed
+payload is exactly the fabrication it forbids.
+
+---
+
+## 4c. 🟠 One Google reviews feed holds an App Store URL
+
+**Verified 2026-08-10** from the Apify run log for `compass/Google-Maps-Reviews-Scraper`:
+
+```
+WARN  Unsupported place ID format "https://apps.apple.com/gb/app/tes-magazine/id6743850634",
+      skipping it. Expected e.g. ChIJreV9aqYWdkgROM_boL6YbwA
+ERROR [Status message]: INVALID INPUT: "startUrls" don't contain any valid URLs.
+```
+
+A `google_reviews` feed on **Tes Magazine** has an App Store URL where a Google Place ID belongs.
+**This was my error**, made while adding feeds on 2026-08-10, and it is the reason that source
+FAILS on every scan rather than returning nothing.
+
+**I could not fix it in this session** — the AWS SSO token expired (`Token has expired and refresh
+failed`) and the fix is a call against the deployed API. Run `! aws sso login --profile
+psignal-dev` and I will correct it immediately; it is a two-minute change, not an owner action.
+It is recorded here only so it is not lost.
+
+Worth deciding at the same time: whether Tes Magazine should have a Google reviews feed at all.
+A magazine has no premises, so there may be no Google Place to review — in which case the feed
+should be deleted rather than corrected.
+
+---
+
 ## 5. 🔴 Ingestion API keys — NOW BLOCKING, and both are still the placeholder
 
 **Verified 2026-08-10** by reading the deployed values:
@@ -243,6 +345,35 @@ credential anywhere, ever. Pasting a live token into an audited enterprise accou
 `https://www.youtube.com/@TesForTeachers` where the adapter expects a channel id
 (`UCxxxxxxxxxxxx`), which is why that source reports `YouTube search failed: 400` rather than a
 credential error. Fix it in Admin → Feeds → YouTube → Edit once the key is set.
+
+**The channel ids are already resolved.** YouTube is the one platform on the marketing team's
+list that needs no Apify plan — the adapter uses the YouTube Data API directly, and it collects
+**comment threads**, which is audience voice rather than our own marketing. So the moment the key
+above is set, these eight feeds can be added. Resolved 2026-08-10 by reading each channel page and
+requiring its `<link rel="canonical">` and `<meta itemprop="identifier">` to agree:
+
+| Channel | Channel id |
+| --- | --- |
+| Tes Magazine | `UC-gOKwgu5_g9Pm1YBMb5G_A` |
+| The Safeguarding Company | `UCxOS7SpDGlNX8IQwNzPe4hA` |
+| Tes for Teachers | `UCow2vbkIRCom36dG0iUJhFA` |
+| Tes Recruitment Services | `UCvKPtBxPwXmuB5QTZ_gnckA` |
+| Teach Starter | `UCOJA1gGG0E10GQ9FDg7eu_w` |
+| Tes Recommends | `UCLCIz0tyPD4c_7k1MCE1Nog` |
+| Education Horizons | `UC8JaDzRfJPS0fSOorbXkL1A` |
+
+**`UCow2vbkIRCom36dG0iUJhFA` is Tes for Teachers** — that answers the question asked on 2026-08-10
+about whether it was the right id to paste. It is, for that channel and no other.
+
+**`@TesWorld` is missing.** `https://www.youtube.com/@TesWorld` returns **404**, so either the
+handle in `Tes Social Channels.md` is wrong or the channel has gone. Worth checking with whoever
+maintains that sheet; I have not guessed at a replacement.
+
+**Requiring the two markers to agree was not pedantry.** A first pass matched the first
+`"channelId"` in the page source and returned the SAME id for three different channels — the page
+embeds related channels too. Three of the eight would have been wrong, pointing at Tes for
+Teachers, and each would have collected real comments from the wrong channel: plausible data,
+silently misattributed, which is worse than an error.
 
 ---
 

@@ -7,7 +7,10 @@ import { AppStoreAdapter } from '../src/appStore.js';
  * THIS ADAPTER USED TO GO THROUGH APIFY, AND COULD NOT HAVE WORKED. It drove
  * `nikita-shakula~app-store-scraper`, which no longer exists — `GET /v2/acts/…` returns 404. Two
  * replacements from the Apify store were tried before this route was taken; both ran to SUCCEEDED
- * and returned `noResults` for an app with 2,490 ratings.
+ * and returned `noResults` for an app with 2,490 ratings. One of those two turned out to be
+ * refused by the Apify FREE plan rather than broken — see the corrected note in `src/appStore.ts`
+ * and `docs/OWNER-ACTIONS.md` §4b, because `noResults` on a SUCCEEDED run means "quota or plan",
+ * not "dead", and reading it as the latter wrote off a working actor.
  *
  * Apple publishes the reviews itself, as an Atom feed, free and unauthenticated — which is what
  * `sourceConfigs.ts` has claimed in a comment since the table was written (`app_store: RSS feed,
