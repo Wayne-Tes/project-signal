@@ -69,7 +69,7 @@ produces nothing if the way people write your name is not recorded — see
     ],
     related: ['adding-a-source'],
     body: `
-Project Signal models nine source types. **Not all of them have a working collector yet**, and the
+Project Signal models ten source types. **Not all of them have a working collector yet**, and the
 difference matters: configuring a source with no collector produces no signals and no warning.
 
 ## Sources with a working collector
@@ -81,6 +81,7 @@ difference matters: configuring a source with no collector produces no signals a
 | **App Store** | iOS app reviews. |
 | **Play Store** | Android app reviews. |
 | **YouTube** | Video and comment signals. |
+| **Reddit** | Unprompted conversation — the one source that reads places you do not control. |
 
 ## Recognised, but not available
 
@@ -169,6 +170,122 @@ not directly comparable.
 Competitor scores are only as current as the sources you have configured for them. A competitor
 whose collection is thinner than yours will look more stable simply because fewer signals are
 moving the number.
+`.trim(),
+  },
+  {
+    slug: 'where-to-point-it',
+    title: 'Where to point it — finding real sources for your brand',
+    category: 'managing-data',
+    summary:
+      'You do not enter individual reviews. You enter the ADDRESS of a place people are already talking, and this is how to find each kind of address.',
+    keywords: [
+      'where',
+      'which sources',
+      'what url',
+      'example',
+      'find sources',
+      'google news',
+      'app id',
+      'channel id',
+      'place id',
+      'package name',
+      'subreddit',
+      'no signals',
+      'nothing collected',
+      'empty dashboard',
+      'get started',
+      'set up',
+      'point the platform',
+    ],
+    related: ['adding-a-source', 'available-sources', 'why-is-my-dashboard-empty'],
+    body: `
+You do not add reviews. You add the **address of a place people are already talking**, and the
+platform reads that place on a schedule. Each source type wants a different kind of address, and
+finding the right one is where most empty dashboards come from.
+
+The single most useful thing to know first: **RSS is not just for blogs.** A Google News search
+URL is an RSS feed, and it is the highest-volume source most brands have. One feed per product,
+per brand name, or per phrase you care about.
+
+## News and press coverage — RSS
+
+Take any Google News search and add \`/rss/\` to it:
+
+\`\`\`
+https://news.google.com/rss/search?q=%22Your+Brand%22&hl=en-GB&gl=GB&ceid=GB:en
+\`\`\`
+
+- \`%22...%22\` is a quoted phrase. **Quote it.** Without quotes, "Class Charts" matches any page
+  containing both words and you will collect noise.
+- \`hl=en-GB&gl=GB&ceid=GB:en\` asks for UK results. Change for another market — and add a second
+  feed rather than replacing the first, if you care about both.
+- One feed **per product**, not one for the company. That is what makes the product-level index
+  mean anything.
+
+Open the URL in a browser before you add it. If it loads but contains no \`<item>\` elements, the
+feed is empty — and an empty feed and a dead brand look identical on a dashboard.
+
+Publisher feeds work the same way: most news sites expose \`/feed/\` or \`/rss\`. Some block
+automated readers with a 403, which shows up as a failed feed rather than an empty one.
+
+## App reviews — App Store and Play Store
+
+**App Store** wants the numeric id from the store URL:
+
+\`\`\`
+https://apps.apple.com/gb/app/some-app/id1018656220
+                                        ^^^^^^^^^^ this part, without "id"
+\`\`\`
+
+Set the country to the store you want. Each territory is a separate review population, so a
+separate feed per market is usually right.
+
+**Play Store** wants the package name from its URL:
+
+\`\`\`
+https://play.google.com/store/apps/details?id=com.example.app
+                                              ^^^^^^^^^^^^^^^
+\`\`\`
+
+A common mistake is pasting the whole URL into the field. Paste only the identifier.
+
+## Video — YouTube
+
+YouTube wants a **channel id**, which starts \`UC\` — not the \`@handle\` URL. To find it, open the
+channel, view source, and search for \`externalId\`; or use any "YouTube channel ID finder". A
+handle URL in this field produces \`YouTube search failed: 400\`, which is the API rejecting it
+rather than the channel being empty.
+
+## Locations — Google Reviews
+
+Wants a **Place ID**, which looks like \`ChIJ...\`. Google's own Place ID Finder will give you one
+for any address. This is worth adding per site if you have physical locations; it is not useful
+for a purely digital product.
+
+## Unprompted conversation — Reddit
+
+The others read places you control or invite comment on. Reddit reads conversation you are not
+part of, which is often the most honest signal you have.
+
+- **Quote the phrase.** Reddit's search is fuzzy: an unquoted \`ClassCharts\` returns posts from
+  unrelated subreddits that merely resemble the word.
+- **Scope to a subreddit** when you know where your audience is — it turns a noisy search into a
+  precise one.
+- Leave the subreddit empty to search all of Reddit, and expect to refine the phrase.
+
+## If you have added sources and still see nothing
+
+Work down this list in order:
+
+1. **Check each feed's status in Admin.** A feed that failed says so, in red, with the reason.
+   "never run" means it has genuinely never been attempted; a red failure means it was attempted
+   and rejected, and the message says by what.
+2. **Check your name aliases.** Signals are matched by name. If people write "Tes" and your only
+   alias is "Tes Global", a perfect feed collects nothing.
+3. **Check the feed itself in a browser.** A URL that returns a page but no items is the most
+   common cause of silence, and nothing about it looks broken.
+4. **Give it a scan and a rollup.** Collection is on a schedule, and scores appear only after the
+   next rollup — so a source added a minute ago is expected to show nothing yet.
 `.trim(),
   },
 ];

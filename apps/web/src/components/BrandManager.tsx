@@ -13,6 +13,8 @@ type SourceConfig = {
   isEnabled: boolean;
   config: Record<string, string>;
   lastFetchedAt: string | null;
+  lastAttemptedAt: string | null;
+  lastError: string | null;
 };
 type Alias = { id: string; alias: string };
 type Envelope<T> = { status: string; data: T };
@@ -70,6 +72,39 @@ const SOURCE_TYPES = Object.keys(SOURCE_FIELDS);
 function describeConfig(cfg: Record<string, string>): string {
   const values = Object.values(cfg).filter(Boolean);
   return values.length > 0 ? values.join(' · ') : 'no settings';
+}
+
+/**
+ * What actually happened to this feed, in words a person can act on.
+ *
+ * "never run" was shown for anything with no `lastFetchedAt` — which included every feed that had
+ * been attempted and had FAILED, because that timestamp is only written on success. Five feeds
+ * read "never run" here after twelve hourly scans had each tried and failed them. A feed that is
+ * broken and a feed that has never been tried need completely different responses from the user,
+ * and the old label made them identical.
+ */
+function feedStatus(s: SourceConfig): { text: string; tone: 'error' | 'ok' | 'idle'; title?: string } {
+  if (s.lastError) {
+    return {
+      text: `failed ${s.lastAttemptedAt ? when(s.lastAttemptedAt) : ''}`.trim(),
+      tone: 'error',
+      /* The full reason on hover. Truncated in place because a 400-character Apify error would
+         push every other control off the row. */
+      title: s.lastError,
+    };
+  }
+  if (s.lastFetchedAt) return { text: `last run ${when(s.lastFetchedAt)}`, tone: 'ok' };
+  if (s.lastAttemptedAt) return { text: `tried ${when(s.lastAttemptedAt)}`, tone: 'idle' };
+  return { text: 'never run', tone: 'idle' };
+}
+
+/** Short relative date. Absolute beyond a day, because "3d ago" stops being useful quickly. */
+function when(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 /** Every required field present? */
@@ -348,14 +383,28 @@ function SourcesPanel({ brandId }: { brandId: string }) {
                         )}
                       </div>
 
-                      <span style={{ ...muted, fontSize: 11, whiteSpace: 'nowrap', flex: 'none' }}>
-                        {s.lastFetchedAt
-                          ? `last run ${new Date(s.lastFetchedAt).toLocaleDateString('en-GB', {
-                              day: 'numeric',
-                              month: 'short',
-                            })}`
-                          : 'never run'}
-                      </span>
+                      {(() => {
+                        const status = feedStatus(s);
+                        return (
+                          <span
+                            title={status.title}
+                            style={{
+                              ...muted,
+                              fontSize: 11,
+                              whiteSpace: 'nowrap',
+                              flex: 'none',
+                              /* A broken feed is the one thing on this row worth colouring. It is
+                                 the difference between "nobody is talking about us" and "this has
+                                 been failing for twelve hours and nothing said so". */
+                              ...(status.tone === 'error'
+                                ? { color: 'var(--coral)', fontWeight: 600, cursor: 'help' }
+                                : {}),
+                            }}
+                          >
+                            {status.text}
+                          </span>
+                        );
+                      })()}
 
                       <button
                         style={pill(s.isEnabled)}

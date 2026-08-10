@@ -589,6 +589,44 @@
   color: var(--side-group);
 }
 
+/* The heading as a control. It is a <button> now, because a thing that hides content has to be
+   focusable and announce its state — so the UA button styles have to be undone, and the hit area
+   made the full width rather than the width of the word. */
+.ds-sidebar__group--toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--side-group);
+  border-radius: var(--radius-sm);
+  transition: color 0.15s;
+}
+.ds-sidebar__group--toggle:hover {
+  color: var(--side-active-text);
+}
+.ds-sidebar__group--toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* Rotates to point right when the section is folded. Transitioned, because the chevron is the
+   only thing that tells you the section is still there rather than gone. */
+.ds-sidebar__group-chevron {
+  flex: none;
+  transition: transform 0.18s ease;
+}
+[data-animate='off'] .ds-sidebar__group-chevron {
+  transition: none;
+}
+
 .ds-nav-item {
   position: relative;
   display: flex;

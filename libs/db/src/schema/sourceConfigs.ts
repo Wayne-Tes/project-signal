@@ -30,6 +30,7 @@ import {
   index,
   jsonb,
   pgTable,
+  text,
   timestamp,
   uuid,
   varchar,
@@ -59,7 +60,24 @@ export const sourceConfigs = pgTable(
     isEnabled: boolean('is_enabled').notNull().default(true),
     // Source-specific settings — shape varies by source, see comment above.
     config: jsonb('config').notNull().default({}),
+    /** When collection last SUCCEEDED. Only written after a fetch that returned. */
     lastFetchedAt: timestamp('last_fetched_at', { withTimezone: true }),
+    /**
+     * When collection was last ATTEMPTED, and why it failed if it did.
+     *
+     * `lastFetchedAt` alone made the UI lie. It is written at the end of a successful run, so a
+     * feed whose adapter throws — an expired Apify key, a 404 feed URL, a channel id that is
+     * really a URL — never gets a timestamp and reads as **"never run"** forever, however many
+     * times it has been attempted and failed. The owner saw exactly that: five feeds marked
+     * "never run" after twelve hourly scans had each tried and failed them.
+     *
+     * The scan's own error string aggregates every failure into one line on `scan_runs`, which
+     * tells you something broke but not WHICH feed. These two columns put the failure on the row
+     * the user has to fix.
+     */
+    lastAttemptedAt: timestamp('last_attempted_at', { withTimezone: true }),
+    /** The last failure, verbatim. Null once a run succeeds. */
+    lastError: text('last_error'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
