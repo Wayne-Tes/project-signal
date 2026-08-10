@@ -73,7 +73,10 @@ export class AppStoreAdapter implements SourceAdapter {
     const typed = (config.credentials?.['country'] ?? DEFAULT_COUNTRY)
       .toLowerCase()
       .replace(/[^a-z]/g, '');
-    const country = COUNTRY_ALIASES[typed] ?? typed || DEFAULT_COUNTRY;
+    /* Parenthesised deliberately: `??` and `||` cannot be mixed without them, and the two do
+       different jobs here — the alias if there is one, otherwise what was typed, and the default
+       only when that leaves nothing at all. */
+    const country = (COUNTRY_ALIASES[typed] ?? typed) || DEFAULT_COUNTRY;
 
     /* A bare numeric id. A pasted store URL is the single most likely input error, so the digits
        are extracted rather than the request being sent to a URL that will 404. */
