@@ -45,6 +45,7 @@ silently drives a shared environment is one careless flag away from writing to i
 | `chat.spec.ts`   | The assistant dock: asking a question, receiving a grounded answer, and citations that resolve to real records |
 | `feeds.spec.ts` | Several feeds of one source type at once (the silent-overwrite regression), Reddit as a type, per-feed rename and remove, and the drill-down stacked numbered steps |
 | `products.spec.ts` | Brand and product management: an Edit control a person can actually see, the create → rename → delete round trip against a real database, and the delete refusal that protects collected signals |
+| `drilldown.spec.ts` | The disconnect between a dimension's signal count and its evidence — every dimension the index counts must lead somewhere, drilled into the **best-scoring** one first because that is the only one the defect showed on |
 
 ## Conventions
 
