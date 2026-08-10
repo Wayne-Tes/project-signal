@@ -16,6 +16,7 @@ export {
   scoreAllDimensions,
   scoreDimension,
   toIndex,
+  topicsForDimension,
   topStrengths,
 } from './score.js';
 
