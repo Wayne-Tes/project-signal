@@ -43,6 +43,7 @@ silently drives a shared environment is one careless flag away from writing to i
 | `shell.spec.ts`  | Every control removed by the shell migration and restored (`docs/STUBS.md`), the accent reaching the active nav item, sidebar collapse, and a clean console across all seven views |
 | `help.spec.ts`   | The help centre, its search, and the first-run tutorial wizard                |
 | `chat.spec.ts`   | The assistant dock: asking a question, receiving a grounded answer, and citations that resolve to real records |
+| `feeds.spec.ts` | Several feeds of one source type at once (the silent-overwrite regression), Reddit as a type, per-feed rename and remove, and the drill-down stacked numbered steps |
 | `products.spec.ts` | Brand and product management: an Edit control a person can actually see, the create → rename → delete round trip against a real database, and the delete refusal that protects collected signals |
 
 ## Conventions

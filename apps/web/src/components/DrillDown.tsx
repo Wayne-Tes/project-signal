@@ -232,9 +232,22 @@ function ClusterLevel({ topic }: { topic: string }) {
   );
 }
 
+/**
+ * The drill-down drawer.
+ *
+ * THE STACKED STEPS ARE THE POINT, and they went missing. Each level you pass through collapses
+ * to a narrow spine — `01 INDEX`, `02 REPUTATION`, `03 <topic>` — standing as its own column to
+ * the left of the panel you are reading, so the route you took from a number to the things people
+ * actually said is visible the whole way down, and any earlier step is one click away.
+ *
+ * The rewrite that deleted the mock data (`f3e9977`) replaced this render with a single panel and
+ * took the spines with it. Nothing noticed, because the CSS for them — `.drill-panel.stacked`,
+ * `.drill-spine`, `.drill-spine .lvl` — stayed in `globals.css` the entire time, styling elements
+ * that no longer existed. A breadcrumb was left behind, which tells you where you are but not
+ * how deep you went, and collapses three levels of evidence into one line of text.
+ */
 export function DrillDown({ path, nav }: { path: NavLevel[]; nav: NavActions }) {
   if (path.length === 0) return null;
-  const current = path[path.length - 1]!;
 
   const crumb = (lvl: NavLevel): string => {
     if (lvl.kind === 'overview') return 'Index';
@@ -245,43 +258,73 @@ export function DrillDown({ path, nav }: { path: NavLevel[]; nav: NavActions }) 
     return (lvl as { clusterId: string }).clusterId;
   };
 
+  /* Zero-padded, so 01 and 10 are the same width and the spines line up. */
+  const stepNumber = (i: number): string => String(i + 1).padStart(2, '0');
+
   return (
     <>
       <div className="drill-scrim" onClick={nav.close} aria-hidden="true" />
       <div className="drill-stack">
-        <div className="drill-panel" data-testid="drill-panel">
-          <div className="drill-head">
-            <div className="crumbs">
-              {path.map((lvl, i) => (
-                <span key={i}>
-                  {i > 0 && <span className="sep"> / </span>}
-                  <span
-                    className={`c${i === path.length - 1 ? ' cur' : ''}`}
-                    onClick={() => nav.to(i)}
-                  >
-                    {crumb(lvl)}
-                  </span>
-                </span>
-              ))}
-            </div>
-            <button className="drill-close" onClick={nav.close} aria-label="Close drill-down">
-              ✕
-            </button>
-          </div>
+        {path.map((lvl, i) => {
+          const isCurrent = i === path.length - 1;
 
-          <div className="drill-body">
-            {current.kind === 'overview' && <OverviewLevel onDim={nav.openDimension} />}
-            {current.kind === 'dimension' && (
-              <DimensionLevel
-                dimKey={(current as { dimKey: string }).dimKey}
-                onCluster={(topic) => nav.openCluster(topic, (current as { dimKey: string }).dimKey)}
-              />
-            )}
-            {current.kind === 'cluster' && (
-              <ClusterLevel topic={(current as { clusterId: string }).clusterId} />
-            )}
-          </div>
-        </div>
+          /* Every level except the last renders as a spine. A button rather than a div with an
+             onClick: it is the way back to that step, and it has to be reachable by keyboard and
+             announced as an action. The original was a plain div and was not. */
+          if (!isCurrent) {
+            return (
+              <button
+                type="button"
+                className="drill-panel stacked"
+                key={`${lvl.kind}-${i}`}
+                onClick={() => nav.to(i)}
+                aria-label={`Back to step ${i + 1}: ${crumb(lvl)}`}
+              >
+                <span className="drill-spine">
+                  <span className="lvl">{stepNumber(i)}</span>
+                  &nbsp;&nbsp;
+                  {crumb(lvl)}
+                </span>
+              </button>
+            );
+          }
+
+          return (
+            <div className="drill-panel" key={`${lvl.kind}-${i}`} data-testid="drill-panel">
+              <div className="drill-head">
+                <div className="crumbs">
+                  {path.map((p, j) => (
+                    <span key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                      {j > 0 && <span className="sep">›</span>}
+                      <span
+                        className={`c${j === path.length - 1 ? ' cur' : ''}`}
+                        onClick={() => nav.to(j)}
+                      >
+                        {crumb(p)}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+                <button className="drill-close" onClick={nav.close} aria-label="Close drill-down">
+                  ✕
+                </button>
+              </div>
+
+              <div className="drill-body">
+                {lvl.kind === 'overview' && <OverviewLevel onDim={nav.openDimension} />}
+                {lvl.kind === 'dimension' && (
+                  <DimensionLevel
+                    dimKey={(lvl as { dimKey: string }).dimKey}
+                    onCluster={(topic) => nav.openCluster(topic, (lvl as { dimKey: string }).dimKey)}
+                  />
+                )}
+                {lvl.kind === 'cluster' && (
+                  <ClusterLevel topic={(lvl as { clusterId: string }).clusterId} />
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </>
   );

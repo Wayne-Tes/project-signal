@@ -14,7 +14,7 @@ describe('SOURCE_META', () => {
     /* Typed as Record<SignalSource, …>, so the compiler enforces this — but the count is
        asserted too, because a source added to the union with a placeholder entry would
        type-check while telling the user nothing. */
-    expect(SOURCE_KEYS).toHaveLength(9);
+    expect(SOURCE_KEYS).toHaveLength(10);
     for (const key of SOURCE_KEYS) {
       expect(SOURCE_META[key].label.length, key).toBeGreaterThan(1);
       expect(SOURCE_META[key].short.length, key).toBeGreaterThan(0);
@@ -29,10 +29,11 @@ describe('SOURCE_META', () => {
   });
 
   it('records which sources actually collect', () => {
-    /* KNOWN-GAPS #24: four of the nine are modelled with no adapter behind them. Configuring
-       one produces no signals and warns nobody. */
+    /* KNOWN-GAPS #24: four of the ten are modelled with no adapter behind them. Configuring one
+       produces no signals and warns nobody. Reddit joined the collecting set when its
+       Apify-backed adapter landed. */
     expect([...COLLECTING_SOURCES].sort()).toEqual(
-      ['app_store', 'google_reviews', 'play_store', 'rss', 'youtube'].sort(),
+      ['app_store', 'google_reviews', 'play_store', 'reddit', 'rss', 'youtube'].sort(),
     );
   });
 });

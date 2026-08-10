@@ -6,11 +6,12 @@ import {
   GoogleReviewsAdapter,
   AppStoreAdapter,
   PlayStoreAdapter,
+  RedditAdapter,
   RssAdapter,
   YoutubeAdapter,
 } from '@project-signal/source-adapters';
 import type { AdapterConfig } from '@project-signal/source-adapters';
-import { eq, and, isNull, max } from 'drizzle-orm';
+import { eq, isNull, max } from 'drizzle-orm';
 import type { SignalSource } from '@project-signal/shared-types';
 
 /** Bounds one sweep so a large backlog cannot exceed the Cloud Run request timeout. */
@@ -20,6 +21,7 @@ const ADAPTERS = {
   google_reviews: new GoogleReviewsAdapter(),
   app_store: new AppStoreAdapter(),
   play_store: new PlayStoreAdapter(),
+  reddit: new RedditAdapter(),
   rss: new RssAdapter(),
   youtube: new YoutubeAdapter(),
 } as const;
@@ -38,19 +40,35 @@ function getSystemCredentials(source: string): Record<string, string> {
   if (source === 'google_reviews') return { apifyApiKey: apifyKey };
   if (source === 'app_store') return { apifyApiKey: apifyKey };
   if (source === 'play_store') return { apifyApiKey: apifyKey };
+  /* Reddit goes through the same Apify account. No second credential to provision, and nothing
+     to configure per brand beyond the search term itself. */
+  if (source === 'reddit') return { apifyApiKey: apifyKey };
   if (source === 'youtube') return { youtubeApiKey: env.YOUTUBE_API_KEY ?? '' };
   return {};
 }
 
-async function getLastIngestedAt(
-  brandEntityId: string,
-  source: SignalSource,
-): Promise<Date | undefined> {
+/**
+ * The `since` cutoff for one feed.
+ *
+ * PER SOURCE CONFIG, not per source type — and that distinction is a defect fix, not a
+ * refinement. This used to ask "what is the newest signal for this brand and this SOURCE TYPE?".
+ * With one feed per type that was the same question. With several it is not: a busy Google News
+ * feed collecting hourly pushes the watermark to now, and a quieter feed on the same brand — a
+ * school blog, a second search term — then has everything it publishes filtered out as older than
+ * the cutoff, on every run, permanently. It would look exactly like nobody talking about that
+ * brand, which is the failure mode this whole system exists to distinguish from silence.
+ *
+ * Signals collected before `source_config_id` existed have none, so they cannot contribute to any
+ * feed's watermark. That is the right answer rather than a limitation: the first run after this
+ * change re-examines recent items for each feed, and `onConflictDoNothing` against the
+ * `(source_url, brand_entity_id)` unique index drops anything already stored.
+ */
+async function getLastIngestedAt(sourceConfigId: string): Promise<Date | undefined> {
   const [row] = await db
     .get()
     .select({ latest: max(signals.publishedAt) })
     .from(signals)
-    .where(and(eq(signals.brandEntityId, brandEntityId), eq(signals.source, source)));
+    .where(eq(signals.sourceConfigId, sourceConfigId));
   return row?.latest ?? undefined;
 }
 
@@ -106,7 +124,7 @@ export async function handleIngestionJob(
   const adapter = ADAPTERS[cfg.source as keyof typeof ADAPTERS];
   if (!adapter) throw new Error(`No adapter for source: ${cfg.source}`);
 
-  const since = await getLastIngestedAt(cfg.brandEntityId, cfg.source as SignalSource);
+  const since = await getLastIngestedAt(sourceConfigId);
 
   const adapterConfig: AdapterConfig = {
     brandEntityId: cfg.brandEntityId,
@@ -143,7 +161,11 @@ export async function handleIngestionJob(
     const inserted = await db
       .get()
       .insert(signals)
-      .values({ ...base, rawStorageRef, publishedAt: item.publishedAt })
+      /* `sourceConfigId` is stamped here and nowhere else. It is what makes six RSS feeds legible
+         rather than merely permitted — which feed is productive, which is dead, and which one the
+         findings in a report actually came from. It is also what the per-feed watermark above
+         reads. */
+      .values({ ...base, sourceConfigId, rawStorageRef, publishedAt: item.publishedAt })
       .onConflictDoNothing()
       .returning({ id: signals.id });
 

@@ -32,5 +32,6 @@ export interface SourceAdapter {
 export { GoogleReviewsAdapter } from './googleReviews.js';
 export { AppStoreAdapter } from './appStore.js';
 export { PlayStoreAdapter } from './playStore.js';
+export { RedditAdapter } from './reddit.js';
 export { RssAdapter } from './rss.js';
 export { YoutubeAdapter } from './youtube.js';

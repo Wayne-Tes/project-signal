@@ -7,15 +7,33 @@ const { mockPublish, mockFetch, mockToSignal, mockPut } = vi.hoisted(() => ({
   mockPut: vi.fn(),
 }));
 
+/** A mocked table whose every column is a traceable sentinel. */
+function table(name: string) {
+  return new Proxy({} as Record<string, unknown>, {
+    get: (_t, prop) => ({ __table: name, __col: String(prop) }),
+  });
+}
+
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
   let _rows: unknown[] = [];
   const queue: unknown[][] = [];
-  ['select', 'from', 'where', 'insert', 'values', 'update', 'set', 'leftJoin', 'limit'].forEach(
+  ['select', 'from', 'insert', 'values', 'update', 'set', 'leftJoin', 'limit'].forEach(
     (m) => {
       chain[m] = vi.fn(() => chain);
     },
   );
+  /* `where` is recorded rather than merely stubbed. A mock database ignores predicates, so a
+     test that only checks the value coming back cannot tell "the watermark for THIS feed" from
+     "the watermark for this brand and source type" — which is exactly the defect being fixed
+     here, and exactly what a first version of these tests failed to catch. Capturing the
+     predicate makes the column being filtered on assertable. */
+  const wheres: unknown[] = [];
+  chain['where'] = vi.fn((predicate: unknown) => {
+    wheres.push(predicate);
+    return chain;
+  });
+  (chain as any)._wheres = wheres;
   const nextRows = () => (queue.length ? queue.shift()! : _rows);
   chain['onConflictDoNothing'] = vi.fn(() => chain);
   chain['returning'] = vi.fn(() => Promise.resolve(nextRows()));
@@ -27,10 +45,12 @@ vi.mock('@project-signal/db', () => {
   (chain as any)._queue = queue;
   return {
     db: { get: vi.fn(() => chain) },
-    brandEntities: {},
-    signals: {},
-    sentimentResults: {},
-    sourceConfigs: {},
+    /* Columns are sentinels, so a captured predicate can be traced back to the column it was
+       built from. `{}` would make every column `undefined` and indistinguishable. */
+    brandEntities: table('brand_entities'),
+    signals: table('signals'),
+    sentimentResults: table('sentiment_results'),
+    sourceConfigs: table('source_configs'),
     client: { get: vi.fn() },
   };
 });
@@ -61,6 +81,7 @@ vi.mock('@project-signal/source-adapters', () => {
     GoogleReviewsAdapter: MockAdapter,
     AppStoreAdapter: MockAdapter,
     PlayStoreAdapter: MockAdapter,
+    RedditAdapter: MockAdapter,
     RssAdapter: MockAdapter,
     YoutubeAdapter: MockAdapter,
   };
@@ -397,5 +418,133 @@ describe('adapter registry', () => {
     const { COLLECTING_SOURCES } = await import('@project-signal/shared-types');
     const { ADAPTER_SOURCES } = await import('../src/handler.js');
     expect([...ADAPTER_SOURCES].sort()).toEqual([...COLLECTING_SOURCES].sort());
+  });
+});
+
+/**
+ * Many feeds of one source type.
+ *
+ * These two properties only matter once a brand can have more than one RSS feed, and both were
+ * wrong the moment that became possible.
+ */
+/**
+ * Does a captured drizzle predicate mention this column?
+ *
+ * `eq(col, value)` keeps the column object inside the SQL it builds, so a sentinel column
+ * survives into the structure and can be found by walking it. Depth-limited and cycle-safe
+ * because drizzle's SQL objects hold back-references.
+ */
+function references(node: unknown, tableName: string, column: string, seen = new Set()): boolean {
+  if (!node || typeof node !== 'object' || seen.has(node)) return false;
+  seen.add(node);
+  const rec = node as Record<string, unknown>;
+  if (rec['__table'] === tableName && rec['__col'] === column) return true;
+  for (const value of Object.values(rec)) {
+    if (Array.isArray(value)) {
+      if (value.some((v) => references(v, tableName, column, seen))) return true;
+    } else if (references(value, tableName, column, seen)) return true;
+  }
+  return false;
+}
+
+describe('one brand, several feeds of the same type', () => {
+  const rssA = { ...cfg, id: 'cfg-a', source: 'rss', config: { feedUrl: 'https://a/feed' } };
+
+  it('takes the watermark from THIS feed, not from every feed of the type', async () => {
+    /* The defect. `since` used to be max(published_at) across the brand and the source TYPE, so a
+       busy Google News feed collecting hourly pushed the watermark to now — and a quieter feed on
+       the same brand then had everything it published filtered out as too old, on every run,
+       forever. It reads as nobody talking about the brand, which is the one thing this product
+       must never get wrong. */
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    const mine = new Date('2026-05-01T00:00:00.000Z');
+    chain._wheres.length = 0;
+    chain._queue.push([rssA], [brand], [{ latest: mine }]);
+    chain.returning.mockResolvedValue([]);
+    mockFetch.mockResolvedValue({ items: [] });
+
+    await handleIngestionJob('cfg-a');
+
+    /* The adapter is handed the cutoff belonging to this feed's own signals. */
+    expect(mockFetch.mock.calls[0]![1]).toEqual(mine);
+
+    /* And — the part that actually distinguishes the fix from the defect — the query that
+       produced it filtered on `source_config_id`. A mock database ignores predicates, so
+       asserting only on the value above passes just as happily against the old per-source-type
+       query. It did, when these tests were first written. */
+    const predicates = (chain._wheres as unknown[]).filter((w) =>
+      references(w, 'signals', 'sourceConfigId'),
+    );
+    expect(predicates.length, 'the watermark must be scoped to this feed').toBeGreaterThan(0);
+    expect(
+      (chain._wheres as unknown[]).some((w) => references(w, 'signals', 'source')),
+      'and must NOT be scoped to the source type',
+    ).toBe(false);
+  });
+
+  it('passes no cutoff at all for a feed that has collected nothing yet', async () => {
+    /* A brand-new feed must sweep its full history rather than start from the newest signal some
+       OTHER feed happened to collect a minute ago. */
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([rssA], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValue([]);
+    mockFetch.mockResolvedValue({ items: [] });
+
+    await handleIngestionJob('cfg-a');
+
+    expect(mockFetch.mock.calls[0]![1]).toBeUndefined();
+  });
+
+  it('stamps every signal with the feed that produced it', async () => {
+    /* Without this, `source` says "rss" and six feeds are indistinguishable — you cannot tell
+       which is carrying the coverage, which is dead, or which one a finding came from. */
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([rssA], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValueOnce([{ id: 'signal-1' }]);
+    chain.returning.mockResolvedValue([]);
+
+    mockFetch.mockResolvedValue({
+      items: [{ externalId: 'x1', url: 'https://a/1', publishedAt: now, text: 't', metadata: {} }],
+    });
+    mockToSignal.mockReturnValue({
+      brandEntityId: 'brand-1',
+      tenantId: 'tenant-1',
+      source: 'rss',
+    });
+
+    await handleIngestionJob('cfg-a');
+
+    const inserted = chain.values.mock.calls.map((c: unknown[]) => c[0]) as Record<string, unknown>[];
+    const signalRow = inserted.find((row) => row['rawStorageRef'] !== undefined);
+    expect(signalRow?.['sourceConfigId']).toBe('cfg-a');
+  });
+});
+
+describe('reddit', () => {
+  it('is in the adapter registry', async () => {
+    const { ADAPTER_SOURCES } = await import('../src/handler.js');
+    expect(ADAPTER_SOURCES).toContain('reddit');
+  });
+
+  it('collects through the Apify key, with no second credential to provision', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push(
+      [{ ...cfg, id: 'cfg-r', source: 'reddit', config: { query: '"Tes MyConcern"' } }],
+      [brand],
+      [{ latest: null }],
+    );
+    chain.returning.mockResolvedValue([]);
+    mockFetch.mockResolvedValue({ items: [] });
+
+    await handleIngestionJob('cfg-r');
+
+    const adapterConfig = mockFetch.mock.calls[0]![0] as { credentials: Record<string, string> };
+    expect(adapterConfig.credentials['apifyApiKey']).toBe('apify-key');
+    /* And the per-brand config travels alongside it. */
+    expect(adapterConfig.credentials['query']).toBe('"Tes MyConcern"');
   });
 });

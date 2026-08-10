@@ -26,6 +26,10 @@ const SIGNAL_SCHEMA = {
     tenantId: { type: 'string' },
     brandEntityId: { type: 'string' },
     source: { type: 'string' },
+    /* WHICH feed produced it. `source` says "rss"; with six RSS feeds on one brand that
+       identifies nothing, and a report citing evidence has to be able to say where it came from.
+       Null for anything collected before feeds were tracked individually. */
+    sourceConfigId: { type: 'string', nullable: true },
     sourceUrl: { type: 'string' },
     rawStorageRef: { type: 'string' },
     publishedAt: { type: 'string' },
@@ -107,6 +111,11 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
             limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT, default: DEFAULT_LIMIT },
             cursor: { type: 'string' },
             source: { type: 'string' },
+            sourceConfigId: {
+              type: 'string',
+              description:
+                'Return only signals from one configured feed. `source` filters by TYPE, which no longer identifies a single feed.',
+            },
             topic: {
               type: 'string',
               description:
@@ -131,11 +140,13 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
         limit = DEFAULT_LIMIT,
         cursor,
         source,
+        sourceConfigId,
         topic,
       } = request.query as {
         limit?: number;
         cursor?: string;
         source?: string;
+        sourceConfigId?: string;
         topic?: string;
       };
 
@@ -151,6 +162,9 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
         if (keyset) filters.push(keyset);
       }
       if (source) filters.push(eq(signals.source, source));
+      /* Narrower than `source`, and both may be applied. This is what lets a finding be
+         attributed to "Google News — Tes MyConcern" rather than to "rss". */
+      if (sourceConfigId) filters.push(eq(signals.sourceConfigId, sourceConfigId));
 
       /* Topic filter — the evidence behind a Brand impact cluster.
      

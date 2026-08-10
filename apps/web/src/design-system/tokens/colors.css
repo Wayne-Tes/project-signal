@@ -42,6 +42,11 @@
   --tes-mosaic-orange: #e8843c;
   --tes-mosaic-magenta: #c9275e;
   --tes-mosaic-yellow: #f2c13d;
+  /* Added with the Reddit source. The set was eight, and eight sources already had one each, so
+     a ninth source would have had to share — and two categories in one colour is a legend that
+     lies. Chosen to sit in the palette rather than to match Reddit's own #FF4500, which is far
+     hotter than anything else here and would read as an alert. */
+  --tes-mosaic-vermilion: #d1503c;
 
   /* ---------- NEUTRALS ---------- */
   --tes-white: #ffffff;
