@@ -79,7 +79,7 @@ project-signal/
 │   ├── messaging/            MessagePublisher interface + SQS implementation
 │   ├── storage/              ObjectStore interface + S3 implementation
 │   ├── scoring/              Brand Perception Index: decay, dimensions, topic clusters
-│   └── source-adapters/      Adapter interface + 5 implementations
+│   └── source-adapters/      Adapter interface + 6 implementations
 ├── infra-aws/                THE REAL TARGET — see §12
 │   ├── bootstrap/            S3 remote-state bucket (local state, run once)
 │   ├── account/              ACCOUNT-GLOBAL, shared with co-tenant projects. Not ours
@@ -461,9 +461,26 @@ reads `config.credentials['placeId']` even though a place ID is not a secret.
 | `AppStoreAdapter`      | Apify `nikita-shakula~app-store-scraper`          | `appId`, `country` (default `us`) | Joins title + body as text; drops empty                                                                     |
 | `PlayStoreAdapter`     | Apify `emastra~google-play-scraper`               | `appId`                           | Sorted newest; drops empty content                                                                          |
 | `RssAdapter`           | Direct `fetch` + `fast-xml-parser`                | `feedUrl`                         | Handles **both RSS and Atom**; filters by `since` client-side; no API key needed                            |
+| `RedditAdapter`        | Apify `trudax~reddit-scraper-lite`                | `query`, `subreddit` (optional)    | Posts only (`searchComments: false`); `searchCommunityName` scopes to a subreddit; title + body joined as text; `since` filtered client-side |
 | `YoutubeAdapter`       | YouTube Data API v3                               | `channelId`                       | Last 10 videos → up to 50 top-level comments each; **HTTP 403 = comments disabled → skipped, not an error** |
 
-`apifyClient.ts` is the shared Apify runner used by the three Apify-backed adapters:
+> **Reddit goes through the existing Apify account, not Reddit's own API.** The key and the
+> billing already exist and are already wired through `getSystemCredentials`, so there is no second
+> credential to provision and no OAuth app to register. Reddit's public JSON endpoint needs no key
+> at all and would work from a laptop, but it answers a datacentre-hosted client with 429 — from
+> inside a Fargate task that presents as an intermittent, unexplained failure. The residential
+> proxy is the thing being paid for.
+>
+> **The actor id and every field name below were verified against the live API, not remembered.**
+> Actor `trudax/reddit-scraper-lite` (`oAuCIx3ItNrs2okjQ`, build 5.7.9); the input schema was read
+> from `GET /v2/actor-builds/{id}` and the output shape from two real runs on 2026-08-09 —
+> `id, parsedId, url, username, title, communityName, parsedCommunityName, body, html, createdAt,
+> scrapedAt, dataType`. `libs/source-adapters/test/reddit.test.ts` uses that shape verbatim. This
+> repository has twice shipped a model id written from memory; an actor's output schema decays the
+> same way, and a test built on invented field names passes forever while the adapter collects
+> nothing.
+
+`apifyClient.ts` is the shared Apify runner used by the four Apify-backed adapters:
 `startApifyRun` → `waitForApifyRun` (poll every 5s, 5-minute deadline, throws on
 FAILED/TIMED-OUT/ABORTED) → `fetchApifyDataset`.
 
@@ -563,16 +580,34 @@ difference.
 | `GET /assistant/conversations/:id`       | any          | object               | One conversation and its turns. 404 whether it is missing or someone else's. |
 | `PATCH /assistant/conversations/:id`     | any          | object               | Rename. |
 | `DELETE /assistant/conversations/:id`    | any          | 204                  | Delete; messages cascade. |
-| `GET /brands/:id/integrations`            | admin, owner | `{status,data}`      | List `source_configs` for the brand.                                                                                    |
-| `POST /brands/:id/integrations`           | admin, owner | `{status,data}`      | **Upsert** on `(brand_entity_id, source)`.                                                                              |
-| `PATCH /brands/:id/integrations/:source`  | admin, owner | `{status,data}`      | Update `isEnabled` and/or `config`. 404 if absent.                                                                      |
-| `DELETE /brands/:id/integrations/:source` | admin, owner | `{status,data}`      | **Soft-disable** (`is_enabled = false`) — hard deletes are deliberately unsupported to preserve audit history.          |
+| `GET /brands/:id/integrations`             | admin, owner | `{status,data}`      | Every configured feed for the brand. **Many rows per source type are expected.**                                        |
+| `GET /brands/:id/integrations/stats`       | admin, owner | `{status,data}`      | Per feed: signals collected, newest signal, last run. LEFT JOIN, so a feed that has collected nothing is still returned — that row is the point. |
+| `POST /brands/:id/integrations`            | admin, owner | `{status,data}`      | **Creates** a feed; returns **201**. No longer an upsert. **409** for an exact duplicate config (key-order-independent). |
+| `PATCH /brands/:id/integrations/:configId` | admin, owner | `{status,data}`      | Update `label`, `isEnabled` and/or `config`. `label: ""` clears it. 404 if absent.                                       |
+| `DELETE /brands/:id/integrations/:configId`| admin, owner | `{status,data}`      | **Hard delete.** Signals survive — `signals.source_config_id` is `ON DELETE SET NULL`. Pausing a feed is `PATCH isEnabled:false`. |
 | `GET /brands/:id/aliases`                 | admin, owner | `{status,data}`      | List aliases.                                                                                                           |
 | `POST /brands/:id/aliases`                | admin, owner | `{status,data}`      | `onConflictDoNothing` → **409** when the alias already exists.                                                          |
 | `DELETE /brands/:id/aliases/:aliasId`     | admin, owner | `{status,data}`      | Hard delete, tenant + brand scoped.                                                                                     |
 
 Every route declares JSON Schema (`body` / `params` / `querystring` / `response`) so Swagger
 output stays accurate and Fastify serialises responses fast.
+
+**Many feeds per source type, and why the routes are keyed on `configId`.** `source_configs` used
+to carry `unique(brand_entity_id, source)`, and `POST` upserted onto it, so a brand could hold one
+feed of each type. The failure was silent: adding a second RSS feed did not error, it **overwrote
+the first**, and the list then showed one row as though that had always been the whole
+configuration. A brand tracking both `"Tes Global"` and `"Tes MyConcern"` on Google News could
+only ever have one of them. The constraint was never load-bearing — `apps/ingestion` has always
+worked off `source_configs.id` — so removing it (migration `0011`) and re-keying the routes was
+the whole fix, plus a `label` column, because "rss" identifies nothing once there are six.
+
+Two things follow that are easy to miss. `signals.source_config_id` records **which feed** produced
+each signal, so a finding can be attributed to *"Google News — Tes MyConcern"* rather than to
+*"rss"*; `GET /brands/:id/signals?sourceConfigId=` filters on it. And the ingestion watermark is
+**per feed**: it used to be `max(published_at)` over the brand and the source *type*, which meant a
+busy hourly feed pushed the cutoff to now and a quieter feed on the same brand had everything it
+published filtered out as too old, on every run, permanently — indistinguishable from nobody
+talking about the brand.
 
 **Why `DELETE /brands/:id` is so narrow.** Seven tables reference `brand_entities.id`: `signals`,
 `dimension_scores`, `signal_mentions`, `scan_runs`, `brand_aliases`, `source_configs` and

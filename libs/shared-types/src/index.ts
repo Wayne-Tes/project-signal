@@ -6,6 +6,7 @@ export type SignalSource =
   | 'app_store'
   | 'play_store'
   | 'rss'
+  | 'reddit'
   | 'news_api'
   | 'x'
   | 'survey';
@@ -29,6 +30,7 @@ export const COLLECTING_SOURCES = [
   'app_store',
   'play_store',
   'rss',
+  'reddit',
   'youtube',
 ] as const satisfies readonly SignalSource[];
 

@@ -40,6 +40,7 @@ export const SOURCE_META: Record<SignalSource, SourceMeta> = {
   play_store: { label: 'Play Store', short: 'Play', tone: 'var(--tes-mosaic-green)', glyph: '▷', collects: true },
   youtube: { label: 'YouTube', short: 'YouTube', tone: 'var(--tes-mosaic-magenta)', glyph: '▶', collects: true },
   rss: { label: 'News / RSS', short: 'RSS', tone: 'var(--tes-mosaic-orange)', glyph: '≡', collects: true },
+  reddit: { label: 'Reddit', short: 'Reddit', tone: 'var(--tes-mosaic-vermilion)', glyph: '⬤', collects: true },
   trustpilot: { label: 'Trustpilot', short: 'Trustpilot', tone: 'var(--tes-mosaic-teal)', glyph: '★', collects: false },
   news_api: { label: 'News API', short: 'News', tone: 'var(--tes-mosaic-yellow)', glyph: '⧉', collects: false },
   x: { label: 'X (Twitter)', short: 'X', tone: 'var(--tes-mosaic-indigo)', glyph: '𝕏', collects: false },
