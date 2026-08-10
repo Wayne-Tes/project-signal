@@ -25,10 +25,23 @@ export async function startApifyRun(
   return data.data;
 }
 
+/**
+ * Polls a run to completion.
+ *
+ * THE PATH IS `/actor-runs/`, NOT `/runs/`. This polled `/v2/runs/{id}`, which returns **404**
+ * for every run that has ever existed — verified against the live API on 2026-08-10 with a real
+ * run id: `/v2/runs/{id}` → 404, `/v2/actor-runs/{id}` → 200. So every Apify-backed adapter
+ * started its run successfully, then failed on the first poll, for as long as this code has
+ * existed. It was invisible because the Apify token in the deployed environment was never set,
+ * so the failure was a 401 at start and nobody reached the poll.
+ *
+ * That is the shape of this class of bug: one broken thing hiding behind another. Fixing the
+ * credential is what revealed it.
+ */
 export async function waitForApifyRun(apiKey: string, runId: string): Promise<ApifyRun> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const res = await fetch(`${APIFY_BASE}/runs/${runId}?token=${apiKey}`);
+    const res = await fetch(`${APIFY_BASE}/actor-runs/${runId}?token=${apiKey}`);
     if (!res.ok) throw new Error(`Apify poll failed: ${res.status}`);
     const data = (await res.json()) as { data: ApifyRun };
     const run = data.data;
