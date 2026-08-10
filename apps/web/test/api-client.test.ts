@@ -81,3 +81,71 @@ describe('apiFetch', () => {
     expect(sentHeaders()['Content-Type']).toBe('text/csv');
   });
 });
+
+describe('error messages', () => {
+  /* These used to reach the screen raw. Adding a feed that already existed showed, in red:
+     API 409: {"status":"error","error":"This exact feed is already configured for this
+     brand.","data":{"id":"089b9c69-..."}} — the sentence a person needs, wrapped in punctuation
+     and a uuid that means nothing to them. Seen in the deployed app, not imagined. */
+
+  it('unwraps the sentence from an error envelope', async () => {
+    respond(409, {});
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      statusText: 'Conflict',
+      headers: { get: () => null },
+      text: async () =>
+        '{"status":"error","error":"This exact feed is already configured for this brand.","data":{"id":"089b9c69"}}',
+    });
+
+    await expect(apiFetch('/x', { method: 'POST', body: '{}' })).rejects.toThrow(
+      '409: This exact feed is already configured for this brand.',
+    );
+  });
+
+  it('uses Fastify’s own `message` field when that is the shape', async () => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      headers: { get: () => null },
+      text: async () => '{"statusCode":400,"error":"Bad Request","message":"body must be object"}',
+    });
+
+    /* `error` wins over `message` here by design — this codebase’s envelopes put the useful
+       sentence in `error`, and Fastify puts a bare status phrase there. Either is far better than
+       the raw JSON, and the ordering is asserted so it cannot flip silently. */
+    await expect(apiFetch('/x')).rejects.toThrow('400: Bad Request');
+  });
+
+  it('shows a non-JSON body as it came', async () => {
+    /* An ALB error page or a proxy timeout is not JSON. Swallowing it would leave the user with
+       nothing at all. */
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      headers: { get: () => null },
+      text: async () => '<html>502 Bad Gateway</html>',
+    });
+
+    await expect(apiFetch('/x')).rejects.toThrow(/502 Bad Gateway/);
+  });
+
+  it('falls back to the status text when the body is empty', async () => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: { get: () => null },
+      text: async () => '',
+    });
+
+    await expect(apiFetch('/x')).rejects.toThrow('503: Service Unavailable');
+  });
+});

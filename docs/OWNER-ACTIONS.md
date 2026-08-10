@@ -197,18 +197,67 @@ Automation workload.
 
 ---
 
-## 5. 🟡 Ingestion API keys, when real sources are wanted
+## 5. 🔴 Ingestion API keys — NOW BLOCKING, and both are still the placeholder
 
-**What:** an **Apify** API token and a **YouTube Data API v3** key, dropped into the Secrets
-Manager entries Terraform creates for them.
+**Verified 2026-08-10** by reading the deployed values:
 
-**Why it is not blocking:** the **RSS adapter needs no key at all**, which is why it is the
-source used for every end-to-end test. Without these two, Google Reviews, App Store, Play Store
-and YouTube ingestion cannot fetch — the rest of the system is unaffected.
+```
+aws secretsmanager get-secret-value --region eu-west-2 --secret-id psignal-dev-apify-api-key
+aws secretsmanager get-secret-value --region eu-west-2 --secret-id psignal-dev-youtube-api-key
+```
+
+Both return the literal string `REPLACE_ME`. Neither has ever been set, and the Apify token in
+the local `.env` — which authenticates fine, `GET /v2/users/me` returns 200 — was never copied
+into the deployed environment.
+
+**This is why the scan history reads `Apify start run failed: 401` on every run.** Four of the six
+adapters go through Apify: Google Reviews, App Store, Play Store and now **Reddit**. Not one of
+them has ever collected a signal in the deployed environment. Every signal the system holds came
+from the RSS feed, which needs no key — which is exactly why "80 signals from 1/1 source"
+succeeded while "0 signals from 1/5 sources" is what a full sweep now reports.
+
+**Raised from 🟡 to 🔴** because Reddit was specifically asked for and cannot collect until this is
+done. Nothing else is required — the adapter, the UI, the queue path and the tests are all in
+place and deployed.
+
+**What to do**, once each, in the console or the CLI:
+
+```bash
+aws secretsmanager put-secret-value --region eu-west-2   --secret-id psignal-dev-apify-api-key --secret-string '<the token from .env>'
+
+aws secretsmanager put-secret-value --region eu-west-2   --secret-id psignal-dev-youtube-api-key --secret-string '<a YouTube Data API v3 key>'
+```
+
+Then restart the ingestion service so it picks the values up — ECS reads secrets at task start:
+
+```bash
+aws ecs update-service --region eu-west-2 --cluster psignal-dev-cluster   --service psignal-dev-ingestion --force-new-deployment
+```
+
+**Why an agent did not do this for you.** `infra-aws/stack/secrets.tf` says in its own header that
+Terraform creates the secret and deliberately does not manage its value, so the key never enters
+Terraform state or a tfvars file — and `CLAUDE.md` forbids an agent from committing or moving a
+credential anywhere, ever. Pasting a live token into an audited enterprise account is yours to do.
+
+**Separately: the YouTube feed is misconfigured.** It holds
+`https://www.youtube.com/@TesForTeachers` where the adapter expects a channel id
+(`UCxxxxxxxxxxxx`), which is why that source reports `YouTube search failed: 400` rather than a
+credential error. Fix it in Admin → Feeds → YouTube → Edit once the key is set.
 
 ---
 
-## 5b. 🟠 Browser verification could not be done — Chrome extension not connected
+## 5b. ✅ Browser verification — DONE (2026-08-10)
+
+Superseded. The Chrome extension is connected via **Edge**, and the deployed app at
+`7728a97` was driven directly: signed in, Admin opened, a **second** Google News RSS feed added
+alongside the first (the panel went from "1 feed" to "2 feeds"), the duplicate guard confirmed
+with a real 409, a **Reddit** feed added, the dashboard's active-source count seen rising 5/5 → 7/7,
+and the drill-down opened two levels deep to confirm the **`01 INDEX` stacked step column**
+renders and navigates back when clicked. Console and network were clean throughout.
+
+The historical note below is kept because it records what was and was not covered before that.
+
+### Original entry — Chrome extension not connected
 
 `DEVRULES.md` requires UI work to be exercised in a real browser. I could not: the
 claude-in-chrome extension reported **"Browser extension is not connected"**, so no click-through
