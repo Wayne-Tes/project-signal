@@ -27,6 +27,16 @@ import { requireRole } from '../plugins/auth.js';
  * FAILURE IS PER ROW. An object that has been deleted, or a `raw_storage_ref` from before raw
  * storage was wired correctly (KNOWN-GAPS #4), must not abort the run for every other row. Those
  * are counted and reported, and the row keeps `content IS NULL` so a later run retries it.
+ *
+ * SCOPED TO THE CALLER'S TENANT. The first version of this route queried `signals` with no tenant
+ * filter and was gated on `owner` to compensate. Both were wrong. There is no RLS in this
+ * database — "every query must filter on `tenant_id`" is a house rule precisely because nothing
+ * fails when a new route forgets, and this route forgot. Scoping it makes an admin triggering a
+ * backfill unable to touch a sibling tenant's rows by construction, which is a better guarantee
+ * than a role check, and it lets `admin` run it safely.
+ *
+ * (The `owner` gate was also, in practice, unreachable: the deployed Cognito pool contains no
+ * user with that role, so the endpoint could not have been called by anybody.)
  */
 
 /** Rows per batch. Small enough that one HTTP request finishes well inside the ALB idle timeout. */
@@ -76,7 +86,7 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     '/admin/backfill/content/status',
     {
-      preHandler: requireRole('owner'),
+      preHandler: requireRole('owner', 'admin'),
       schema: {
         security: [{ BearerAuth: [] }],
         response: {
@@ -91,14 +101,15 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async () => {
+    async (request) => {
       const [row] = await db
         .get()
         .select({
           total: sql<number>`COUNT(*)`,
           withContent: sql<number>`COUNT(*) FILTER (WHERE ${signals.content} IS NOT NULL)`,
         })
-        .from(signals);
+        .from(signals)
+        .where(eq(signals.tenantId, request.user.tenantId));
 
       const total = Number(row?.total ?? 0);
       const withContent = Number(row?.withContent ?? 0);
@@ -109,7 +120,7 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/admin/backfill/content',
     {
-      preHandler: requireRole('owner'),
+      preHandler: requireRole('owner', 'admin'),
       schema: {
         security: [{ BearerAuth: [] }],
         querystring: {
@@ -140,7 +151,7 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
       const rows = await database
         .select({ id: signals.id, ref: signals.rawStorageRef })
         .from(signals)
-        .where(isNull(signals.content))
+        .where(and(eq(signals.tenantId, request.user.tenantId), isNull(signals.content)))
         .limit(batch);
 
       let updated = 0;
@@ -175,7 +186,13 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
             })
             /* Re-checking `content IS NULL` makes concurrent runs safe: two overlapping calls
                cannot both claim the same row, and the second simply updates nothing. */
-            .where(and(eq(signals.id, row.id), isNull(signals.content)));
+            .where(
+              and(
+                eq(signals.id, row.id),
+                eq(signals.tenantId, request.user.tenantId),
+                isNull(signals.content),
+              ),
+            );
 
           updated++;
         } catch (err) {
@@ -187,7 +204,7 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
       const [remainingRow] = await database
         .select({ remaining: sql<number>`COUNT(*)` })
         .from(signals)
-        .where(isNull(signals.content));
+        .where(and(eq(signals.tenantId, request.user.tenantId), isNull(signals.content)));
 
       request.log.info(
         { examined: rows.length, updated, failed },

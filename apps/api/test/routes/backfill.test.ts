@@ -228,12 +228,20 @@ describe('POST /admin/backfill/content', () => {
     expect(_getCalls).toHaveLength(0);
   });
 
-  it('is owner-only — it rewrites evidence across every tenant', async () => {
+  it('is available to an admin, because every query is scoped to their own tenant', async () => {
+    /* Gated on `owner` at first, which was wrong twice over. The deployed Cognito pool contains
+       no owner at all, so nobody could call it — and the role check existed only to compensate
+       for queries that had NO tenant filter, in a database with no RLS. Scoping every query to
+       `request.user.tenantId` is the stronger guarantee and makes admin safe. */
+    queue([]);
     const app = await buildTestApp(backfillRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/admin/backfill/content',
-    });
+    const res = await app.inject({ method: 'POST', url: '/admin/backfill/content' });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('refuses a plain user — this rewrites stored evidence', async () => {
+    const app = await buildTestApp(backfillRoutes, DEFAULT_PINNED_USER);
+    const res = await app.inject({ method: 'POST', url: '/admin/backfill/content' });
     expect(res.statusCode).toBe(403);
   });
 });
@@ -251,7 +259,7 @@ describe('GET /admin/backfill/content/status', () => {
     expect(res.json()).toEqual({ total: 383, withContent: 200, remaining: 183 });
   });
 
-  it('is owner-only', async () => {
+  it('refuses a plain user', async () => {
     const app = await buildTestApp(backfillRoutes, DEFAULT_PINNED_USER);
     const res = await app.inject({
       method: 'GET',
