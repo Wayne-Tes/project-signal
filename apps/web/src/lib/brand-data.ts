@@ -47,8 +47,16 @@ export interface ApiCluster {
   topic: string;
   volume: number;
   negativity: number;
+  /**
+   * Mean positivity, the mirror of `negativity`.
+   *
+   * The API has always returned this and `strength`; the front end only modelled the negative
+   * half, which is part of why the drill-down could only ever describe what was going wrong.
+   */
+  positivity: number;
   recency: number;
   damage: number;
+  strength: number;
   sentiment: number;
   dimensions: string[];
 }

@@ -846,6 +846,81 @@ and the two components together, in one change.
 
 ---
 
+## 26. ✅ The drill-down contradicted the number it was drilling into — **resolved (2026-08-10)**
+
+Reported from the running product with two screenshots. Level 1:
+`Experience — 5 signals contributed`, score **69.2, the brand's highest**. Level 2, one click
+later: `No topic cluster has been tagged to experience yet`.
+
+**Both levels were right, and that is what made it hard to see.** Level 1 reads
+`dimension_scores.signal_count`. Level 2 read `/brands/:id/brand-impact` and filtered it by
+dimension — and `brandImpact()` excludes every zero-damage cluster by design, because *"a topic
+nobody is negative about is not a weakness"*. Correct for a Brand impact summary. Fatal as an
+evidence view: a dimension people are POSITIVE about has nothing but zero-damage clusters, so
+**the better a dimension performed, the more certain its drill-down was to be empty** — on the one
+screen whose entire purpose is tracing a number to the specific things people said.
+
+There was also no route from "5 signals contributed" to those five signals. `/brands/:id/signals`
+could be narrowed by `topic` but not by `dimension`, so when no topic had formed there was nothing
+left to show.
+
+**Resolved** by separating the summary from the evidence:
+
+- `topicsForDimension()` in `libs/scoring` — every cluster touching a dimension, ranked by
+  `volume × recency`. Unsigned deliberately, so **neutral** topics survive; both `brandImpact` and
+  `topStrengths` are signed rankings and each discards the middle plus one whole side.
+- `GET /brands/:id/topics?dimension=` exposes it, defaulting to 12 rather than Brand impact's 3.
+- `?dimension=` on `GET /brands/:id/signals`, an EXISTS against `sentiment_results.dimensions` —
+  never a join, which would multiply the row by its array members and break the keyset cursor.
+- The dimension level lists the contributing signals **unconditionally**, so it degrades to "here
+  are the five things" rather than to a dead end.
+- A positive cluster reports its `strength`; it used to print `damage 0.0`, which reads as a
+  broken number rather than as good news.
+
+**Why the unit suite could not have caught it.** Every component, endpoint and scoring function
+was individually correct — the fault was in *which endpoint the level asked*. So
+`apps/web/test/drilldown-dimension.test.tsx` asserts on the URLs requested, not only on the
+rendered output, and `apps/web/e2e/drilldown.spec.ts` drills into the **highest-scoring** dimension
+against live data, because that is the only one the defect ever showed on.
+
+---
+
+## 27. ✅ Apify reported SUCCESS while collecting nothing — **resolved (2026-08-10)**
+
+Found while evaluating actors for the marketing team's social channel list, and it had already
+been corrupting live data for a day.
+
+**A free-tier Apify actor that is out of quota, or whose author forbids API use on the free plan,
+does not fail.** It finishes `SUCCEEDED` with `exitCode: 0` and either an empty dataset or
+placeholder `{"noResults": true}` rows. Nothing downstream could tell that apart from "there was
+nothing new to collect", so `last_fetched_at` was stamped, `last_error` cleared, and the feed
+showed a healthy green timestamp while collecting nothing, indefinitely.
+
+Three distinct signatures, all read from live run logs on 2026-08-10:
+
+| `statusMessage` | Source affected |
+| --- | --- |
+| `The developer of this actor doesn't allow the use of API in the Free Plan` | X (evaluated), and one App Store actor previously written off as dead |
+| `Free tier limit reached (5 total runs)` | **Play Store** — 54 reviews on the first five runs, then zero for a day, reported as success each time |
+| `Finished! Total 1 requests: 0 succeeded, 1 failed.` | Google reviews — seven consecutive hourly scans |
+
+**Resolved** in `libs/source-adapters/src/apifyClient.ts`: `waitForApifyRun` now throws on those
+signatures, so the reason lands on `source_configs.last_error` and the feed row says *"Free tier
+limit reached"* instead of showing a fresh timestamp; failed runs carry Apify's own message
+instead of a bare status; and `fetchApifyDataset` strips placeholder rows — which would otherwise
+become signals with no text, no external id and an `Invalid Date` — throwing if a dataset contains
+nothing else.
+
+**This also corrected an earlier diagnosis.** Two App Store actors were recorded in
+`appStore.ts` as broken because they returned `noResults`. One was refused by the plan and would
+work on a paid one. Reading `noResults` as "dead actor" wrote off a working option; the comment
+now says so.
+
+**The underlying commercial problem is not code and is not resolved** — the Apify account is a
+FREE plan belonging to the former contractor. See `docs/OWNER-ACTIONS.md` §4b.
+
+---
+
 ## Burn-down order
 
 **This register is the backlog** (owner's decision, 2026-08-06 — see `DEVRULES.md` § Standing

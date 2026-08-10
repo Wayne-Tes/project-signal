@@ -568,12 +568,13 @@ difference.
 | `POST /brands`                            | admin, owner | bare row             | Create a brand or a product. `parentId` optional; the parent is checked inside the caller's tenant.                      |
 | `PATCH /brands/:id`                       | admin, owner | bare row             | Rename, re-type, re-own or re-parent. `parentId: null` promotes to a root — distinct from omitting it. Refuses cycles via `wouldCreateCycle`. |
 | `DELETE /brands/:id`                      | admin, owner | 204                  | **Only when nothing is attached.** 409 naming the blocker if it has children, signals, dimension scores, mentions or an assigned user. Aliases, source configs and scan runs are removed with it. See below. |
-| `GET /brands/:id/signals`                 | any          | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`; `limit` max 100, default 50.                            |
+| `GET /brands/:id/signals`                 | any          | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`, `?sourceConfigId=`, `?topic=`, `?dimension=`; `limit` max 100, default 50. `topic` and `dimension` are EXISTS sub-selects against `sentiment_results`, never joins — a join multiplies the signal row by its array members and breaks both the page size and the cursor. |
 | `GET /brands/:id/sentiment-summary`       | any          | object               | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results.    |
 | `GET /brands/:id/dimension-scores`        | any          | bare array           | Dimension history from `dimension_scores`, `from`/`to` optional, default last 90 days. Lives in `routes/scores.ts`.     |
 | `GET /brands/:id/score`                   | any          | object               | Brand Perception Index for the latest rollup, its per-dimension breakdown, and the comparison point ≥7 days earlier.    |
 | `GET /brands/:id/brand-impact`            | any          | bare array           | Top topic clusters by damage, computed on read from `sentiment_results`. `limit` defaults to 3.                         |
 | `GET /brands/:id/strengths`               | any          | bare array           | The mirror of `/brand-impact`, ranked by `volume × positivity × recency`. `limit` defaults to 3.                        |
+| `GET /brands/:id/topics`                  | any          | bare array           | **Every** cluster, optionally `?dimension=`, ranked by `volume × recency` — positive, negative and NEUTRAL alike. `limit` defaults to 12. Exists because `/brand-impact` and `/strengths` are both *signed* rankings that exclude the middle, so neither can answer "what is this dimension made of". See the note below. |
 | `GET /brands/:id/stats`                   | any          | object               | Dashboard stat row: this/previous week signal counts, total, scored (pipeline coverage), active/configured sources.     |
 | `POST /assistant/messages`                | any          | object               | Ask the assistant. Read-only over BRAND data; it writes only the conversation record. History is loaded server-side — see below. |
 | `GET /assistant/conversations`           | any          | bare array           | The caller's **own** conversations, most recent first. Filtered by tenant **and** user. |
@@ -608,6 +609,29 @@ each signal, so a finding can be attributed to *"Google News — Tes MyConcern"*
 busy hourly feed pushed the cutoff to now and a quieter feed on the same brand had everything it
 published filtered out as too old, on every run, permanently — indistinguishable from nobody
 talking about the brand.
+
+**Why `/topics` exists alongside `/brand-impact` and `/strengths`.** All three read the same
+clusters out of `clusterTopics()`; the difference is which ones they throw away. `brandImpact`
+keeps only `damage > 0` — *"a topic nobody is negative about is not a weakness"* — and
+`topStrengths` keeps only `strength > 0`. Both are correct as **summaries**, and both are wrong as
+**evidence**, because between them they discard every neutral cluster and each discards the other
+half of the sentiment range.
+
+The drill-down's dimension level filtered `/brand-impact` by dimension, which produced a
+contradiction the owner reported from the running product: level 1 said *"Experience — 5 signals
+contributed"* at a score of **69.2, the brand's highest**, and level 2 said *"No topic cluster has
+been tagged to experience yet"*. Both statements were true. Experience scored highest **because**
+its signals were positive, positive signals carry no damage, and `brandImpact` had therefore
+excluded every one of its clusters. **The better a dimension performed, the more certain its
+drill-down was to be empty** — on the one screen whose entire purpose is tracing a number to its
+evidence.
+
+`/topics` ranks by `volume × recency`, an unsigned measure, so neutral topics survive. And the
+level now lists the contributing signals underneath the clusters **unconditionally**, via
+`?dimension=` on `/brands/:id/signals` — so it degrades to "here are the five things" rather than
+to a dead end when no topic has formed yet. Covered by `libs/scoring/test/score.test.ts`
+(`topicsForDimension`) and `apps/web/test/drilldown-dimension.test.tsx`, which asserts on the URL
+requested, because a test that only mocked the response would pass against the broken version.
 
 **Why `DELETE /brands/:id` is so narrow.** Seven tables reference `brand_entities.id`: `signals`,
 `dimension_scores`, `signal_mentions`, `scan_runs`, `brand_aliases`, `source_configs` and
@@ -915,8 +939,12 @@ and passed as a Docker build arg by the deploy workflows — see
   style (radial gauge vs bars), and an animate-on-load toggle. Changing motion settings
   remounts views via `key` so animations replay.
 - **Drill-down navigation** — a `NavLevel[]` stack (`overview → dimension → cluster`) with
-  `NavActions` (`openOverview`, `openDimension`, `openCluster`, `to`, `close`) rendered as a
-  breadcrumb overlay by `DrillDown`.
+  `NavActions` (`openOverview`, `openDimension`, `openCluster`, `to`, `close`) rendered by
+  `DrillDown`. Each level already passed through collapses to a numbered vertical spine
+  (`.drill-panel.stacked`) beside the open panel, so the route from a number down to the things
+  people said stays visible. Data per level: overview → `/score`; dimension → `/topics?dimension=`
+  **and** `/signals?dimension=`; cluster → `/brand-impact` for the header figures and
+  `/signals?topic=` for the evidence.
 
 ### Views (`src/views/`)
 

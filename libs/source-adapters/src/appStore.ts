@@ -14,9 +14,27 @@ import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index
  * This adapter previously drove `nikita-shakula~app-store-scraper` through Apify. That actor
  * **no longer exists** — `GET /v2/acts/nikita-shakula~app-store-scraper` returns 404 — so the
  * source could not have worked whatever credential was configured. Two replacements from the
- * store were tried before this route was taken; `thewolves~appstore-reviews-scraper` and
- * `easyapi~app-store-reviews-scraper` both ran to SUCCEEDED and returned `noResults` for a real
- * app with 2,490 ratings.
+ * store were tried before this route was taken; both ran to SUCCEEDED and returned `noResults`
+ * for a real app with 2,490 ratings.
+ *
+ * **Why they returned nothing was originally recorded here as "the actors are broken". That was
+ * wrong**, and the correction matters to anyone re-evaluating this decision. Their run logs, read
+ * on 2026-08-10, say:
+ *
+ *   - `thewolves~appstore-reviews-scraper` — *"The developer of this actor doesn't allow the use
+ *     of API in the Free Plan."* Not broken. **Blocked by the plan**, and it would work on a paid
+ *     one.
+ *   - `easyapi~app-store-reviews-scraper` — `Request failed with status code 500`. That one was
+ *     genuinely broken.
+ *
+ * A free-tier Apify actor does not fail when it is refused or out of quota: it finishes
+ * `SUCCEEDED` and writes `{"noResults": true}` rows, which is indistinguishable from "nothing new
+ * to collect" to everything downstream. Assuming that signature means "dead actor" is how one
+ * working option got written off. See `docs/OWNER-ACTIONS.md` §4b.
+ *
+ * **The decision to leave Apify for this source stands regardless.** Apple publishes the reviews
+ * itself, free, unauthenticated and with no quota to exhaust — which beats a paid actor on every
+ * axis, not just on cost.
  *
  * The schema comment in `libs/db/src/schema/sourceConfigs.ts` has said `app_store: RSS feed, no
  * auth needed` since the table was written. The intent was always this; the implementation had

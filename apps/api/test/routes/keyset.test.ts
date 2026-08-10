@@ -80,3 +80,54 @@ describe('topic filter SQL', () => {
     });
   });
 });
+
+/**
+ * The dimension filter.
+ *
+ * Added so the drill-down can answer "show me the five signals that contributed to Experience".
+ * Before it existed there was no way to ask: the only narrowing available was by TOPIC, and a
+ * dimension whose signals are positive forms no damaging topic cluster, so the level dead-ended
+ * on a message telling the user nothing had been tagged to it — under a row that had just
+ * counted five things.
+ *
+ * Rendered through the real dialect for the same reason as everything else in this file: raw
+ * `sql` passes a mocked database and then fails, or worse succeeds, against Postgres.
+ */
+describe('dimension filter SQL', () => {
+  const dialect = new PgDialect();
+
+  it('binds the dimension as a parameter rather than interpolating it', async () => {
+    /* Reachable from a URL and, through the assistant's tools, choosable by a language model —
+       the same exposure the topic filter has. The route additionally pins it to an enum, but
+       defence in depth is the point: the enum is a schema decision one edit away from changing,
+       and the binding is what makes that edit safe. */
+    const { dimensionFilter } = await import('../../src/routes/signals.js');
+    const evil = "trust'); DROP TABLE signals; --";
+    const { sql: text, params } = dialect.sqlToQuery(dimensionFilter(evil));
+
+    expect(params).toContain(evil);
+    expect(text).not.toContain('DROP TABLE');
+    expect(text.toLowerCase()).toContain('exists');
+    expect(text.toLowerCase()).toContain('any');
+  });
+
+  it('matches against the scored row rather than joining it', async () => {
+    /* `dimensions` is a text[] like `topics`; a join would multiply the signal row by its
+       dimensions and break both the page size and the keyset cursor. */
+    const { dimensionFilter } = await import('../../src/routes/signals.js');
+    const { sql: text } = dialect.sqlToQuery(dimensionFilter('experience'));
+
+    expect(text.toLowerCase()).toContain('select 1');
+    expect(text.toLowerCase()).not.toContain('join');
+  });
+
+  it('reads the dimensions column, not the topics column', async () => {
+    /* The two fragments are near-identical and copy-paste between them would be silent: the
+       filter would still return rows, just the wrong ones. */
+    const { dimensionFilter } = await import('../../src/routes/signals.js');
+    const { sql: text } = dialect.sqlToQuery(dimensionFilter('experience'));
+
+    expect(text).toContain('"dimensions"');
+    expect(text).not.toContain('"topics"');
+  });
+});

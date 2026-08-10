@@ -10,6 +10,7 @@ import {
   scoreAllDimensions,
   scoreDimension,
   toIndex,
+  topicsForDimension,
   topStrengths,
   type ScoredItem,
 } from '../src/index.js';
@@ -322,5 +323,114 @@ describe('topStrengths', () => {
       ASOF,
     );
     expect(topStrengths(clusters, 2)).toHaveLength(2);
+  });
+});
+
+/**
+ * The drill-down's second level.
+ *
+ * THE DEFECT THIS CLOSES. The dimension level of the drill-down filtered `brandImpact` by
+ * dimension, and `brandImpact` drops every zero-damage cluster by design. So a dimension people
+ * were POSITIVE about had no qualifying cluster at all, and the level answered "no topic cluster
+ * has been tagged to experience yet" directly beneath a row reading "5 signals contributed" —
+ * with `experience` scoring 69.2, the brand's HIGHEST dimension. The better a dimension
+ * performed, the more certain its drill-down was to be empty.
+ *
+ * Every test below fails against `brandImpact(...).filter(d)`, which is the point.
+ */
+describe('topicsForDimension', () => {
+  it('keeps a purely positive cluster, which brandImpact discards', () => {
+    const clusters = clusterTopics(
+      [item({ score: 0.9, topics: ['helpful staff'], dimensions: ['experience'] })],
+      ASOF,
+    );
+
+    expect(brandImpact(clusters)).toEqual([]);
+    expect(topicsForDimension(clusters, 'experience').map((c) => c.topic)).toEqual([
+      'helpful staff',
+    ]);
+  });
+
+  it('keeps a purely neutral cluster, which both signed rankings discard', () => {
+    /* Neutral topics are the majority of a healthy dimension's clusters. Ranking by damage OR by
+       strength hides them, so presence is the only measure that shows the dimension whole. */
+    const clusters = clusterTopics(
+      [item({ score: 0, topics: ['timetable'], dimensions: ['quality'] })],
+      ASOF,
+    );
+
+    expect(brandImpact(clusters)).toEqual([]);
+    expect(topStrengths(clusters)).toEqual([]);
+    expect(topicsForDimension(clusters, 'quality').map((c) => c.topic)).toEqual(['timetable']);
+  });
+
+  it('excludes clusters that do not touch the dimension', () => {
+    const clusters = clusterTopics(
+      [
+        item({ score: -0.5, topics: ['billing'], dimensions: ['value'] }),
+        item({ score: -0.5, topics: ['crashes'], dimensions: ['quality'] }),
+      ],
+      ASOF,
+    );
+    expect(topicsForDimension(clusters, 'value').map((c) => c.topic)).toEqual(['billing']);
+  });
+
+  it('ranks by volume x recency, not by damage', () => {
+    /* A single furious review outranks a widely-discussed topic under damage ranking. For "what
+       is driving this dimension" that is the wrong order. */
+    const clusters = clusterTopics(
+      [
+        item({ score: -1, topics: ['one angry voice'], dimensions: ['service'] }),
+        ...Array.from({ length: 4 }, () =>
+          item({ score: 0.2, topics: ['everyday chatter'], dimensions: ['service'] }),
+        ),
+      ],
+      ASOF,
+    );
+
+    expect(brandImpact(clusters)[0]!.topic).toBe('one angry voice');
+    expect(topicsForDimension(clusters, 'service')[0]!.topic).toBe('everyday chatter');
+  });
+
+  it('discounts a stale high-volume topic below a fresh one', () => {
+    const clusters = clusterTopics(
+      [
+        ...Array.from({ length: 3 }, () =>
+          item({ topics: ['old news'], dimensions: ['trust'], publishedAt: daysBefore(4 * HALF_LIFE_DAYS) }),
+        ),
+        ...Array.from({ length: 2 }, () =>
+          item({ topics: ['today'], dimensions: ['trust'], publishedAt: ASOF }),
+        ),
+      ],
+      ASOF,
+    );
+    expect(topicsForDimension(clusters, 'trust').map((c) => c.topic)).toEqual(['today', 'old news']);
+  });
+
+  it('returns nothing when the dimension has no clusters at all', () => {
+    const clusters = clusterTopics([item({ topics: ['x'], dimensions: ['trust'] })], ASOF);
+    expect(topicsForDimension(clusters, 'value')).toEqual([]);
+  });
+
+  it('honours the topN limit', () => {
+    const clusters = clusterTopics(
+      ['a', 'b', 'c', 'd'].map((t) => item({ topics: [t], dimensions: ['trust'] })),
+      ASOF,
+    );
+    expect(topicsForDimension(clusters, 'trust', 2)).toHaveLength(2);
+  });
+
+  it("does not disturb the caller's damage ordering", () => {
+    /* `clusterTopics` returns damage-sorted; a caller may still be holding that array. */
+    const clusters = clusterTopics(
+      [
+        item({ score: -1, topics: ['bad'], dimensions: ['trust'] }),
+        ...Array.from({ length: 3 }, () => item({ topics: ['common'], dimensions: ['trust'] })),
+      ],
+      ASOF,
+    );
+    const before = clusters.map((c) => c.topic);
+    topicsForDimension(clusters, 'trust');
+    expect(clusters.map((c) => c.topic)).toEqual(before);
   });
 });

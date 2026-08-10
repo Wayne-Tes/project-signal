@@ -180,6 +180,34 @@ export function brandImpact(
 }
 
 /**
+ * Every cluster touching one dimension, ranked by how much recent conversation it carries.
+ *
+ * NOT `brandImpact` filtered by dimension, and the difference is the whole reason this exists.
+ * `brandImpact` drops every cluster with zero damage, because a topic nobody is negative about is
+ * not a weakness. That is right for Brand impact and wrong for a drill-down: it makes the
+ * BEST-performing dimension the one guaranteed to show nothing. A brand whose `experience` score
+ * is 69 — its highest — has positive experience signals, so no experience cluster carries damage,
+ * so the drill-down that just told the user "5 signals contributed" answers "no topic cluster has
+ * been tagged to experience yet". The number and the evidence behind it disagreed, and the
+ * evidence was the thing the drill-down exists to show.
+ *
+ * Ranked by `volume × recency` rather than by damage or strength, so a topic people are merely
+ * NEUTRAL about still appears. Those are the majority of a healthy dimension's clusters, and
+ * ranking by either signed measure would hide them exactly as damage-ranking did.
+ */
+export function topicsForDimension(
+  clusters: readonly TopicCluster[],
+  dimension: Dimension,
+  topN: number = BRAND_IMPACT_TOP_N,
+): TopicCluster[] {
+  return clusters
+    .filter((c) => c.dimensions.includes(dimension))
+    .slice()
+    .sort((a, b) => b.volume * b.recency - a.volume * a.recency)
+    .slice(0, topN);
+}
+
+/**
  * The mirror of Brand impact: the clusters doing the most good.
  *
  * Ranked by `strength` rather than by taking the least-damaging clusters, which would surface

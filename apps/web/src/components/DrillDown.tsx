@@ -116,48 +116,141 @@ function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
   );
 }
 
-/** Level 2 — one dimension, and the topics touching it. */
+/**
+ * The signals themselves, however they were narrowed.
+ *
+ * Shared by the dimension and topic levels. No quotation is rendered — see the note in
+ * `ClusterLevel` — so this is metadata and a link to where it was actually published.
+ */
+function SignalList({ items }: { items: ApiSignal[] }) {
+  return (
+    <div className="drill-list">
+      {items.map((s) => {
+        const meta = sourceMeta(s.source);
+        return (
+          <div className="signal" key={s.id}>
+            <div className="sig-top">
+              <SourceGlyph name={s.source} size={16} />
+              <span className="auth">{meta.label}</span>
+              <span className="when">{s.publishedAt?.slice(0, 10)}</span>
+            </div>
+            {/* The API returns signal METADATA — the verbatim text lives in object storage and is
+                not exposed by any endpoint. The version of this file that predated the API filled
+                this space with invented quotations attributed to invented authors, which is the
+                single most damaging thing it could do. The honest affordance is the link. */}
+            <div className="sig-foot">
+              {s.sourceUrl ? (
+                <a className="link" href={s.sourceUrl} target="_blank" rel="noopener noreferrer">
+                  read the original ↗
+                </a>
+              ) : (
+                <span className="conf">no source URL recorded</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Level 2 — one dimension: the topics driving it, and the signals underneath them.
+ *
+ * THIS LEVEL USED TO CONTRADICT THE ONE ABOVE IT. It read `/brand-impact` and filtered
+ * client-side, and `/brand-impact` excludes every cluster with zero damage by design — a topic
+ * nobody is negative about is not a weakness. So a dimension people were POSITIVE about had no
+ * qualifying cluster at all, and this level answered "no topic cluster has been tagged to
+ * experience yet" directly beneath a row reading "5 signals contributed". The better a dimension
+ * scored, the more certain its drill-down was to be empty.
+ *
+ * It now reads `/topics?dimension=`, which ranks every cluster touching the dimension by presence
+ * rather than by damage, and it ALWAYS lists the contributing signals beneath — so the level
+ * cannot dead-end even before any topic has formed. Level 1 promises the number traces to
+ * evidence; this is that evidence.
+ */
 function DimensionLevel({ dimKey, onCluster }: { dimKey: string; onCluster: (topic: string) => void }) {
   const { brandId } = useBrand();
-  const { data, loading } = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/brand-impact` : null);
+  const topics = useApi<ApiCluster[]>(
+    brandId ? `/brands/${brandId}/topics?dimension=${encodeURIComponent(dimKey)}` : null,
+  );
+  const signals = useApi<{ items: ApiSignal[] }>(
+    brandId
+      ? `/brands/${brandId}/signals?limit=20&dimension=${encodeURIComponent(dimKey)}`
+      : null,
+  );
 
   const label = isDimensionKey(dimKey) ? DIMENSION_LABELS[dimKey] : dimKey;
-  /* The API ranks clusters brand-wide; this level shows the ones that touch this dimension.
-     Filtering client-side is honest here — the cluster payload names its dimensions. */
-  const clusters = (data ?? []).filter((c) => c.dimensions.includes(dimKey));
+  const clusters = topics.data ?? [];
+  const items = signals.data?.items ?? [];
+  const loading = topics.loading || signals.loading;
 
   return (
     <>
       <h2 className="drill-title">{label}</h2>
-      <p className="drill-sub">Topics the scorer tagged to this dimension, ranked by damage.</p>
+      <p className="drill-sub">
+        Topics driving this dimension — what is helping as well as what is hurting — and the
+        signals behind them.
+      </p>
 
       {loading ? (
         <p className="drill-sub">Loading…</p>
-      ) : clusters.length === 0 ? (
-        <p className="prov">
-          No topic cluster has been tagged to {label.toLowerCase()} yet. Clusters appear once
-          enough signals mentioning the same subject have been scored.
-        </p>
       ) : (
-        <div className="drill-list">
-          {clusters.map((c) => (
-            <button className="drill-row" key={c.topic} onClick={() => onCluster(c.topic)}>
-              <div className="lead" style={{ background: 'var(--surface-track)', color: sentColor(c.sentiment) }}>
-                {c.volume}
-              </div>
-              <div className="body">
-                <div className="nm">{c.topic}</div>
-                <div className="ds">
-                  {sentLabel(c.sentiment)} · damage {c.damage.toFixed(1)}
-                </div>
-                <div className="mini-bar">
-                  <i style={{ width: `${Math.min(c.negativity * 100, 100)}%`, background: 'var(--coral)' }} />
-                </div>
-              </div>
-              <div className="arr">→</div>
-            </button>
-          ))}
-        </div>
+        <>
+          {clusters.length > 0 && (
+            <div className="drill-list">
+              {clusters.map((c) => (
+                <button className="drill-row" key={c.topic} onClick={() => onCluster(c.topic)}>
+                  <div className="lead" style={{ background: 'var(--surface-track)', color: sentColor(c.sentiment) }}>
+                    {c.volume}
+                  </div>
+                  <div className="body">
+                    <div className="nm">{c.topic}</div>
+                    <div className="ds">
+                      {/* Damage on a positive cluster is always 0.0 and reads as an error. Each
+                          cluster reports whichever of the two measures it actually carries. */}
+                      {sentLabel(c.sentiment)} ·{' '}
+                      {c.damage > 0
+                        ? `damage ${c.damage.toFixed(1)}`
+                        : c.strength > 0
+                          ? `strength ${c.strength.toFixed(1)}`
+                          : `${c.volume} signal${c.volume === 1 ? '' : 's'}`}
+                    </div>
+                    <div className="mini-bar">
+                      <i
+                        style={{
+                          width: `${Math.min(Math.max(c.negativity, c.positivity) * 100, 100)}%`,
+                          background: sentColor(c.sentiment),
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="arr">→</div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {items.length > 0 ? (
+            <>
+              {/* Labelled, because without a heading the signals read as belonging to the last
+                  topic above them rather than to the dimension. */}
+              <p className="drill-sub" style={{ marginTop: clusters.length > 0 ? 20 : 0 }}>
+                {clusters.length > 0
+                  ? `Signals tagged to ${label.toLowerCase()}`
+                  : `No topic has formed yet, but these signals were scored on ${label.toLowerCase()}.`}
+              </p>
+              <SignalList items={items} />
+            </>
+          ) : (
+            clusters.length === 0 && (
+              <p className="prov">
+                Nothing has been scored on {label.toLowerCase()} yet. Signals appear here once the
+                scorer has tagged them to this dimension.
+              </p>
+            )
+          )}
+        </>
       )}
     </>
   );
@@ -175,6 +268,13 @@ function ClusterLevel({ topic }: { topic: string }) {
 
   const cluster = (clusters.data ?? []).find((c) => c.topic === topic);
   const items = signals.data?.items ?? [];
+  /* A positive topic reaches this level now that the dimension above it no longer hides one, and
+     its damage is 0.0 by construction. Reporting the measure the cluster actually carries keeps
+     the row from reading as a bug. */
+  const impact =
+    cluster && cluster.damage > 0
+      ? { label: 'Damage', value: cluster.damage.toFixed(1) }
+      : { label: 'Strength', value: (cluster?.strength ?? 0).toFixed(1) };
 
   return (
     <>
@@ -186,7 +286,7 @@ function ClusterLevel({ topic }: { topic: string }) {
           items={[
             { label: 'Signals', value: String(cluster.volume) },
             { label: 'Sentiment', value: sentLabel(cluster.sentiment), tone: sentColor(cluster.sentiment) },
-            { label: 'Damage', value: cluster.damage.toFixed(1) },
+            impact,
           ]}
         />
       )}
@@ -199,34 +299,7 @@ function ClusterLevel({ topic }: { topic: string }) {
           results; the underlying signals may have been collected before topic tagging.
         </p>
       ) : (
-        <div className="drill-list">
-          {items.map((s) => {
-            const meta = sourceMeta(s.source);
-            return (
-              <div className="signal" key={s.id}>
-                <div className="sig-top">
-                  <SourceGlyph name={s.source} size={16} />
-                  <span className="auth">{meta.label}</span>
-                  <span className="when">{s.publishedAt?.slice(0, 10)}</span>
-                </div>
-                {/* No quotation is rendered. The API returns signal METADATA — the verbatim text
-                    lives in object storage and is not exposed by any endpoint. The previous
-                    version filled this space with invented quotations attributed to invented
-                    authors, which is the single most damaging thing this file could do. The
-                    honest affordance is a link to where it was actually published. */}
-                <div className="sig-foot">
-                  {s.sourceUrl ? (
-                    <a className="link" href={s.sourceUrl} target="_blank" rel="noopener noreferrer">
-                      read the original ↗
-                    </a>
-                  ) : (
-                    <span className="conf">no source URL recorded</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <SignalList items={items} />
       )}
     </>
   );
