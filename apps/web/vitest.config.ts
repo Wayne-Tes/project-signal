@@ -19,6 +19,19 @@ export default defineConfig({
     },
   },
   test: {
+    /**
+     * Run once and exit. **Not a preference — the gate does not terminate without it.**
+     *
+     * Vitest watches by default whenever `CI` is unset and stdin looks like a TTY, which is
+     * exactly the shape of an Nx task on a developer machine. So `yarn test` — the command
+     * DEVRULES.md names as the gate that must pass before anything is called done — ran every
+     * suite, printed PASS, then sat on "Waiting for file changes..." forever, holding a dozen
+     * worker pools open. CI never saw it because GitHub Actions sets `CI=true`.
+     *
+     * An explicit `--watch` on the command line still overrides this, so the watch workflow is
+     * unaffected.
+     */
+    watch: false,
     // jsdom, not node: the design system and the help/assistant surfaces are components, and a
     // component that is only unit-tested through its pure helpers is not tested. DEVRULES.md
     // recorded the absence of a component-test setup as a standing gap; this closes it.
