@@ -4,8 +4,10 @@ import {
   brandImpact,
   clusterTopics,
   compositeScore,
+  DIMENSIONS,
   HALF_LIFE_DAYS,
   parseWeights,
+  topicsForDimension,
   topStrengths,
   type DimensionRollup,
   type ScoredItem,
@@ -25,6 +27,15 @@ const COMPARISON_DAYS = 7;
 
 /** Items older than four half-lives carry under 1/16th weight; reading further is waste. */
 const BRAND_IMPACT_LOOKBACK_DAYS = HALF_LIFE_DAYS * 4;
+
+/**
+ * How many clusters `/topics` returns by default.
+ *
+ * Deliberately larger than Brand impact's three. That endpoint is a summary and three is the
+ * spec's number; this one is the drill-down's evidence list, where truncating hides topics the
+ * user was told exist.
+ */
+const DEFAULT_TOPIC_LIMIT = 12;
 
 function toDateKey(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -224,6 +235,62 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
       const items = await readScoredItems(request.user.tenantId, id, asOf);
 
       return brandImpact(clusterTopics(items, asOf), limit);
+    },
+  );
+
+  /**
+   * Every topic cluster for the brand, optionally narrowed to one dimension.
+   *
+   * The drill-down's second level reads THIS, not `/brand-impact`. It used to read
+   * `/brand-impact` and filter the result client-side, which meant a dimension could report
+   * "5 signals contributed" at level 1 and "no topic cluster has been tagged to it" at level 2 —
+   * because `brandImpact` excludes zero-damage clusters by design, and a dimension people are
+   * POSITIVE about has nothing but zero-damage clusters. The better a dimension performed, the
+   * more certain its drill-down was to be empty.
+   *
+   * `limit` defaults higher than Brand impact's three: this is the evidence view, not the
+   * executive summary, and truncating it to three reintroduces the same silent gap.
+   */
+  fastify.get(
+    '/brands/:id/topics',
+    {
+      preHandler: requireBrandAccess,
+      schema: {
+        security: [{ BearerAuth: [] }],
+        params: { type: 'object', properties: { id: { type: 'string' } } },
+        querystring: {
+          type: 'object',
+          properties: {
+            dimension: {
+              type: 'string',
+              enum: [...DIMENSIONS],
+              description: 'Return only clusters the scorer tagged to this dimension.',
+            },
+            limit: { type: 'integer', minimum: 1, maximum: 50, default: DEFAULT_TOPIC_LIMIT },
+          },
+        },
+        response: { 200: { type: 'array', items: CLUSTER_SCHEMA } },
+      },
+    },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const { dimension, limit = DEFAULT_TOPIC_LIMIT } = request.query as {
+        dimension?: Dimension;
+        limit?: number;
+      };
+      const asOf = new Date();
+      const clusters = clusterTopics(await readScoredItems(request.user.tenantId, id, asOf), asOf);
+
+      /* Unfiltered, the clusters arrive damage-sorted from `clusterTopics`. Re-sorting by the
+         same presence measure the dimension view uses keeps the two consistent — a caller asking
+         for "the brand's topics" should not get them ranked by negativity alone. */
+      if (!dimension) {
+        return clusters
+          .slice()
+          .sort((a, b) => b.volume * b.recency - a.volume * a.recency)
+          .slice(0, limit);
+      }
+      return topicsForDimension(clusters, dimension, limit);
     },
   );
 

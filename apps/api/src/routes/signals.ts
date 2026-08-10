@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { db, signals, sentimentResults } from '@project-signal/db';
 import { and, desc, eq, gt, lt, or, count, avg, sql, type SQL } from 'drizzle-orm';
+import { DIMENSIONS } from '@project-signal/scoring';
 import { requireBrandAccess } from '../plugins/auth.js';
 
 const DEFAULT_LIMIT = 50;
@@ -97,6 +98,29 @@ export function topicFilter(topic: string): SQL {
   )`;
 }
 
+/**
+ * Signals the scorer tagged with a given dimension.
+ *
+ * The same EXISTS construction as `topicFilter`, and for the same reason: `dimensions` is a
+ * `text[]` on the scored row, and joining to it would multiply the signal row by its dimensions,
+ * breaking the page size and the keyset cursor.
+ *
+ * This is what lets the drill-down keep its promise. Level 1 reads
+ * `dimension_scores.signal_count` and says "5 signals contributed"; before this filter existed
+ * there was no way to ASK for those five, so a dimension with no damaging topic cluster
+ * dead-ended on a message telling the user nothing had been tagged to it.
+ *
+ * The dimension is a BOUND PARAMETER. It arrives from a URL and, through the assistant's tools,
+ * can be chosen by a language model.
+ */
+export function dimensionFilter(dimension: string): SQL {
+  return sql`EXISTS (
+    SELECT 1 FROM ${sentimentResults}
+    WHERE ${sentimentResults.signalId} = ${signals.id}
+      AND ${dimension} = ANY(${sentimentResults.dimensions})
+  )`;
+}
+
 const signalsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     '/brands/:id/signals',
@@ -121,6 +145,12 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
               description:
                 'Return only signals the scorer tagged with this topic. This is how the drill-down shows the evidence behind a Brand impact cluster.',
             },
+            dimension: {
+              type: 'string',
+              enum: [...DIMENSIONS],
+              description:
+                'Return only signals the scorer tagged with this dimension — the evidence behind a dimension score, whether or not any topic cluster has formed.',
+            },
           },
         },
         response: {
@@ -142,12 +172,14 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
         source,
         sourceConfigId,
         topic,
+        dimension,
       } = request.query as {
         limit?: number;
         cursor?: string;
         source?: string;
         sourceConfigId?: string;
         topic?: string;
+        dimension?: string;
       };
 
       const filters = [eq(signals.tenantId, request.user.tenantId), eq(signals.brandEntityId, id)];
@@ -177,6 +209,11 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
          interpolated. It arrives from a URL and, through the assistant, can be chosen by a
          model; `= ANY(topics)` keeps it a value in every case. */
       if (topic) filters.push(topicFilter(topic));
+
+      /* Dimension filter — the evidence behind a dimension SCORE, which is a different question
+         from the evidence behind a topic. A dimension always has contributing signals if its
+         score exists; it does not always have a topic cluster. Both may be applied. */
+      if (dimension) filters.push(dimensionFilter(dimension));
 
       const rows = await db
         .get()
