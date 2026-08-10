@@ -1,6 +1,7 @@
 import type { Signal } from '@project-signal/shared-types';
 import { startApifyRun, waitForApifyRun, fetchApifyDataset } from './apifyClient.js';
 import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index.js';
+import { clampContent, stripHtml } from './text.js';
 
 const ACTOR_ID = 'compass~google-maps-reviews-scraper';
 
@@ -47,7 +48,11 @@ function toRawItem(review: ApifyReview): RawItem {
   return {
     externalId: review.reviewId ?? review.reviewUrl ?? '',
     url: review.reviewUrl ?? '',
-    text: review.text ?? '',
+    text: clampContent(stripHtml(String(review.text ?? ''))),
+    /* A Google review has no title, and its rating is `stars` rather than `rating` — the reason
+       these are normalised onto RawItem instead of left for the UI to alias per source. */
+    author: review.name,
+    rating: review.stars,
     publishedAt: review.publishedAtDate ? new Date(review.publishedAtDate) : new Date(),
     metadata: { stars: review.stars, reviewerName: review.name },
   };

@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import type { Signal } from '@project-signal/shared-types';
 import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index.js';
+import { clampContent, joinTitleAndBody, stripHtml } from './text.js';
 
 /**
  * App Store reviews, from Apple's own public feed.
@@ -145,12 +146,18 @@ function toRawItem(entry: AppleEntry): RawItem {
   const body = contentText(entry.content);
   const rating = numberOrUndefined(entry['im:rating']);
 
+  const title = entry.title ? stripHtml(String(entry.title)) : undefined;
+
   return {
     externalId: String(id),
     url: hrefOf(entry.link),
     /* Title AND body. An App Store review's title carries most of the sentiment — "Constant
-       crashes" over three paragraphs of detail — and scoring only the body would discard it. */
-    text: [entry.title, body].filter(Boolean).join('\n\n').trim(),
+       crashes" over three paragraphs of detail — and scoring only the body would discard it.
+       `joinTitleAndBody` handles the case where a one-line review repeats its own title. */
+    text: clampContent(joinTitleAndBody(title, stripHtml(body))),
+    title,
+    author: entry.author?.name,
+    rating,
     publishedAt: entry.updated ? new Date(entry.updated) : new Date(),
     metadata: {
       rating,

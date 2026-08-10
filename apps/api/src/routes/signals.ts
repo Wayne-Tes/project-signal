@@ -35,6 +35,29 @@ const SIGNAL_SCHEMA = {
     rawStorageRef: { type: 'string' },
     publishedAt: { type: 'string' },
     ingestedAt: { type: 'string' },
+    /* THE READABLE EVIDENCE. Without these the drill-down could only show a source name, a date
+       and a link out — so every piece of evidence meant leaving the app, correlating by hand, and
+       returning to a closed drawer. `sourceUrl` is still returned and still rendered: the link to
+       the original is an addition to the text, never a substitute for it. */
+    content: { type: 'string', nullable: true },
+    title: { type: 'string', nullable: true },
+    author: { type: 'string', nullable: true },
+    rating: { type: 'integer', nullable: true },
+    /* The scorer's verdict on THIS signal, joined from `sentiment_results`. The audience is a
+       marketing manager, not an engineer: showing a quotation without saying whether the model
+       read it as positive or negative — and on which dimension — leaves them to infer the
+       system's reasoning from prose, which is the guessing game this is meant to end. */
+    sentiment: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        label: { type: 'string' },
+        score: { type: 'number' },
+        confidence: { type: 'number' },
+        dimensions: { type: 'array', items: { type: 'string' } },
+        topics: { type: 'array', items: { type: 'string' } },
+      },
+    },
   },
 };
 
@@ -215,18 +238,58 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
          score exists; it does not always have a topic cluster. Both may be applied. */
       if (dimension) filters.push(dimensionFilter(dimension));
 
+      /* LEFT join, and safe for the cursor: `sentiment_results.signal_id` is UNIQUE, so this
+         cannot multiply a signal into several rows the way joining `topics` or `dimensions`
+         would. Left rather than inner because an unscored signal is still evidence — it must
+         appear, with its sentiment reported as absent rather than being silently dropped. */
       const rows = await db
         .get()
-        .select()
+        .select({
+          id: signals.id,
+          tenantId: signals.tenantId,
+          brandEntityId: signals.brandEntityId,
+          source: signals.source,
+          sourceConfigId: signals.sourceConfigId,
+          sourceUrl: signals.sourceUrl,
+          rawStorageRef: signals.rawStorageRef,
+          content: signals.content,
+          title: signals.title,
+          author: signals.author,
+          rating: signals.rating,
+          publishedAt: signals.publishedAt,
+          ingestedAt: signals.ingestedAt,
+          label: sentimentResults.label,
+          score: sentimentResults.score,
+          confidence: sentimentResults.confidence,
+          dimensions: sentimentResults.dimensions,
+          topics: sentimentResults.topics,
+        })
         .from(signals)
+        .leftJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
         .where(and(...filters))
         .orderBy(desc(signals.publishedAt), desc(signals.id))
         .limit(limit + 1);
 
       const hasMore = rows.length > limit;
-      const items = hasMore ? rows.slice(0, limit) : rows;
-      const last = items[items.length - 1];
+      const page = hasMore ? rows.slice(0, limit) : rows;
+      const last = page[page.length - 1];
       const nextCursor = hasMore && last ? encodeCursor(last.publishedAt, last.id) : null;
+
+      /* Nested rather than flattened, so "the signal" and "what the model concluded about it"
+         stay distinguishable. A null `sentiment` means not yet scored — which the UI renders
+         differently from a neutral score, because they are different facts. */
+      const items = page.map(({ label, score, confidence, dimensions, topics, ...signal }) => ({
+        ...signal,
+        sentiment: label
+          ? {
+              label,
+              score: score ?? 0,
+              confidence: confidence ?? 0,
+              dimensions: dimensions ?? [],
+              topics: topics ?? [],
+            }
+          : null,
+      }));
 
       return reply.send({ items, nextCursor });
     },

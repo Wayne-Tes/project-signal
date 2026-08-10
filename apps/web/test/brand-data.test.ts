@@ -27,6 +27,7 @@ const score = (over: Partial<ApiBrandScore> = {}): ApiBrandScore => ({
   date: '2026-08-06',
   previousDate: '2026-07-28',
   dimensions: [dim()],
+  previousDimensions: [],
   ...over,
 });
 

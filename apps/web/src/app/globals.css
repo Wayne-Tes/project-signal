@@ -357,6 +357,22 @@ button.drill-hint:hover { color: var(--peri); border-color: color-mix(in srgb,va
 .signal .tag { font-family: var(--font-mono); font-size: 10.5px; color: var(--t2); background: var(--surface-3); border-radius: 5px; padding: 2px 7px; }
 .signal .conf { font-family: var(--font-mono); font-size: 10.5px; color: var(--t3); margin-left: auto; }
 .signal .conf b { color: var(--t2); }
+
+/* The verbatim evidence. Everything below exists because the drill-down used to show a source
+   name, a date and a link out — so reading one dimension's evidence meant opening a dozen tabs
+   and correlating by hand. Tokens only: literal hex breaks the runtime palette switcher. */
+.signal .sig-title { font-size: 13.5px; font-weight: 650; color: var(--t1); line-height: 1.4; margin-bottom: 6px; }
+/* pre-wrap keeps the paragraph breaks a review was written with; collapsing them turns three
+   readable paragraphs into a wall of text. */
+.signal .sig-body { font-size: 13.5px; color: var(--t1); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.signal .sig-stars { font-size: 12px; letter-spacing: .05em; color: var(--gold); }
+.signal .sig-stars .dim { color: var(--t3); opacity: .55; }
+/* The scorer's verdict, so a quotation is never shown without saying how it was read. */
+.signal .sig-verdict { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+.signal .sig-chip { font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--t2); background: var(--surface-3); border-radius: 5px; padding: 3px 7px; white-space: nowrap; }
+.signal .sig-chip.topic { text-transform: none; letter-spacing: 0; color: var(--t3); }
+/* `conf` is pushed right by margin-left:auto in the header; inside the body it must not be. */
+.signal > .conf { margin-left: 0; display: block; line-height: 1.5; }
 .signal .link { color: var(--sky); font-size: 11.5px; font-family: var(--font-mono); display: inline-flex; align-items: center; gap: 4px; }
 
 /* provenance footer */

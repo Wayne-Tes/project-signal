@@ -15,7 +15,18 @@ export interface Dimension {
   key: string;
   label: string;
   score: number;
-  prev: number;
+  /**
+   * The same dimension at the comparison date, or **null when there is no comparison**.
+   *
+   * Nullable deliberately, and this is not a nicety. It was `number`, and every caller satisfied
+   * the type with `d.previous ?? d.score` — comparing the dimension against ITSELF. So every bar
+   * on the dashboard rendered a confident green `▲ +0`, permanently, for every brand, regardless
+   * of history. Not "no movement yet": a fabricated comparison that could never show movement.
+   *
+   * Making it nullable moves the decision to the renderer, where "we have nothing to compare
+   * against" can be SAID rather than silently rounded to zero.
+   */
+  prev: number | null;
   weight: number;
   blurb: string;
 }

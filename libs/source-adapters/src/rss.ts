@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import type { Signal } from '@project-signal/shared-types';
 import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index.js';
+import { clampContent, joinTitleAndBody, stripHtml } from './text.js';
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
 
@@ -69,25 +70,47 @@ function extractItems(parsed: Record<string, unknown>): RawItem[] {
   return [];
 }
 
+/**
+ * One RSS `<item>`.
+ *
+ * THE TEXT USED TO BE MARKUP. `description` was passed through verbatim, and for Google News —
+ * which produced 225 of this tenant's 228 signals — that field is an anchor element:
+ * `<a href="https://news.google.com/rss/articles/CBMiqgF…?oc=5">A better way to help pupils
+ * engage with global crises</a>`. The scorer was reading the tag and the tracking URL along with
+ * the headline, and the drill-down now shows this text to a person, where it would have been
+ * unreadable.
+ *
+ * The title is joined to the body rather than left in `metadata`, because for a news item the
+ * headline IS the substance. `joinTitleAndBody` refuses to concatenate when they are the same
+ * sentence, which is the normal case here — otherwise every Google News signal would read as its
+ * own headline twice and count double to the scorer.
+ */
 function fromRssItem(item: RssItem): RawItem {
   const guid = typeof item.guid === 'object' ? item.guid['#text'] : item.guid;
+  const title = item.title ? stripHtml(String(item.title)) : undefined;
+  const body = stripHtml(String(item['content:encoded'] ?? item.description ?? ''));
+
   return {
     externalId: guid ?? item.link ?? '',
     url: item.link ?? '',
-    text: item['content:encoded'] ?? item.description ?? item.title ?? '',
+    text: clampContent(joinTitleAndBody(title, body)),
+    title,
     publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
-    metadata: { title: item.title },
+    metadata: { title },
   };
 }
 
 function fromAtomEntry(entry: AtomEntry): RawItem {
-  const title = typeof entry.title === 'object' ? entry.title['#text'] : entry.title;
-  const link =
-    typeof entry.link === 'object' ? entry.link['@_href'] : (entry.link ?? '');
+  const rawTitle = typeof entry.title === 'object' ? entry.title['#text'] : entry.title;
+  const title = rawTitle ? stripHtml(String(rawTitle)) : undefined;
+  const link = typeof entry.link === 'object' ? entry.link['@_href'] : (entry.link ?? '');
+  const body = stripHtml(String(entry.content ?? entry.summary ?? ''));
+
   return {
     externalId: entry.id ?? link,
     url: link,
-    text: entry.content ?? entry.summary ?? title ?? '',
+    text: clampContent(joinTitleAndBody(title, body)),
+    title,
     publishedAt: entry.published
       ? new Date(entry.published)
       : entry.updated

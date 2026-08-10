@@ -70,7 +70,7 @@ export function ReportView() {
   const error = score.error ?? history.error ?? impact.error ?? stats.error ?? brandError;
 
   const points = history.data ? toHistory(history.data) : [];
-  const dimensions = score.data ? toDimensionCards(score.data) : [];
+  const dimensions = score.data ? toDimensionCards(score.data, score.data.previousDimensions) : [];
   const clusters = impact.data ?? [];
   const actions = toActionCards(clusters);
 

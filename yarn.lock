@@ -4874,6 +4874,8 @@ __metadata:
     "@project-signal/messaging": "workspace:*"
     "@project-signal/scoring": "workspace:*"
     "@project-signal/shared-types": "workspace:*"
+    "@project-signal/source-adapters": "workspace:*"
+    "@project-signal/storage": "workspace:*"
     aws-jwt-verify: "npm:^5.2.1"
     drizzle-kit: "npm:^0.28.0"
     drizzle-orm: "npm:^0.45.2"

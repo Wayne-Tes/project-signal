@@ -192,7 +192,20 @@ export async function handleIngestionJob(
          rather than merely permitted — which feed is productive, which is dead, and which one the
          findings in a report actually came from. It is also what the per-feed watermark above
          reads. */
-      .values({ ...base, sourceConfigId, rawStorageRef, publishedAt: item.publishedAt })
+      /* `content`, `title`, `author` and `rating` are the readable evidence. They were written to
+         S3 and nowhere else, which made the drill-down a list of source names and dates that a
+         user had to leave the app to understand. The S3 object is still written first and still
+         holds the untouched payload — this is the readable form, not a replacement for it. */
+      .values({
+        ...base,
+        sourceConfigId,
+        rawStorageRef,
+        publishedAt: item.publishedAt,
+        content: item.text || null,
+        title: item.title ?? null,
+        author: item.author ?? null,
+        rating: Number.isFinite(item.rating) ? Math.round(item.rating as number) : null,
+      })
       .onConflictDoNothing()
       .returning({ id: signals.id });
 

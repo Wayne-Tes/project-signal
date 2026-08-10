@@ -33,16 +33,30 @@ export function DimBar({
         <span className="dimbar-label">{dim.label}</span>
         <span className="dimbar-val" style={{ color: col }}>
           {shown}
-          <Delta value={dim.score - dim.prev} />
+          {/* No comparison point is SAID, not rounded to zero. This rendered `▲ +0` on every
+              dimension of every brand forever, because the caller passed `previous ?? score` and
+              a dimension compared against itself never moves. A green up-arrow reading "+0" is
+              worse than no indicator: it asserts stability that was never measured. */}
+          {dim.prev === null ? (
+            <span className="dimbar-nocmp" title="No earlier rollup to compare against yet">
+              no prior data
+            </span>
+          ) : (
+            <Delta value={+(dim.score - dim.prev).toFixed(1)} />
+          )}
         </span>
       </div>
       <div className="dimbar-track">
         <div className="dimbar-fill" style={{ width: `${w}%`, background: col }} />
-        <div
-          className="dimbar-prev"
-          style={{ left: `${dim.prev}%` }}
-          title={`Previous ${dim.prev}`}
-        />
+        {/* The previous-value marker is meaningless without a previous value, and drawing it at
+            the current score makes it look like the score has never moved. */}
+        {dim.prev !== null && (
+          <div
+            className="dimbar-prev"
+            style={{ left: `${dim.prev}%` }}
+            title={`Previous ${dim.prev}`}
+          />
+        )}
       </div>
     </button>
   );

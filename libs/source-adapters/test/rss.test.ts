@@ -136,7 +136,12 @@ describe('RssAdapter', () => {
     mockFetch.mockResolvedValue(xmlResponse(xml));
     const { items } = await adapter.fetch(config);
     expect(items).toHaveLength(1);
-    expect(items[0]?.text).toBe('Summary fallback text');
+    /* The headline is now KEPT rather than discarded. This test previously asserted
+       `'Summary fallback text'` — the body alone — which is what the adapter used to produce, and
+       it meant the title was thrown away on every news item. For a news article the headline is
+       the substance, and it is what a marketing manager reads first in the drill-down. */
+    expect(items[0]?.text).toBe('Object Title\n\nSummary fallback text');
+    expect(items[0]?.title).toBe('Object Title');
     expect(items[0]?.publishedAt.toISOString()).toBe('2024-03-01T10:00:00.000Z');
   });
 
@@ -152,5 +157,59 @@ describe('RssAdapter', () => {
     expect(items[0]?.url).toBe('https://example.com/atom/3');
     expect(items[0]?.text).toBe('Title Only');
     expect(items[0]?.publishedAt.getTime()).toBeGreaterThanOrEqual(before);
+  });
+});
+
+/**
+ * The Google News payload, which is 225 of this tenant's 228 signals.
+ *
+ * Its `<description>` is not a description. It is an anchor element wrapping the headline, with a
+ * tracking URL several times longer than the sentence, plus a grey `<font>` tag naming the
+ * publication. That string went straight to the sentiment scorer — so trust, quality and
+ * experience scores were partly assigned to HTML — and it is now rendered to a marketing manager
+ * in the drill-down, where a raw tag would be plainly broken.
+ */
+describe('the real Google News shape', () => {
+  const GOOGLE_NEWS = `<?xml version="1.0"?><rss version="2.0"><channel><item>
+    <title>A better way to help pupils engage with global crises</title>
+    <link>https://news.google.com/rss/articles/CBMiqgFBVV95cUxQ?oc=5</link>
+    <guid isPermaLink="false">CBMiqgFBVV95cUxQ</guid>
+    <pubDate>Sun, 27 Jul 2026 05:00:00 GMT</pubDate>
+    <description>&lt;a href="https://news.google.com/rss/articles/CBMiqgFBVV95cUxQM2dBRmR1VE9KLU5IRkoyQWJFWEtCWE80ZXRfYVBQZU82YVBTb0xCUmRjMEdPYktzV21oRw?oc=5" target="_blank"&gt;A better way to help pupils engage with global crises&lt;/a&gt;&amp;nbsp;&amp;nbsp;&lt;font color="#6f6f6f"&gt;Tes&lt;/font&gt;</description>
+  </item></channel></rss>`;
+
+  it('stores the headline, not an anchor tag', async () => {
+    mockFetch.mockResolvedValue(xmlResponse(GOOGLE_NEWS));
+    const { items } = await adapter.fetch(config);
+
+    expect(items[0]?.text).toContain('A better way to help pupils engage with global crises');
+    expect(items[0]?.text).not.toContain('<a');
+    expect(items[0]?.text).not.toContain('href');
+    expect(items[0]?.text).not.toContain('news.google.com');
+  });
+
+  it('does not repeat the headline twice', async () => {
+    /* Title and description are the SAME sentence here. Naively joining them would render the
+       headline twice in the UI and double its weight to the scorer. */
+    mockFetch.mockResolvedValue(xmlResponse(GOOGLE_NEWS));
+    const { items } = await adapter.fetch(config);
+
+    const occurrences = items[0]!.text.split('A better way to help pupils').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it('exposes the headline separately so the UI can lead with it', async () => {
+    mockFetch.mockResolvedValue(xmlResponse(GOOGLE_NEWS));
+    const { items } = await adapter.fetch(config);
+    expect(items[0]?.title).toBe('A better way to help pupils engage with global crises');
+  });
+
+  it('has no author, and says so rather than inventing one', async () => {
+    /* An RSS item genuinely has no author. Undefined is rendered as absent by the UI, which is
+       different from an empty string or a placeholder name. */
+    mockFetch.mockResolvedValue(xmlResponse(GOOGLE_NEWS));
+    const { items } = await adapter.fetch(config);
+    expect(items[0]?.author).toBeUndefined();
+    expect(items[0]?.rating).toBeUndefined();
   });
 });

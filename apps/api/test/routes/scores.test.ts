@@ -82,6 +82,10 @@ describe('GET /brands/:id/score', () => {
       date: null,
       previousDate: null,
       dimensions: [],
+      /* The comparison rollup, which the endpoint always computed and used to discard. Without
+         it no view could produce a real per-dimension delta, which is why every dimension bar
+         rendered `▲ +0` — see apps/web/test/dimbar.test.tsx. */
+      previousDimensions: [],
     });
   });
 

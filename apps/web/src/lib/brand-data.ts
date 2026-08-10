@@ -41,6 +41,14 @@ export interface ApiBrandScore {
   date: string | null;
   previousDate: string | null;
   dimensions: ApiDimensionRow[];
+  /**
+   * The same dimensions at `previousDate`, or empty when there is no comparison rollup.
+   *
+   * The API always computed these — it needs them for `previousScore` — and used to discard
+   * them. Without them no view could produce a real per-dimension delta, which is how every
+   * dimension bar came to render `▲ +0`.
+   */
+  previousDimensions: ApiDimensionRow[];
 }
 
 export interface ApiCluster {

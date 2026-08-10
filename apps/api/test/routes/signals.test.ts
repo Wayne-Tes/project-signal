@@ -15,6 +15,7 @@ vi.mock('@project-signal/db', () => {
     'update',
     'set',
     'innerJoin',
+    'leftJoin',
     'limit',
     'offset',
     'orderBy',
@@ -239,5 +240,97 @@ describe('GET /brands/:id/sentiment-summary', () => {
     const body = JSON.parse(res.body);
     expect(body.totalCount).toBe(0);
     expect(body.avgScore).toBeNull();
+  });
+});
+
+/**
+ * The readable evidence.
+ *
+ * WHY THIS EXISTS. The verbatim text of every signal was written to S3 and then unreachable:
+ * `signals` held only a storage pointer, no endpoint read it back, and so the drill-down could
+ * show a source name, a date and a link out — nothing a person could read. Working through one
+ * dimension meant opening every signal in a new tab and correlating by hand.
+ *
+ * The endpoint now returns the words, who said them, their rating, AND the scorer's verdict, so
+ * the UI never has to send a marketing manager elsewhere to find out what was said. `sourceUrl`
+ * is still returned and still rendered: the link to the original is an ADDITION, never a
+ * substitute.
+ */
+describe('the evidence a signal carries', () => {
+  const scored = {
+    ...signal('s-1'),
+    content: 'Constant crashes\n\nIt closes whenever I open a class.',
+    title: 'Constant crashes',
+    author: 'e_keane',
+    rating: 2,
+    label: 'negative',
+    score: -0.8,
+    confidence: 0.9,
+    dimensions: ['quality'],
+    topics: ['app stability'],
+  };
+
+  it('returns the text, the author and the rating', async () => {
+    _dbRows = [scored];
+    const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items[0]).toMatchObject({
+      content: 'Constant crashes\n\nIt closes whenever I open a class.',
+      title: 'Constant crashes',
+      author: 'e_keane',
+      rating: 2,
+    });
+  });
+
+  it('still returns the link to the original alongside the text', async () => {
+    /* Explicitly pinned. The point of storing the text was never to remove the route back to the
+       source — a manager reads it here, then follows the link to reply or see context. */
+    _dbRows = [scored];
+    const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+
+    expect(res.json().items[0].sourceUrl).toBe('https://maps.google.com/review/1');
+  });
+
+  it("nests the scorer's verdict rather than flattening it onto the signal", async () => {
+    /* A quotation with no verdict attached moves the guessing game rather than ending it: the
+       audience is a marketing manager, who needs to see how the system read the words. Nested so
+       "what was said" stays distinguishable from "what we concluded". */
+    _dbRows = [scored];
+    const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+
+    expect(res.json().items[0].sentiment).toEqual({
+      label: 'negative',
+      score: -0.8,
+      confidence: 0.9,
+      dimensions: ['quality'],
+      topics: ['app stability'],
+    });
+  });
+
+  it('reports an unscored signal as sentiment: null, and still returns it', async () => {
+    /* A LEFT join deliberately. An unscored signal is still evidence — dropping it would make
+       the list disagree with the counts shown above it. Null is distinct from a neutral score,
+       and the UI renders the two differently. */
+    _dbRows = [{ ...signal('s-2'), content: 'Not yet scored', label: null }];
+    const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+
+    expect(res.json().items).toHaveLength(1);
+    expect(res.json().items[0].sentiment).toBeNull();
+    expect(res.json().items[0].content).toBe('Not yet scored');
+  });
+
+  it('returns null content for a signal collected before text was captured', async () => {
+    /* 383 rows are in this state until the backfill has run over them. Null must reach the UI so
+       it can say "not yet recovered" rather than implying the source said nothing. */
+    _dbRows = [{ ...signal('s-3'), content: null }];
+    const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+
+    expect(res.json().items[0].content).toBeNull();
   });
 });

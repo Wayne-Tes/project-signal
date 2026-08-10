@@ -34,7 +34,7 @@ export function TrendsView({ nav }: { nav: NavActions }) {
   const score = useApi<ApiBrandScore>(brandId ? `/brands/${brandId}/score` : null);
   const history = useApi<ApiDimensionRow[]>(brandId ? `/brands/${brandId}/dimension-scores` : null);
 
-  const cards = score.data ? toDimensionCards(score.data) : [];
+  const cards = score.data ? toDimensionCards(score.data, score.data.previousDimensions) : [];
   const points = history.data ? toHistory(history.data) : [];
 
   // The chart takes a flat row per point; `scores` is a partial map, so a

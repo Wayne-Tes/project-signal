@@ -1,4 +1,13 @@
-import { index, pgTable, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core';
+import {
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core';
 import { brandEntities } from './brands';
 import { sourceConfigs } from './sourceConfigs';
 import { tenants } from './tenants';
@@ -37,6 +46,46 @@ export const signals = pgTable(
     }),
     sourceUrl: text('source_url').notNull(),
     rawStorageRef: text('raw_storage_ref').notNull(),
+    /**
+     * THE WORDS SOMEBODY ACTUALLY WROTE. The reason this table exists.
+     *
+     * Until this column, the verbatim text was written to S3 and then unreachable: `signals` held
+     * only `raw_storage_ref`, no endpoint read it back, and the drill-down could therefore show a
+     * source name, a date and a link — nothing a person could read. The owner's words: *"If you
+     * have a review, I want to see the review in the window in the app."* Correct. Following a URL
+     * out to the original, correlating it by hand, and coming back to a closed drawer is not a
+     * product; it is a worse version of a spreadsheet.
+     *
+     * `raw_storage_ref` and the S3 object STAY. That object is the untouched payload — the audit
+     * trail, and the only place the original markup survives. This column is the readable form:
+     * markup stripped, title joined to body, clamped to `MAX_CONTENT_LENGTH`. The two are
+     * deliberately different things, and the S3 copy is what proves this one was not tampered
+     * with.
+     *
+     * Nullable, because every row collected before this column existed has no text here until the
+     * backfill has run over it. Null means "not yet recovered from S3", NOT "the source said
+     * nothing" — the UI must not render those the same way.
+     */
+    content: text('content'),
+    /**
+     * The headline, where the source has one distinct from the body.
+     *
+     * Separate from `content` rather than merged into it, because a review's title carries most
+     * of its sentiment ("Constant crashes") and a list of signals is unreadable without one.
+     * Null where the source genuinely has no title — a Play Store review, a Google review — which
+     * is different from an empty one.
+     */
+    title: text('title'),
+    /** Who said it, as the source names them. Null for sources with no author, e.g. RSS. */
+    author: varchar('author', { length: 200 }),
+    /**
+     * Star rating on the source's own 1–5 scale, where it has one.
+     *
+     * Normalised here because the adapters disagreed: `rating` on the App Store and Play Store,
+     * `stars` on Google. A UI reading raw metadata would have to know every alias and would
+     * silently render nothing for the next source added.
+     */
+    rating: integer('rating'),
     // Sentiment lives in `sentiment_results`, keyed one-to-one on signal_id, and is read by
     // joining. `signals` previously carried sentiment_label / sentiment_score / confidence /
     // model_version as well — a second home for the same data that nothing ever wrote

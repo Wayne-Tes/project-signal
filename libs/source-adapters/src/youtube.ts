@@ -1,5 +1,6 @@
 import type { Signal } from '@project-signal/shared-types';
 import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index.js';
+import { clampContent, stripHtml } from './text.js';
 
 const YT_API = 'https://www.googleapis.com/youtube/v3';
 const MAX_VIDEOS = 10;
@@ -51,7 +52,11 @@ export class YoutubeAdapter implements SourceAdapter {
         items.push({
           externalId: c.id,
           url: `https://www.youtube.com/watch?v=${video.id.videoId}&lc=${c.id}`,
-          text: c.snippet.textOriginal,
+          text: clampContent(stripHtml(String(c.snippet.textOriginal ?? ''))),
+          /* The VIDEO's title, not the comment's — a comment has none, and "which video was this
+             said under" is the context a channel manager needs to act on it. */
+          title: video.snippet.title,
+          author: c.snippet.authorDisplayName,
           publishedAt: new Date(c.snippet.publishedAt),
           metadata: {
             videoId: video.id.videoId,
