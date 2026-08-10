@@ -162,3 +162,68 @@ test('the drill-down stacks a numbered step for each level passed', async ({ pag
     await expect(page.locator('.drill-panel.stacked')).toHaveCount(0);
   }
 });
+
+/**
+ * Nothing may bleed past the card it lives in.
+ *
+ * THE REGRESSION. Every card on the Admin page is 720px. "Manage brand" grew to 963 — it
+ * overflowed its own card by 245px and the rows hung over the edge of the column. The cause is a
+ * CSS default that is easy to forget: a flex item's `min-width` is `auto`, so it REFUSES to
+ * shrink below its own content. One un-truncated Google News URL in a `nowrap` span therefore
+ * widened the row, the list, the section and the card, all the way up.
+ *
+ * No unit test could have caught it. jsdom has no layout engine, so `scrollWidth` there is always
+ * 0 and every element "fits". This assertion needs a real browser, which is what this harness is
+ * for — the same reason it exists at all, after a light theme painted black cards while every
+ * unit test passed.
+ *
+ * Written as a sweep over every card rather than against the one that broke, because the next
+ * panel someone adds will have the same default working against it.
+ */
+test('no panel overflows its card', async ({ page }) => {
+  await goToView(page, /admin/i);
+  await expect(page.locator('#sourceType')).toBeVisible();
+
+  const overflowing = await page.evaluate(() => {
+    /* The cards are inline-styled rather than classed, so they are found by the 14px radius that
+       defines the card in this app — the same value `card` in BrandManager.tsx sets. */
+    const cards = [...document.querySelectorAll('div')].filter((d) => {
+      const s = getComputedStyle(d);
+      return s.borderRadius === '14px' && s.borderStyle === 'solid';
+    });
+    return cards
+      .map((c) => ({
+        title: c.querySelector('h2')?.textContent?.trim() ?? '(untitled)',
+        clientWidth: c.clientWidth,
+        scrollWidth: c.scrollWidth,
+      }))
+      /* One pixel of slack for sub-pixel rounding; 245 is not rounding. */
+      .filter((c) => c.scrollWidth > c.clientWidth + 1);
+  });
+
+  expect(overflowing, `panels wider than their card: ${JSON.stringify(overflowing)}`).toEqual([]);
+});
+
+test('a feed row keeps its controls reachable however long the URL', async ({ page }) => {
+  /* The identifier truncates; the buttons do not get pushed off. Asserted on real geometry
+     because that is the only place the difference shows. */
+  await goToView(page, /admin/i);
+  const panel = page.locator('section', { hasText: 'Feeds' }).first();
+  const firstRow = panel.locator('li').first();
+  await expect(firstRow).toBeVisible();
+
+  const fits = await firstRow.evaluate((li) => {
+    const row = li.getBoundingClientRect();
+    const buttons = [...li.querySelectorAll('button')];
+    return {
+      rowOverflows: li.scrollWidth > li.clientWidth + 1,
+      buttonsInside: buttons.every((b) => b.getBoundingClientRect().right <= row.right + 1),
+      buttonCount: buttons.length,
+    };
+  });
+
+  expect(fits.rowOverflows).toBe(false);
+  expect(fits.buttonsInside).toBe(true);
+  /* Enabled, Edit, Remove — if the row silently lost one, "buttons are inside" is trivially true. */
+  expect(fits.buttonCount).toBeGreaterThanOrEqual(3);
+});
