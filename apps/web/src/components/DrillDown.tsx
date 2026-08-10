@@ -138,11 +138,15 @@ function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
  */
 function opensWith(content: string | null, title: string | null): boolean {
   if (!content || !title) return false;
+  /* Compared on WORDS ONLY. A single hyphen defeated a gentler comparison: Google News writes
+     "… Report - Yahoo Finance UK" as the title and "… Report Yahoo Finance UK" as the body, so
+     neither contained the other and the headline rendered twice. Reducing both to alphanumerics
+     removes every variant of that — hyphens, em dashes, pipes, colons, smart quotes — rather than
+     chasing them one at a time. */
   const norm = (s: string) =>
     s
       .toLowerCase()
-      .replace(/\s+/g, ' ')
-      .replace(/[.…]+$/, '')
+      .replace(/[^a-z0-9]+/g, ' ')
       .trim();
   const t = norm(title);
   return t.length > 0 && norm(content).startsWith(t.slice(0, Math.min(t.length, 60)));

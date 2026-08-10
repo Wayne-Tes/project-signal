@@ -89,14 +89,24 @@ export function joinTitleAndBody(title: string | undefined, body: string | undef
   if (!t) return b;
   if (!b) return t;
 
-  /* Case-, whitespace- and punctuation-insensitive. Feeds differ between these two fields in
-     trivial ways constantly: capitalisation, a trailing ellipsis, a hyphen before the publisher's
-     name. */
+  /**
+   * Compared on WORDS ONLY — every non-alphanumeric character becomes a space.
+   *
+   * A gentler normalisation (lower-case, collapse whitespace, drop a trailing full stop) was not
+   * enough, and the deployed page proved it. Google News gave:
+   *
+   *   title:       "… Digital Infrastructure Report - Yahoo Finance UK"
+   *   description: "… Digital Infrastructure Report Yahoo Finance UK"
+   *
+   * One hyphen apart. Neither string contained the other, so they were treated as different text
+   * and concatenated, and the drill-down printed the headline twice. Comparing on words removes
+   * every variant of this — hyphens, em dashes, pipes, colons, smart quotes — instead of chasing
+   * them one at a time.
+   */
   const norm = (s: string) =>
     s
       .toLowerCase()
-      .replace(/\s+/g, ' ')
-      .replace(/[.…]+$/, '')
+      .replace(/[^a-z0-9]+/g, ' ')
       .trim();
 
   const nt = norm(t);

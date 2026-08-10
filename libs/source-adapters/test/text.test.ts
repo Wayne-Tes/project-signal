@@ -184,3 +184,41 @@ describe('headlines that are nearly, but not exactly, the body', () => {
     expect(out).toBe('Great for planning\n\nSupport is slow but the app is reliable.');
   });
 });
+
+/**
+ * The exact pair that defeated the FIRST attempt at this fix.
+ *
+ * Worth pinning verbatim rather than paraphrasing. After deploying a "collapse near-identical
+ * strings" rule, the drill-down still printed this headline twice — because the two differ by a
+ * single hyphen, so neither contained the other and the containment check never fired.
+ *
+ * Worse, the script written to verify the fix used the SAME normalisation as the code, so it
+ * reported "0 duplicates" against data that was visibly duplicated. The lesson is in the test:
+ * comparison must be on words, and a checker that shares the code's assumptions checks nothing.
+ */
+describe('the hyphen that broke the first fix', () => {
+  const TITLE =
+    'SK Tes Ireland Achieves ISO Certification Milestone and Recognized in National Digital Infrastructure Report - Yahoo Finance UK';
+  const BODY =
+    'SK Tes Ireland Achieves ISO Certification Milestone and Recognized in National Digital Infrastructure Report Yahoo Finance UK';
+
+  it('collapses them to a single paragraph', () => {
+    const out = joinTitleAndBody(TITLE, BODY);
+    expect(out).not.toContain('\n\n');
+    expect(out.split('ISO Certification').length - 1).toBe(1);
+  });
+
+  it('is unmoved by any of the separators feeds use', () => {
+    for (const sep of [' - ', ' — ', ' | ', ': ', ' – ']) {
+      const out = joinTitleAndBody(`Tes wins award${sep}Yahoo Finance UK`, 'Tes wins award Yahoo Finance UK');
+      expect(out, `separator "${sep}"`).not.toContain('\n\n');
+    }
+  });
+
+  it('still keeps two genuinely different sentences apart', () => {
+    /* The guard against over-collapsing: punctuation-insensitivity must not make everything look
+       the same. */
+    const out = joinTitleAndBody('Great for planning', 'Support is slow but the app is reliable.');
+    expect(out).toContain('\n\n');
+  });
+});
