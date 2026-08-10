@@ -1,6 +1,7 @@
 import type { Signal } from '@project-signal/shared-types';
 import { startApifyRun, waitForApifyRun, fetchApifyDataset } from './apifyClient.js';
 import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index.js';
+import { clampContent, stripHtml } from './text.js';
 
 /**
  * `neatrat/google-play-store-reviews-scraper`.
@@ -83,7 +84,11 @@ function toRawItem(review: PlayStoreReview): RawItem {
   return {
     externalId: review.reviewId ?? '',
     url,
-    text: review.body ?? '',
+    text: clampContent(stripHtml(String(review.body ?? ''))),
+    /* Play Store reviews have no title — the body is the whole review. Left undefined rather
+       than duplicating the body into it, so the UI can tell "no headline" from "headline". */
+    author: review.reviewer,
+    rating: review.rating,
     /* `timestamp` is epoch SECONDS and `date` is only `YYYY-MM-DD`. The timestamp is preferred
        because a date alone collapses every review from one day onto midnight, which makes the
        per-feed watermark re-collect them on every run. */

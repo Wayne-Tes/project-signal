@@ -113,7 +113,7 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
   const heels = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/brand-impact` : null);
   const strengths = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/strengths` : null);
 
-  const cards = score.data ? toDimensionCards(score.data) : [];
+  const cards = score.data ? toDimensionCards(score.data, score.data.previousDimensions) : [];
   const points = history.data ? toHistory(history.data) : [];
   const chartRows = points.map((p) => ({ label: p.label, ...p.scores }));
   const composite = score.data?.score ?? null;
@@ -237,7 +237,10 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
                   key: d.key,
                   label: d.label,
                   score: d.score,
-                  prev: d.previous ?? d.score,
+                  /* `d.previous`, NOT `d.previous ?? d.score`. The fallback compared each
+                     dimension against itself, so every bar showed `▲ +0` permanently. Null now
+                     reaches DimBar, which says there is no comparison instead of inventing one. */
+                  prev: d.previous,
                   weight: 0,
                   blurb: `${d.signalCount.toLocaleString()} signals`,
                 }}

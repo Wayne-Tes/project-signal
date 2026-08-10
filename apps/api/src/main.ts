@@ -13,6 +13,7 @@ import scoresRoutes from './routes/scores.js';
 import { integrationsRoutes } from './routes/integrations.js';
 import { aliasesRoutes } from './routes/aliases.js';
 import { adminRoutes } from './routes/admin.js';
+import backfillRoutes from './routes/backfill.js';
 import { assistantRoutes } from './routes/assistant.js';
 import { portfolioRoutes } from './routes/portfolio.js';
 import { scanRoutes } from './routes/scans.js';
@@ -66,6 +67,7 @@ const start = async () => {
     await app.register(integrationsRoutes);
     await app.register(aliasesRoutes);
     await app.register(adminRoutes);
+    await app.register(backfillRoutes);
     await app.register(assistantRoutes);
     await app.register(portfolioRoutes);
     await app.register(scanRoutes);

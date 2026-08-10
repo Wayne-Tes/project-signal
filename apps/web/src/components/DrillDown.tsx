@@ -35,6 +35,18 @@ interface ApiSignal {
   source: string;
   sourceUrl: string | null;
   publishedAt: string;
+  /** The verbatim words. Null only for signals collected before they were captured. */
+  content: string | null;
+  title: string | null;
+  author: string | null;
+  rating: number | null;
+  sentiment: {
+    label: string;
+    score: number;
+    confidence: number;
+    dimensions: string[];
+    topics: string[];
+  } | null;
 }
 
 function MetricRow({ items }: { items: { label: string; value: string; tone?: string }[] }) {
@@ -61,7 +73,7 @@ function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
 
   const index = data?.score ?? null;
   const previous = data?.previousScore ?? null;
-  const dimensions = data ? toDimensionCards(data) : [];
+  const dimensions = data ? toDimensionCards(data, data.previousDimensions) : [];
 
   return (
     <>
@@ -116,28 +128,83 @@ function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
   );
 }
 
+/** `★★★☆☆` — a rating a person reads at a glance, rather than "4". */
+function Stars({ rating }: { rating: number }) {
+  const filled = Math.max(0, Math.min(5, Math.round(rating)));
+  return (
+    <span className="sig-stars" title={`${filled} out of 5`} aria-label={`${filled} out of 5`}>
+      {'★'.repeat(filled)}
+      <span className="dim">{'☆'.repeat(5 - filled)}</span>
+    </span>
+  );
+}
+
 /**
- * The signals themselves, however they were narrowed.
+ * The evidence itself.
  *
- * Shared by the dimension and topic levels. No quotation is rendered — see the note in
- * `ClusterLevel` — so this is metadata and a link to where it was actually published.
+ * WHAT CHANGED AND WHY. This used to render a source name, a date and a link — nothing readable.
+ * The verbatim text was collected, written to S3 and then unreachable, so working through a
+ * dimension meant opening every signal in a new tab, correlating by hand, and coming back to a
+ * drawer that had closed. The owner's words: *"If you have a review, I want to see the review in
+ * the window in the app."*
+ *
+ * So the text is here now — along with who said it, their star rating, and what the scorer
+ * concluded, because the audience is a marketing manager rather than an engineer and a quotation
+ * with no verdict attached just moves the guessing game somewhere else.
+ *
+ * **The link to the original stays.** It is an addition, not a replacement: read it here, and go
+ * to the source afterwards if you want to reply to it or see its context.
  */
 function SignalList({ items }: { items: ApiSignal[] }) {
   return (
     <div className="drill-list">
       {items.map((s) => {
         const meta = sourceMeta(s.source);
+        const sent = s.sentiment;
         return (
           <div className="signal" key={s.id}>
             <div className="sig-top">
               <SourceGlyph name={s.source} size={16} />
-              <span className="auth">{meta.label}</span>
+              <span className="auth">{s.author || meta.label}</span>
+              {s.author && <span className="conf">on {meta.label}</span>}
+              {s.rating !== null && <Stars rating={s.rating} />}
               <span className="when">{s.publishedAt?.slice(0, 10)}</span>
             </div>
-            {/* The API returns signal METADATA — the verbatim text lives in object storage and is
-                not exposed by any endpoint. The version of this file that predated the API filled
-                this space with invented quotations attributed to invented authors, which is the
-                single most damaging thing it could do. The honest affordance is the link. */}
+
+            {s.title && <div className="sig-title">{s.title}</div>}
+
+            {s.content ? (
+              /* `pre-wrap`, because reviews arrive with paragraph breaks and collapsing them
+                 turns three readable paragraphs into one wall of text. */
+              <p className="sig-body">{s.content}</p>
+            ) : (
+              /* NOT the same statement as "they said nothing". This signal predates text
+                 capture and its words are still in object storage awaiting the backfill —
+                 saying so is honest, and the link below still reaches the original. */
+              <p className="conf">
+                Text not yet recovered for this signal — it was collected before the original
+                wording was stored alongside it. The link below still reaches the source.
+              </p>
+            )}
+
+            {sent && (
+              <div className="sig-verdict">
+                <span className="sig-chip" style={{ color: sentColor(sent.score) }}>
+                  {sentLabel(sent.score)} · {sent.score.toFixed(2)}
+                </span>
+                {sent.dimensions.map((d) => (
+                  <span className="sig-chip" key={d}>
+                    {isDimensionKey(d) ? DIMENSION_LABELS[d] : d}
+                  </span>
+                ))}
+                {sent.topics.slice(0, 4).map((t) => (
+                  <span className="sig-chip topic" key={t}>
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+
             <div className="sig-foot">
               {s.sourceUrl ? (
                 <a className="link" href={s.sourceUrl} target="_blank" rel="noopener noreferrer">

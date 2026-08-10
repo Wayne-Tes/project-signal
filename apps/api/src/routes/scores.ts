@@ -143,6 +143,12 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
               date: { type: 'string', nullable: true },
               previousDate: { type: 'string', nullable: true },
               dimensions: { type: 'array', items: DIMENSION_ROW },
+              /* The SAME dimensions at `previousDate`. Already computed here to derive
+                 `previousScore`, and previously discarded — which is why every dimension bar on
+                 the dashboard rendered `▲ +0`: with no previous row to compare against, the view
+                 fell back to comparing each dimension with itself. Returning them is what lets a
+                 per-dimension delta be real, or be honestly reported as absent. */
+              previousDimensions: { type: 'array', items: DIMENSION_ROW },
             },
           },
         },
@@ -174,7 +180,14 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
         .orderBy(desc(dimensionScores.date));
 
       if (rows.length === 0) {
-        return { score: null, previousScore: null, date: null, previousDate: null, dimensions: [] };
+        return {
+          score: null,
+          previousScore: null,
+          date: null,
+          previousDate: null,
+          dimensions: [],
+          previousDimensions: [],
+        };
       }
 
       const weights = parseWeights(brand?.weights);
@@ -202,6 +215,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
         date: latestDate,
         previousDate,
         dimensions: current,
+        previousDimensions: previous,
       };
     },
   );
