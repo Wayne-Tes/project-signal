@@ -96,3 +96,31 @@ describe('fetchApifyDataset', () => {
     await expect(fetchApifyDataset('key', 'ds-1')).rejects.toThrow('404');
   });
 });
+
+describe('the poll endpoint', () => {
+  /**
+   * THE PATH IS `/actor-runs/`, NOT `/runs/`.
+   *
+   * This polled `/v2/runs/{id}`, which returns 404 for every run that has ever existed —
+   * verified against the live API with a real run id: `/v2/runs/{id}` → 404,
+   * `/v2/actor-runs/{id}` → 200. So every Apify-backed adapter started its run successfully and
+   * then failed on the first poll, for as long as this code has existed.
+   *
+   * It stayed invisible because the deployed Apify token was never set, so the failure was a 401
+   * at start and nothing ever reached the poll. Fixing the credential is what revealed it — one
+   * broken thing hiding behind another.
+   */
+  it('polls /actor-runs/, which is the path that resolves', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { id: 'run-1', status: 'SUCCEEDED', defaultDatasetId: 'ds-1' } }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await waitForApifyRun('key-123', 'run-1');
+
+    const url = String(fetchMock.mock.calls[0]![0]);
+    expect(url).toContain('/v2/actor-runs/run-1');
+    expect(url, 'the legacy /v2/runs/ path 404s for every run').not.toMatch(/\/v2\/runs\//);
+  });
+});
