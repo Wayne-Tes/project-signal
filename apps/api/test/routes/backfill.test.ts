@@ -268,3 +268,44 @@ describe('GET /admin/backfill/content/status', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+/**
+ * Recomputing rows that already have content.
+ *
+ * The normalisation itself improves. The first pass over these 383 rows joined Google News titles
+ * to their descriptions, because `<title>` carries a " - Publisher" suffix the description does
+ * not — so the two were not equal, were concatenated, and the drill-down rendered the same
+ * headline twice. Found by looking at the deployed page, not by a test.
+ *
+ * Fixing the rule is worthless unless already-recovered rows can be put back through it.
+ */
+describe('force: recomputing rows that already have content', () => {
+  it('clears content first, so the resumable path can refill it', async () => {
+    /* The obvious implementation — widening the selection to include non-null rows — never
+       terminates: each call re-selects the same first batch and `remaining` never falls.
+       Clearing reuses the existing machinery and keeps `remaining` meaningful. */
+    _objects.set('r.json', JSON.stringify({ text: 'Recomputed', metadata: {} }));
+    _rowQueue.push([]); // the clearing UPDATE
+    queue([{ id: 'r', ref: 's3://bucket/r.json' }]);
+
+    const app = await buildTestApp(backfillRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/backfill/content?force=true',
+    });
+
+    expect(res.statusCode).toBe(200);
+    /* The clear, then the recovery. Two writes, and the second carries the new text. */
+    expect(_updates[0]).toEqual({ content: null });
+    expect(_updates[1]).toMatchObject({ content: 'Recomputed' });
+  });
+
+  it('does not clear anything on an ordinary run', async () => {
+    /* The default must stay safe to call repeatedly against a live database. */
+    queue([]);
+    const app = await buildTestApp(backfillRoutes, DEFAULT_ADMIN);
+    await app.inject({ method: 'POST', url: '/admin/backfill/content' });
+
+    expect(_updates).toHaveLength(0);
+  });
+});

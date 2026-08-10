@@ -264,6 +264,11 @@ button.drill-hint:hover { color: var(--peri); border-color: color-mix(in srgb,va
 .dimbar:hover .dimbar-label { color: var(--t1); }
 .dimbar-val { font-family: var(--font-display); font-weight: 600; font-size: 17px; font-variant-numeric: tabular-nums; }
 .dimbar-val .delta { font-size: 11px; }
+/* "no prior data" sits where the delta would be, so it needs the delta's spacing — without
+   `margin-left` it renders as "47no prior data", one run-on string. And it must NOT inherit the
+   score colour from `.dimbar-val`, or it reads as part of the number rather than as an absence.
+   Muted and small: this is a caveat, not a value. */
+.dimbar-nocmp { margin-left: 8px; font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: .02em; color: var(--t3); }
 .dimbar-track { position: relative; height: 7px; border-radius: 999px; background: var(--surface-3); overflow: visible; }
 .dimbar-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; transition: width 1.2s cubic-bezier(.2,.8,.2,1); }
 .dimbar-prev { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--line2); border-radius: 2px; }

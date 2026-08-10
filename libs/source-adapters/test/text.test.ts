@@ -144,3 +144,43 @@ describe('clampContent', () => {
     expect(clampContent(exact)).toBe(exact);
   });
 });
+
+/**
+ * The near-duplicate case, found by LOOKING at the deployed drill-down rather than by a test.
+ *
+ * Google News sets `<title>` to the headline plus the publisher — "… Report - Yahoo Finance UK" —
+ * and its description to the same headline without that suffix. Neither string was a prefix of
+ * the other, so the original strict comparison joined them, and the panel rendered the same
+ * sentence twice, one line apart. It read as a broken component because it was one.
+ */
+describe('headlines that are nearly, but not exactly, the body', () => {
+  const HEADLINE = 'SK Tes Ireland Achieves ISO Certification Milestone and Recognized in National Digital Infrastructure Report';
+
+  it('collapses a title that differs only by a publisher suffix', () => {
+    const out = joinTitleAndBody(`${HEADLINE} - Yahoo Finance UK`, HEADLINE);
+    expect(out.split('ISO Certification').length - 1).toBe(1);
+  });
+
+  it('collapses when the difference is only punctuation', () => {
+    expect(joinTitleAndBody('Tes launches a new tool.', 'Tes launches a new tool')).toBe(
+      'Tes launches a new tool.',
+    );
+  });
+
+  it('KEEPS a short review title even though the body mentions it', () => {
+    /* The case the 80% length ratio protects. "Constant crashes" carries the sentiment of the
+       review and appears inside the body — collapsing here would throw away the strongest signal
+       in the item, which is the opposite of the intent. */
+    const out = joinTitleAndBody(
+      'Constant crashes',
+      'The constant crashes make it unusable during a lesson, and support have not replied in two weeks.',
+    );
+    expect(out).toContain('Constant crashes\n\n');
+    expect(out).toContain('support have not replied');
+  });
+
+  it('keeps two genuinely different sentences', () => {
+    const out = joinTitleAndBody('Great for planning', 'Support is slow but the app is reliable.');
+    expect(out).toBe('Great for planning\n\nSupport is slow but the app is reliable.');
+  });
+});

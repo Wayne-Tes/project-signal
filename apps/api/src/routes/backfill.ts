@@ -127,6 +127,21 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
           type: 'object',
           properties: {
             batch: { type: 'integer', minimum: 1, maximum: MAX_BATCH, default: DEFAULT_BATCH },
+            /**
+             * Recompute rows that ALREADY have content.
+             *
+             * Normally this endpoint only touches `content IS NULL`, which is what makes it safe
+             * to re-run. But the normalisation itself improves: the first pass rendered Google
+             * News headlines twice, because `<title>` carries a " - Publisher" suffix its
+             * description does not, so the two were not equal and were joined. Fixing the rule
+             * is worthless unless already-recovered rows can be put through it again.
+             *
+             * Safe because it is a pure recomputation from the S3 object, which is immutable and
+             * never written by this service. It cannot invent text; at worst it reproduces what
+             * is already there. Off by default, because a full re-read is real work and should be
+             * asked for deliberately.
+             */
+            force: { type: 'boolean', default: false },
           },
         },
         response: {
@@ -144,14 +159,39 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const { batch = DEFAULT_BATCH } = request.query as { batch?: number };
+      const { batch = DEFAULT_BATCH, force = false } = request.query as {
+        batch?: number;
+        force?: boolean;
+      };
       const database = db.get();
       const store = getObjectStore();
+
+      /**
+       * `force` clears `content` first, then falls through to the ordinary path.
+       *
+       * The obvious implementation — widen the selection to include rows that already have
+       * content — does not terminate: every call would re-select the same first `batch` rows, and
+       * `remaining` would never fall. Clearing the column instead reuses the resumable machinery
+       * exactly as it is, and keeps `remaining` meaning what it says.
+       *
+       * Recoverable if this dies midway: the S3 objects are immutable and untouched, so the rows
+       * are merely un-recovered and an ordinary run restores them. The UI reports that state
+       * honestly rather than as "the source said nothing".
+       */
+      if (force) {
+        await database
+          .update(signals)
+          .set({ content: null })
+          .where(eq(signals.tenantId, request.user.tenantId));
+        request.log.warn('content backfill: cleared existing content for recomputation');
+      }
+
+      const pending = isNull(signals.content);
 
       const rows = await database
         .select({ id: signals.id, ref: signals.rawStorageRef })
         .from(signals)
-        .where(and(eq(signals.tenantId, request.user.tenantId), isNull(signals.content)))
+        .where(and(eq(signals.tenantId, request.user.tenantId), pending))
         .limit(batch);
 
       let updated = 0;
@@ -187,11 +227,7 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
             /* Re-checking `content IS NULL` makes concurrent runs safe: two overlapping calls
                cannot both claim the same row, and the second simply updates nothing. */
             .where(
-              and(
-                eq(signals.id, row.id),
-                eq(signals.tenantId, request.user.tenantId),
-                isNull(signals.content),
-              ),
+              and(eq(signals.id, row.id), eq(signals.tenantId, request.user.tenantId), pending),
             );
 
           updated++;

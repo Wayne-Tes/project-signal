@@ -88,12 +88,48 @@ export function joinTitleAndBody(title: string | undefined, body: string | undef
   const b = (body ?? '').trim();
   if (!t) return b;
   if (!b) return t;
-  /* Case- and whitespace-insensitive, because feeds routinely differ only in capitalisation or a
-     trailing ellipsis between the two fields. */
-  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').replace(/[.…]+$/, '');
-  if (norm(b).startsWith(norm(t)) || norm(t).startsWith(norm(b))) {
-    return b.length >= t.length ? b : t;
-  }
+
+  /* Case-, whitespace- and punctuation-insensitive. Feeds differ between these two fields in
+     trivial ways constantly: capitalisation, a trailing ellipsis, a hyphen before the publisher's
+     name. */
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .replace(/[.…]+$/, '')
+      .trim();
+
+  const nt = norm(t);
+  const nb = norm(b);
+
+  /**
+   * Collapse when the two are NEARLY the same string, not merely when one appears inside the
+   * other.
+   *
+   * A strict `startsWith` was not enough. Google News sets `<title>` to
+   * "SK Tes Ireland Achieves ISO Certification Milestone — Yahoo Finance UK" and its description
+   * to the same headline WITHOUT the publisher suffix, so neither was a prefix of the other and
+   * the drill-down rendered the sentence twice, one line apart. It looked like a rendering bug
+   * because it was one.
+   *
+   * The 80% length ratio is what keeps this from eating real reviews. A review titled "Constant
+   * crashes" whose body mentions "the constant crashes are infuriating" contains the title, but
+   * the title is a small fraction of the body — so the title is kept, which is right, because it
+   * carries the sentiment.
+   */
+  const shorter = nt.length <= nb.length ? nt : nb;
+  const longer = nt.length <= nb.length ? nb : nt;
+
+  /* A pure PREFIX adds nothing: "Tes launches" ahead of "Tes launches a new marking tool" is the
+     same sentence truncated, and printing both is the duplication this function exists to stop. */
+  const isTruncation = longer.startsWith(shorter);
+  /* Otherwise require near-identity by length. "Constant crashes" is CONTAINED in "The constant
+     crashes make it unusable…" but is only a fifth of it, and that title carries the review's
+     sentiment — collapsing there would discard the strongest signal in the item. */
+  const nearlyIdentical = longer.includes(shorter) && shorter.length / longer.length >= 0.8;
+
+  if (isTruncation || nearlyIdentical) return b.length >= t.length ? b : t;
+
   return `${t}\n\n${b}`;
 }
 

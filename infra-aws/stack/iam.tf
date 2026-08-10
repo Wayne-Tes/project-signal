@@ -99,8 +99,9 @@ resource "aws_iam_role_policy" "task_common" {
   })
 }
 
-# API: reads the reports bucket to serve generated reports (Epic 12), and invokes Bedrock for the
-# in-product assistant. Still no queue — the API neither produces nor consumes messages.
+# API: reads the reports bucket to serve generated reports (Epic 12), reads the raw bucket for the
+# content backfill, and invokes Bedrock for the in-product assistant. Still no queue consumption —
+# the API produces scan requests but never reads or deletes from a queue.
 resource "aws_iam_role_policy" "task_api" {
   name = "app"
   role = aws_iam_role.task["api"].id
@@ -112,6 +113,23 @@ resource "aws_iam_role_policy" "task_api" {
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
         Resource = "${aws_s3_bucket.reports.arn}/*"
+      },
+      {
+        # READ-ONLY on the raw bucket, for `POST /admin/backfill/content`.
+        #
+        # 383 signals were collected with their verbatim text written here and only a pointer kept
+        # on the row, so the drill-down could show a source name and a link and nothing readable.
+        # The backfill re-reads each object and populates `signals.content`. Without this grant it
+        # fails every row with AccessDenied — which is exactly what happened on the first run, and
+        # the route reported it per row rather than corrupting anything.
+        #
+        # Deliberately GetObject only. The API must never write or delete here: the raw object is
+        # the audit trail that proves the stored text was not altered, and a service that can
+        # rewrite its own evidence is not an audit trail. Ingestion writes it; the API and the
+        # sentiment worker read it.
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.raw.arn}/*"
       },
       {
         # On-demand scans. The API publishes a request and ingestion consumes it — it cannot call

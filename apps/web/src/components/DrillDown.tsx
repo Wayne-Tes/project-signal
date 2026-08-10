@@ -128,6 +128,26 @@ function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
   );
 }
 
+/**
+ * Whether `content` already begins with `title`.
+ *
+ * Compared loosely — lower-cased, whitespace collapsed, trailing punctuation dropped — because
+ * feeds routinely differ between the two fields by nothing more than a full stop or a
+ * " — Publisher Name" suffix, and a strict comparison therefore reports "different" for text a
+ * reader sees as identical.
+ */
+function opensWith(content: string | null, title: string | null): boolean {
+  if (!content || !title) return false;
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .replace(/[.…]+$/, '')
+      .trim();
+  const t = norm(title);
+  return t.length > 0 && norm(content).startsWith(t.slice(0, Math.min(t.length, 60)));
+}
+
 /** `★★★☆☆` — a rating a person reads at a glance, rather than "4". */
 function Stars({ rating }: { rating: number }) {
   const filled = Math.max(0, Math.min(5, Math.round(rating)));
@@ -171,7 +191,14 @@ function SignalList({ items }: { items: ApiSignal[] }) {
               <span className="when">{s.publishedAt?.slice(0, 10)}</span>
             </div>
 
-            {s.title && <div className="sig-title">{s.title}</div>}
+            {/* The headline is shown ONLY when the body does not already open with it. `content`
+                is title-and-body joined, so rendering both unconditionally printed the same
+                sentence twice, one line apart — which reads as a broken component, not as
+                emphasis. Normalised before comparing because the two differ by punctuation and a
+                publisher suffix far more often than they match exactly. */}
+            {s.title && !opensWith(s.content, s.title) && (
+              <div className="sig-title">{s.title}</div>
+            )}
 
             {s.content ? (
               /* `pre-wrap`, because reviews arrive with paragraph breaks and collapsing them
