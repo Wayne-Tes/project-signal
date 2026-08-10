@@ -246,7 +246,14 @@ function SourcesPanel({ brandId }: { brandId: string }) {
   const groups = unknown.length > 0 ? [...grouped, { type: 'other', feeds: unknown }] : grouped;
 
   return (
-    <section>
+    /* `minWidth: 0` on the section, and on every flex item below that holds text.
+       A flex item defaults to `min-width: auto`, which means it REFUSES to shrink below its own
+       content — so one un-truncated Google News URL in a row made the row 939px wide, and the
+       section, the card and the whole column with it, inside a 720px card. Nothing clipped it;
+       it simply bled over the edge. This is the fix, and it has to be applied at every level
+       between the text and the card, because a single `auto` anywhere in the chain restores the
+       overflow. */
+    <section style={{ minWidth: 0 }}>
       <h3 style={h3}>Feeds</h3>
       <p style={muted}>
         Add as many as you need of any type — a separate Google News search per product, several
@@ -280,21 +287,21 @@ function SourcesPanel({ brandId }: { brandId: string }) {
                           </label>
                           <input
                             id={`edit-label-${s.id}`}
-                            style={{ ...inp, width: 190 }}
+                            style={{ ...inp, ...field(190) }}
                             value={draft.label}
                             placeholder="e.g. Google News — MyConcern"
                             onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
                           />
                         </div>
                         {(SOURCE_FIELDS[s.source] ?? []).map((f) => (
-                          <div key={f.key}>
+                          <div key={f.key} style={fieldBox(230)}>
                             <label style={lbl} htmlFor={`edit-${s.id}-${f.key}`}>
                               {f.label}
                               {f.required ? '' : ' (optional)'}
                             </label>
                             <input
                               id={`edit-${s.id}-${f.key}`}
-                              style={{ ...inp, width: 230 }}
+                              style={{ ...inp, ...field(230) }}
                               value={draft.fields[f.key] ?? ''}
                               placeholder={f.placeholder}
                               onChange={(e) =>
@@ -321,28 +328,27 @@ function SourcesPanel({ brandId }: { brandId: string }) {
                     </li>
                   ) : (
                     <li key={s.id} style={row}>
-                      <span style={{ fontSize: 13, fontWeight: 600, minWidth: 0 }}>
-                        {s.label || describeConfig(s.config)}
-                      </span>
-                      {s.label ? (
-                        <span
-                          style={{
-                            ...muted,
-                            fontSize: 12,
-                            flex: 1,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          title={describeConfig(s.config)}
-                        >
-                          {describeConfig(s.config)}
-                        </span>
-                      ) : (
-                        <span style={{ flex: 1 }} />
-                      )}
+                      {/* Name over settings, in ONE flexible column, rather than side by side.
+                          Two competing text elements on a row that also carries a status, a
+                          toggle and two buttons cannot both be readable at 672px — and a feed
+                          identified by a 90-character Google News URL needs the whole width it
+                          can get. Stacked, each truncates independently and the full value is on
+                          the title attribute. */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={ellipsis} title={s.label ?? describeConfig(s.config)}>
+                          {s.label || describeConfig(s.config)}
+                        </div>
+                        {s.label && (
+                          <div
+                            style={{ ...ellipsis, ...muted, fontSize: 11.5, fontWeight: 400 }}
+                            title={describeConfig(s.config)}
+                          >
+                            {describeConfig(s.config)}
+                          </div>
+                        )}
+                      </div>
 
-                      <span style={{ ...muted, fontSize: 11, whiteSpace: 'nowrap' }}>
+                      <span style={{ ...muted, fontSize: 11, whiteSpace: 'nowrap', flex: 'none' }}>
                         {s.lastFetchedAt
                           ? `last run ${new Date(s.lastFetchedAt).toLocaleDateString('en-GB', {
                               day: 'numeric',
@@ -410,7 +416,7 @@ function SourcesPanel({ brandId }: { brandId: string }) {
             </label>
             <select
               id="sourceType"
-              style={{ ...inp, width: 150 }}
+              style={{ ...inp, ...field(150) }}
               value={source}
               onChange={(e) => {
                 setSource(e.target.value);
@@ -430,28 +436,28 @@ function SourcesPanel({ brandId }: { brandId: string }) {
             </label>
             <input
               id="sourceLabel"
-              style={{ ...inp, width: 190 }}
+              style={{ ...inp, ...field(190) }}
               value={label}
               placeholder="e.g. Google News — MyConcern"
               onChange={(e) => setLabel(e.target.value)}
             />
           </div>
           {SOURCE_FIELDS[source]!.map((f) => (
-            <div key={f.key}>
+            <div key={f.key} style={fieldBox(230)}>
               <label style={lbl} htmlFor={`f-${f.key}`}>
                 {f.label}
                 {f.required ? '' : ' (optional)'}
               </label>
               <input
                 id={`f-${f.key}`}
-                style={{ ...inp, width: 230 }}
+                style={{ ...inp, ...field(230) }}
                 value={fields[f.key] ?? ''}
                 placeholder={f.placeholder}
                 onChange={(e) => setFields((p) => ({ ...p, [f.key]: e.target.value }))}
                 required={f.required}
               />
               {f.hint && (
-                <p style={{ ...muted, fontSize: 11, margin: '3px 0 0', maxWidth: 230 }}>{f.hint}</p>
+                <p style={{ ...muted, fontSize: 11, margin: '3px 0 0' }}>{f.hint}</p>
               )}
             </div>
           ))}
@@ -544,7 +550,7 @@ function AliasesPanel({ brandId }: { brandId: string }) {
           </label>
           <input
             id="aliasInput"
-            style={{ ...inp, width: 200 }}
+            style={{ ...inp, ...field(200) }}
             value={value}
             placeholder="e.g. CDN"
             onChange={(e) => setValue(e.target.value)}
@@ -565,6 +571,12 @@ const card: CSSProperties = {
   background: 'var(--bg-2)',
   border: '1px solid var(--line)',
   borderRadius: 14,
+  /* The backstop. Every other card on this page is exactly 720px; this one grew to fit its
+     widest child and bled 245px past the column. If some future child still refuses to shrink,
+     it is clipped here rather than dragging the page out of alignment. */
+  minWidth: 0,
+  maxWidth: '100%',
+  overflow: 'hidden',
 };
 const h3: CSSProperties = { fontSize: 14, margin: '0 0 6px', color: 'var(--t1)' };
 const muted: CSSProperties = { color: 'var(--t2)', fontSize: 13, margin: 0 };
@@ -574,6 +586,23 @@ const lbl: CSSProperties = {
   color: 'var(--t2)',
   margin: '0 0 4px',
 };
+/**
+ * A form field that keeps its preferred width but is allowed to shrink.
+ *
+ * These were fixed pixel widths — 150 + 190 + 230 + a button, inside a 672px column. In a
+ * wrapping row that does not overflow, but it does force an awkward break and, before the row
+ * wrapped at all, it was part of what pushed the card open. `flex` lets each field claim its
+ * preferred size and give it back when there is not enough room.
+ */
+function field(preferred: number): CSSProperties {
+  return { flex: `1 1 ${preferred}px`, minWidth: 0, width: 'auto', maxWidth: '100%' };
+}
+
+/** The label + input wrapper around one field. It has to shrink with the field inside it. */
+function fieldBox(preferred: number): CSSProperties {
+  return { flex: `1 1 ${preferred}px`, minWidth: 0, maxWidth: '100%' };
+}
+
 const inp: CSSProperties = {
   padding: '9px 12px',
   background: 'var(--bg)',
@@ -625,6 +654,14 @@ const btnDanger: CSSProperties = {
   color: 'var(--coral)',
   borderColor: 'color-mix(in srgb, var(--coral) 45%, transparent)',
 };
+/** One line of text that truncates rather than widening its parent. */
+const ellipsis: CSSProperties = {
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontSize: 13,
+  fontWeight: 600,
+};
 const list: CSSProperties = { listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 };
 const row: CSSProperties = {
   display: 'flex',
@@ -634,6 +671,11 @@ const row: CSSProperties = {
   background: 'var(--bg)',
   border: '1px solid var(--line)',
   borderRadius: 8,
+  /* Both are load-bearing. `minWidth: 0` lets the row shrink to its container instead of to its
+     content; `flexWrap` is the safety valve for a genuinely narrow viewport, where the controls
+     drop to a second line rather than pushing the card open. */
+  minWidth: 0,
+  flexWrap: 'wrap',
 };
 const chip: CSSProperties = {
   display: 'inline-flex',
