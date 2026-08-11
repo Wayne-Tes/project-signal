@@ -568,7 +568,7 @@ difference.
 | `POST /brands`                            | admin, owner | bare row             | Create a brand or a product. `parentId` optional; the parent is checked inside the caller's tenant.                      |
 | `PATCH /brands/:id`                       | admin, owner | bare row             | Rename, re-type, re-own or re-parent. `parentId: null` promotes to a root — distinct from omitting it. Refuses cycles via `wouldCreateCycle`. |
 | `DELETE /brands/:id`                      | admin, owner | 204                  | **Only when nothing is attached.** 409 naming the blocker if it has children, signals, dimension scores, mentions or an assigned user. Aliases, source configs and scan runs are removed with it. See below. |
-| `GET /brands/:id/signals`                 | any          | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`, `?sourceConfigId=`, `?topic=`, `?dimension=`; `limit` max 100, default 50. `topic` and `dimension` are EXISTS sub-selects against `sentiment_results`, never joins — a join multiplies the signal row by its array members and breaks both the page size and the cursor. |
+| `GET /brands/:id/signals`                 | any          | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`, `?sourceConfigId=`, `?topic=`, `?dimension=`; `limit` max 100, default 50. Returns `content`/`title`/`author`/`rating` and a nested `sentiment` (LEFT join; null = unscored). `topic` and `dimension` are EXISTS sub-selects against `sentiment_results`, never joins — a join multiplies the signal row by its array members and breaks both the page size and the cursor. |
 | `GET /brands/:id/sentiment-summary`       | any          | object               | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results.    |
 | `GET /brands/:id/dimension-scores`        | any          | bare array           | Dimension history from `dimension_scores`, `from`/`to` optional, default last 90 days. Lives in `routes/scores.ts`.     |
 | `GET /brands/:id/score`                   | any          | object               | Brand Perception Index for the latest rollup, its per-dimension breakdown, and the comparison point ≥7 days earlier.    |
@@ -609,6 +609,27 @@ each signal, so a finding can be attributed to *"Google News — Tes MyConcern"*
 busy hourly feed pushed the cutoff to now and a quieter feed on the same brand had everything it
 published filtered out as too old, on every run, permanently — indistinguishable from nobody
 talking about the brand.
+
+**Where the readable evidence lives.** `signals` carries `content`, `title`, `author` and `rating`
+(migration `0013`). Before them the verbatim text was written to S3 and never read back, so the
+drill-down could show a source name, a date and a link — and nothing a person could read. `content`
+is the normalised form: markup stripped, title joined to body, deduplicated, clamped to
+`MAX_CONTENT_LENGTH`. `raw_storage_ref` and its S3 object remain, and `source_url` is still
+returned and still rendered — **the link to the original is an addition, never a substitute.**
+
+Normalisation happens in the ADAPTER (`libs/source-adapters/src/text.ts`), not at render time, so
+the scorer sees the same words the user sees. This matters concretely: Google News RSS produced
+225 of this tenant's 228 signals and its `<description>` is an anchor tag wrapping the headline,
+so trust and quality scores were partly assigned to HTML. `joinTitleAndBody` and
+`dedupeParagraphs` are **idempotent** — re-processing converges rather than compounds — which is
+load-bearing, because the S3 payload is overwritten on re-collection and is therefore not the
+immutable audit trail it was described as. See KNOWN-GAPS #28.
+
+`GET /brands/:id/signals` returns those columns plus the scorer's verdict, LEFT-joined from
+`sentiment_results` (safe for the keyset cursor: `signal_id` is `UNIQUE`). `sentiment: null` means
+unscored, which is rendered differently from neutral. `POST /admin/backfill/content` recovers the
+columns for rows collected earlier; `?force=true` clears and recomputes them when the
+normalisation itself improves.
 
 **Why `/topics` exists alongside `/brand-impact` and `/strengths`.** All three read the same
 clusters out of `clusterTopics()`; the difference is which ones they throw away. `brandImpact`
