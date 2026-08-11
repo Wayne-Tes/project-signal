@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clampContent,
   decodeEntities,
+  dedupeParagraphs,
   joinTitleAndBody,
   MAX_CONTENT_LENGTH,
   stripHtml,
@@ -220,5 +221,54 @@ describe('the hyphen that broke the first fix', () => {
        the same. */
     const out = joinTitleAndBody('Great for planning', 'Support is slow but the app is reliable.');
     expect(out).toContain('\n\n');
+  });
+});
+
+/**
+ * Idempotence — the property that turned out to matter more than the specific bug.
+ *
+ * The raw S3 payload is written on every collection run under a key derived from the item's
+ * external id, so re-collecting an item OVERWRITES its object with whatever `RawItem.text` holds
+ * at that moment. Once the joining logic shipped, that value was the already-joined
+ * title-plus-body — and the "untouched raw payload" stopped being untouched.
+ *
+ * The backfill therefore could not repair the data, because the thing it re-derived FROM had
+ * itself been rewritten. Deduplicating paragraphs makes re-processing converge instead of
+ * compound, which is what stops a future normalisation change corrupting what it re-reads.
+ */
+describe('dedupeParagraphs', () => {
+  it('repairs text that was already joined once', () => {
+    /* The exact stored payload, read out of S3 on 2026-08-11. */
+    const stored =
+      'A better way to help pupils engage with global crises - Tes\n\nA better way to help pupils engage with global crises Tes';
+    const out = dedupeParagraphs(stored);
+    expect(out.split('\n\n')).toHaveLength(1);
+    expect(out).toContain('A better way to help pupils engage with global crises');
+  });
+
+  it('makes joinTitleAndBody idempotent', () => {
+    const once = joinTitleAndBody('Constant crashes', 'It closes whenever I open a class.');
+    const twice = joinTitleAndBody('Constant crashes', once);
+    expect(twice).toBe(once);
+  });
+
+  it('keeps the fuller wording of two near-identical paragraphs', () => {
+    const out = dedupeParagraphs('Tes wins award\n\nTes wins award for teaching resources');
+    expect(out).toBe('Tes wins award for teaching resources');
+  });
+
+  it('leaves genuinely different paragraphs alone', () => {
+    const text = 'The app crashes constantly.\n\nSupport have not replied in two weeks.';
+    expect(dedupeParagraphs(text)).toBe(text);
+  });
+
+  it('only compares ADJACENT paragraphs', () => {
+    /* A review that returns to an earlier point later on is making that point twice on purpose. */
+    const text = 'It crashes.\n\nSupport is slow.\n\nIt crashes.';
+    expect(dedupeParagraphs(text).split('\n\n')).toHaveLength(3);
+  });
+
+  it('passes single-paragraph text straight through', () => {
+    expect(dedupeParagraphs('Just one thing to say.')).toBe('Just one thing to say.');
   });
 });

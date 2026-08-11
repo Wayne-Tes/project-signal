@@ -169,10 +169,26 @@ export async function handleIngestionJob(
   for (const item of items) {
     const base = adapter.toSignal(item, adapterConfig);
 
-    // Persist the verbatim payload BEFORE the row, so raw_storage_ref can never point at an
-    // object that does not exist. The reverse order would leave rows whose evidence is
-    // unresolvable if the upload fails. This is the audit trail the product spec promises,
-    // and the text the sentiment worker scores.
+    // Persist the payload BEFORE the row, so raw_storage_ref can never point at an object that
+    // does not exist. The reverse order would leave rows whose evidence is unresolvable if the
+    // upload fails. This is the text the sentiment worker scores.
+    //
+    // IT IS NOT AN IMMUTABLE AUDIT TRAIL, despite having been described as one here and
+    // elsewhere. Two things are true and were not obvious:
+    //
+    //   1. The key is derived from the item's external id, so re-collecting an item OVERWRITES
+    //      its object rather than adding a version.
+    //   2. `item.text` is what the ADAPTER produced — markup already stripped, title already
+    //      joined — not the bytes the source returned.
+    //
+    // So after a normalisation change ships, the next collection run rewrites these objects in
+    // the new shape, and anything re-derived from them inherits it. That is how a fix for
+    // duplicated headlines failed to repair the rows it was written for: the source it re-read
+    // had itself been rewritten with the duplication in place.
+    //
+    // The mitigation is that text normalisation is IDEMPOTENT (`dedupeParagraphs`), so
+    // re-processing converges rather than compounds. The real fix — storing the untouched source
+    // string alongside the processed one — is recorded in docs/KNOWN-GAPS.md #28.
     const rawStorageRef = await store.put(
       rawKey(cfg.tenantId, cfg.brandEntityId, cfg.source, item.externalId),
       JSON.stringify({

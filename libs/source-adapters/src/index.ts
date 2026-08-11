@@ -49,7 +49,14 @@ export interface SourceAdapter {
   ): Omit<Signal, 'id' | 'ingestedAt' | 'rawStorageRef'>;
 }
 
-export { clampContent, decodeEntities, joinTitleAndBody, stripHtml, MAX_CONTENT_LENGTH } from './text.js';
+export {
+  clampContent,
+  decodeEntities,
+  dedupeParagraphs,
+  joinTitleAndBody,
+  stripHtml,
+  MAX_CONTENT_LENGTH,
+} from './text.js';
 
 export { GoogleReviewsAdapter } from './googleReviews.js';
 export { AppStoreAdapter } from './appStore.js';

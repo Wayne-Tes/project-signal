@@ -921,6 +921,42 @@ FREE plan belonging to the former contractor. See `docs/OWNER-ACTIONS.md` §4b.
 
 ---
 
+## 28. 🟠 The "raw" S3 payload is neither raw nor immutable
+
+Described in several comments — and in a commit message — as "the untouched payload" and "the
+audit trail". **Both claims are false**, and it took a failed fix to notice.
+
+Two facts, neither obvious:
+
+1. **The object key is derived from the item's external id**, so re-collecting an item
+   **overwrites** its object. There is no versioning on the bucket.
+2. **`RawItem.text` is what the adapter produced**, not what the source returned — markup already
+   stripped, title already joined.
+
+So when a normalisation change ships, the next collection run rewrites every object it re-collects
+in the new shape, and anything re-derived from them inherits it.
+
+**How it surfaced.** The drill-down printed Google News headlines twice. The joining rule was
+fixed and `POST /admin/backfill/content?force=true` re-derived all 383 rows from S3 — and the
+duplication survived, because the stored `text` was itself already
+`"…crises - Tes\n\n…crises Tes"`. The backfill was faithfully reproducing a corrupted source. The
+first verification script missed it too, because it reused the same comparison the code used.
+
+**Mitigated, not fixed.** `dedupeParagraphs` makes normalisation idempotent: re-processing
+converges instead of compounding, so this class of change can no longer corrupt what it re-reads.
+That is the property worth having and it is in place.
+
+**To close properly:** carry the untouched source string on `RawItem` (`sourceText`, `sourceTitle`)
+and persist that to S3 alongside the processed text, so re-derivation always starts from what the
+source actually said. Six adapters and the ingestion handler, plus their tests. Worth doing before
+any further normalisation change, and **not** worth doing badly in the middle of unrelated work —
+which is why it is written down rather than rushed.
+
+Consider S3 object versioning on the raw bucket at the same time. It is cheap, it makes overwrites
+recoverable, and it would have made this diagnosable in one command instead of several.
+
+---
+
 ## Burn-down order
 
 **This register is the backlog** (owner's decision, 2026-08-06 — see `DEVRULES.md` § Standing

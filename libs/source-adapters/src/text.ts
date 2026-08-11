@@ -138,9 +138,79 @@ export function joinTitleAndBody(title: string | undefined, body: string | undef
      sentiment — collapsing there would discard the strongest signal in the item. */
   const nearlyIdentical = longer.includes(shorter) && shorter.length / longer.length >= 0.8;
 
-  if (isTruncation || nearlyIdentical) return b.length >= t.length ? b : t;
+  /* Deduplicated on the way out in BOTH branches. The chosen string may itself already contain
+     repeated paragraphs — see `dedupeParagraphs` for how that came to be true of the stored
+     payloads — and returning it unexamined is what made this function unable to repair its own
+     earlier output. */
+  if (isTruncation || nearlyIdentical) return dedupeParagraphs(b.length >= t.length ? b : t);
 
-  return `${t}\n\n${b}`;
+  return dedupeParagraphs(`${t}\n\n${b}`);
+}
+
+/**
+ * Removes consecutive paragraphs that say the same thing.
+ *
+ * WHY THIS IS NEEDED AS WELL AS `joinTitleAndBody`, and why it is the more important of the two.
+ *
+ * `joinTitleAndBody` prevents duplication being CREATED. It cannot repair duplication that is
+ * already in its input — and it turned out that it was. The raw S3 payload is written by
+ * ingestion on every collection run under a key derived from the item's external id, so
+ * re-collecting an item OVERWRITES its object with whatever `RawItem.text` holds at that moment.
+ * After the first deploy of the joining logic, that value was the already-joined title-plus-body,
+ * and the "untouched raw payload" stopped being untouched.
+ *
+ * The consequence is that re-running the backfill could not fix the data, because its source had
+ * itself been rewritten — and `joinTitleAndBody` faithfully returned the longer of the two
+ * strings, which was the duplicated one.
+ *
+ * Deduplicating paragraphs makes the whole pipeline IDEMPOTENT: running it over already-processed
+ * text converges instead of compounding. That property is worth more than the specific bug it
+ * fixes, because it means a future normalisation change cannot corrupt data it re-processes.
+ *
+ * 0.9 word overlap, on consecutive paragraphs only. High enough that two genuinely different
+ * sentences survive; adjacent-only so a review that circles back to a point later is untouched.
+ */
+export function dedupeParagraphs(value: string): string {
+  const paragraphs = value.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (paragraphs.length < 2) return value.trim();
+
+  const words = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+  const overlap = (a: string, b: string): number => {
+    const A = words(a);
+    const B = words(b);
+    if (A.size === 0 || B.size === 0) return 0;
+    let shared = 0;
+    for (const w of A) if (B.has(w)) shared += 1;
+    return shared / (A.size + B.size - shared);
+  };
+
+  /* Word-normalised, so a hyphen or a publisher suffix cannot make two identical sentences look
+     different — the mistake that defeated the first version of this fix. */
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+
+  /** One paragraph is the other, truncated — so the shorter adds nothing. */
+  const isTruncationOf = (a: string, b: string): boolean => {
+    const [x, y] = [norm(a), norm(b)];
+    if (!x || !y) return false;
+    return x.length <= y.length ? y.startsWith(x) : x.startsWith(y);
+  };
+
+  const kept: string[] = [];
+  for (const paragraph of paragraphs) {
+    const previous = kept[kept.length - 1];
+    if (previous && (overlap(previous, paragraph) >= 0.9 || isTruncationOf(previous, paragraph))) {
+      /* Keep whichever is longer: the fuller wording is the more useful evidence, and the two
+         differ only in trivia by definition at this threshold. */
+      if (paragraph.length > previous.length) kept[kept.length - 1] = paragraph;
+      continue;
+    }
+    kept.push(paragraph);
+  }
+  return kept.join('\n\n');
 }
 
 /** Trims to a sane column width for storage. Reviews are short; a scraped article body is not. */
