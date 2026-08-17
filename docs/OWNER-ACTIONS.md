@@ -414,6 +414,39 @@ render. This is the checkpoint those two gaps have been waiting on since before 
 
 ---
 
+## 5c. 🟠 Classify the feeds by territory
+
+**Territory reporting shipped 2026-08-17 and works — but it can only report what is classified,
+and almost nothing is.** Verified live the same day:
+
+| Territory | Signals | Index |
+| --- | ---: | --- |
+| All | 337 | 51.6 |
+| United Kingdom | 1 | 92.5 |
+| Global | 0 | not scored |
+| **Not set** | **336** | 48.4 |
+
+Two feeds are classified: the App Store feed is **GB** (its own config said `country=UK`, which
+the API corrected to the ISO code) and the "Tes for Teachers" YouTube channel is **GLOBAL**,
+because `Tes Social Channels.md` says so. **I classified only what that sheet or the feed's own
+configuration justified**, and left the other eight at *Not set* rather than guessing — a feed
+filed under the wrong territory produces reporting that is confidently wrong and that nobody ever
+finds.
+
+**What is needed:** someone who knows the feeds sets a territory on each, in Admin → Feeds. The
+Google News searches ("Tes MyConcern", "Tes Jobs", "Tes Institute", "TES full name") are the
+ambiguous ones — they are our own RSS searches rather than channels on the sheet, so whether they
+are GB or GLOBAL is a judgement about who the coverage is for.
+
+Then run **`POST /admin/backfill/territory`** (owner or admin) to stamp the existing signals from
+their feeds. It is idempotent and set-based; signals collected before `source_config_id` existed
+— 80 of them — will stay *Not set*, because there is genuinely nothing to inherit from.
+
+**Six rows in the sheet say `Global?`.** The API refuses that value rather than guessing, so
+those need a decision from whoever maintains it before they can be imported.
+
+---
+
 ## 6. 🟡 Decide the hostname for the shared URL
 
 **What:** whether the team-facing URL is the raw ALB DNS name, or a proper hostname under a TES
