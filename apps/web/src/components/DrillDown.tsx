@@ -5,6 +5,7 @@ import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
 import {
   withTerritory,
+  emptyScoreMessage,
   DIMENSION_LABELS,
   isDimensionKey,
   roundScore,
@@ -87,10 +88,7 @@ function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
       {index === null ? (
         /* "Not scored" is a different statement from "scored zero", and only one of them is
            true here. */
-        <p className="prov">
-          This brand has no Brand Perception Index yet — the daily rollup has not scored it.
-          Scores appear once signals have been ingested and scored.
-        </p>
+        <p className="prov">{emptyScoreMessage(territory)}</p>
       ) : (
         <>
           <MetricRow
