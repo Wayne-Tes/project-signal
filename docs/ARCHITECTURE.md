@@ -174,8 +174,16 @@ mentions that don't use the canonical brand name (e.g. "Cadence", "Cadence Bank"
 `tenant_id`, `brand_entity_id`, `alias`, **unique `(brand_entity_id, alias)`**.
 
 **`signals`** — one row per ingested item. The spine of the system.
-`tenant_id`, `brand_entity_id`, `source` varchar(50), `source_url`, `raw_storage_ref`,
+`tenant_id`, `brand_entity_id`, `source` varchar(50), `source_config_id`, **`territory`**
+(default `unknown`), `source_url`, `raw_storage_ref`, `content`, `title`, `author`, `rating`,
 `published_at`, `ingested_at`.
+
+`territory` is **copied from the feed at insert**, not joined at read time. `source_config_id` is
+nullable and `ON DELETE SET NULL`, so a join would erase the territory of every signal a feed ever
+collected the moment that feed is deleted — and that evidence belongs to the brand, not to the
+configuration. Changing a feed's territory therefore does **not** rewrite history; correcting a
+misconfiguration retrospectively is `POST /admin/backfill/territory`, a deliberate act rather than
+a side effect of an edit.
 
 Sentiment lives **only** in `sentiment_results`, read by joining. `signals` used to carry
 `sentiment_label` / `sentiment_score` / `confidence` / `model_version` as well — a second home
@@ -195,17 +203,41 @@ results row.
 `dimensions` text[], `topics` text[], `model_version`, `scored_at`.
 The unique constraint is what makes scoring idempotent — the worker upserts on it.
 
-**`dimension_scores`** — daily per-brand per-dimension rollups.
-`tenant_id`, `brand_entity_id`, `date`, `dimension`, `score`, `signal_count`,
-**unique `(brand_entity_id, date, dimension)`**.
+**`dimension_scores`** — daily per-brand, per-dimension, **per-territory** rollups.
+`tenant_id`, `brand_entity_id`, `date`, `dimension`, `territory`, `score`, `signal_count`,
+**unique `(brand_entity_id, date, dimension, territory)`**.
 Written by `rollupDimensionScores()` in `apps/ingestion/src/rollup.ts`, exposed as
-`POST /rollup` and driven by a daily Cloud Scheduler job. The unique constraint is what makes
-that upsert idempotent, so a retried or manually re-triggered run overwrites rather than
-duplicating.
+`POST /rollup`. The unique constraint is what makes that upsert idempotent, so a retried or
+manually re-triggered run overwrites rather than duplicating.
 
-**`source_configs`** — one row per `(brand, source)` pair; drives ingestion.
-`tenant_id`, `brand_entity_id`, `source`, `is_enabled` (default true), `config` JSONB
-(default `{}`), `last_fetched_at`, timestamps, **unique `(brand_entity_id, source)`**.
+> **`territory` is `NOT NULL` with an `'all'` sentinel, and that is load-bearing.** Postgres treats
+> NULLs as DISTINCT in a unique constraint, so a nullable column would let the aggregate row
+> violate uniqueness silently: `ON CONFLICT` would stop matching and the hourly upsert would start
+> APPENDING a duplicate set of rows every hour, forever, with no error anywhere.
+>
+> The constraint is also **named explicitly** (`dimension_scores_brand_date_dim_territory_uniq`).
+> Drizzle's default name would be 64 characters — one over Postgres's identifier limit — so the
+> server truncates it while drizzle's snapshot records the full name, and the first future
+> migration that drops or renames it would fail against a real database while passing every test.
+>
+> **Any read of this table must filter `territory`.** It holds one row per territory *plus* the
+> `'all'` row for the same `(brand, date, dimension)`, so an unfiltered read returns the aggregate
+> and each of its parts together — the history chart plots several points per day and the totals
+> double-count. `/score` and `/dimension-scores` default to `'all'`.
+
+**`source_configs`** — one row per configured feed; drives ingestion.
+`tenant_id`, `brand_entity_id`, `source`, `label`, **`territory`** (default `unknown`),
+`is_enabled` (default true), `config` JSONB (default `{}`), `last_fetched_at`,
+`last_attempted_at`, `last_error`, timestamps.
+
+`territory` is the **authority** for a signal's territory, validated against `TERRITORIES` in
+shared-types on write — a bare varchar would accept `UK`, which ISO does not assign, splitting
+Great Britain across two values that no report could reconcile. It sits on the FEED rather than
+the brand because a brand is not British: `@TeachStarterUSA` and `@TeachStarter` are the same
+product in two countries, which is exactly how the marketing team's channel sheet is organised.
+`normaliseTerritory` corrects the spellings that sheet actually uses (`UK`, `AUS`, `USA`) and
+**refuses** anything ambiguous — including its six `Global?` entries, where the question mark is
+the author saying they are unsure.
 
 The JSONB `config` shape varies by source (documented in `sourceConfigs.ts`):
 
@@ -1035,6 +1067,19 @@ and passed as a Docker build arg by the deploy workflows — see
 | `Roadmap`     | live     | Actions derived from damage-ranked clusters → `/brand-impact`. **Ranking only — it states the problem, it does not yet recommend a fix.** The recommendation producer is specified in `Project-Signal-Product-Spec.md` §7.3 / §5.6 (the weekly report cycle) and planned in `PLAN-change-territory-and-actions.md` §3. |
 | `Report`      | **mock** | Print-styled weekly report. Epic 12.                                                                                                             |
 | `Admin`       | live     | Tenant creation, `BrandManager`, `UserManager`                                                                                                   |
+
+### The territory lens
+
+`components/TerritoryPicker.tsx` sits in the top bar and sets `territory` on the brand context;
+every view builds its query through `withTerritory()` in `lib/brand-data.ts`, so all of them ask
+the same question of the same scope. Two views constructing that query separately is how a UK
+headline ends up above an all-territories breakdown — both plausible, silently disagreeing.
+
+The picker **only offers territories the brand actually collects from**, read from its configured
+feeds. A full ISO list would be a dozen options, eleven of which return an empty dashboard — and
+an empty dashboard is indistinguishable from a broken one. It hides itself entirely below two
+options, and the selection is **not persisted**: a brand is a durable choice, a territory is a
+lens, and a stale one restored on the next visit would put Australian numbers under a UK heading.
 
 ### Charts and motion
 

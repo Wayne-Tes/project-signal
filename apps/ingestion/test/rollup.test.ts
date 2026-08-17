@@ -37,7 +37,7 @@ vi.mock('@project-signal/db', () => {
        Here it only has to be callable. */
     attributedTo: vi.fn(() => ({ _attributedTo: true })),
     signalMentions: {},
-    dimensionScores: { brandEntityId: {}, date: {}, dimension: {} },
+    dimensionScores: { brandEntityId: {}, date: {}, dimension: {}, territory: {} },
     sourceConfigs: {},
     client: { get: vi.fn() },
   };
@@ -66,13 +66,22 @@ describe('rollupDimensionScores', () => {
         label: 'positive',
         dimensions: ['trust', 'service'],
         topics: ['support'],
+        territory: 'GB',
       },
     ];
 
     const result = await rollupDimensionScores(ASOF);
 
-    expect(result).toEqual({ brands: 1, rows: 2 });
-    expect(inserted.map((r) => r['dimension']).sort()).toEqual(['service', 'trust']);
+    /* Two dimensions x two partitions: the 'all' aggregate and GB. The aggregate is always
+       written, from every signal regardless of territory, so it cannot drift from its parts. */
+    expect(result).toEqual({ brands: 1, rows: 4 });
+    expect(inserted.map((r) => r['dimension']).sort()).toEqual([
+      'service',
+      'service',
+      'trust',
+      'trust',
+    ]);
+    expect([...new Set(inserted.map((r) => r['territory']))].sort()).toEqual(['GB', 'all']);
     expect(inserted[0]).toMatchObject({
       tenantId: 'tenant-1',
       brandEntityId: 'brand-1',

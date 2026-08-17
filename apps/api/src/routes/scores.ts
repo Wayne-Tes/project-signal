@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import {
   attributedTo,
+  territoryFilter,
   db,
   brandEntities,
   dimensionScores,
@@ -19,7 +20,7 @@ import {
   type DimensionRollup,
   type ScoredItem,
 } from '@project-signal/scoring';
-import type { Dimension, SentimentLabel } from '@project-signal/shared-types';
+import { TERRITORY_ALL, type Dimension, type SentimentLabel } from '@project-signal/shared-types';
 import { and, asc, count, desc, eq, gte, lt, lte, max, sql } from 'drizzle-orm';
 import { requireBrandAccess } from '../plugins/auth.js';
 import { sourceConfigs } from '@project-signal/db';
@@ -95,6 +96,11 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: 'object',
           properties: {
+            territory: {
+              type: 'string',
+              description:
+                "Restrict to one territory (ISO 3166-1 alpha-2, or GLOBAL). Omit, or pass 'all', for every territory combined.",
+            },
             from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to 90 days ago.' },
             to: { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
           },
@@ -104,7 +110,11 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { id } = request.params as { id: string };
-      const { from, to } = request.query as { from?: string; to?: string };
+      const { from, to, territory } = request.query as {
+        from?: string;
+        to?: string;
+        territory?: string;
+      };
 
       return db
         .get()
@@ -119,6 +129,13 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
           and(
             eq(dimensionScores.tenantId, request.user.tenantId),
             eq(dimensionScores.brandEntityId, id),
+            /* DEFAULTS TO THE AGGREGATE, and must. This table now holds one row per territory
+               PLUS the `'all'` row for the same (brand, date, dimension). Reading it unfiltered
+               would return the aggregate and each of its parts together, so the history chart
+               would plot several points per day and the totals would silently double-count. An
+               unfiltered read of a table that gained a dimension is the classic way a new column
+               breaks an old query without erroring. */
+            eq(dimensionScores.territory, territory || TERRITORY_ALL),
             gte(dimensionScores.date, from ?? daysAgo(DEFAULT_HISTORY_DAYS)),
             lte(dimensionScores.date, to ?? toDateKey(new Date())),
           ),
@@ -141,6 +158,16 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         security: [{ BearerAuth: [] }],
         params: { type: 'object', properties: { id: { type: 'string' } } },
+        querystring: {
+          type: 'object',
+          properties: {
+            territory: {
+              type: 'string',
+              description:
+                "Restrict to one territory (ISO 3166-1 alpha-2, or GLOBAL). Omit, or pass 'all', for every territory combined.",
+            },
+          },
+        },
         response: {
           200: {
             type: 'object',
@@ -163,6 +190,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { id } = request.params as { id: string };
+      const { territory } = request.query as { territory?: string };
       const database = db.get();
 
       const [brand] = await database
@@ -182,6 +210,10 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
           and(
             eq(dimensionScores.tenantId, request.user.tenantId),
             eq(dimensionScores.brandEntityId, id),
+            /* The aggregate unless a territory is asked for. Without this the "latest rollup"
+               logic below picks whichever territory's row happens to sort first and reports it
+               as the brand's index — a real number for a real subset, presented as the whole. */
+            eq(dimensionScores.territory, territory || TERRITORY_ALL),
           ),
         )
         .orderBy(desc(dimensionScores.date));
@@ -244,16 +276,23 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
         params: { type: 'object', properties: { id: { type: 'string' } } },
         querystring: {
           type: 'object',
-          properties: { limit: { type: 'integer', minimum: 1, maximum: 20, default: 3 } },
+          properties: {
+            territory: {
+              type: 'string',
+              description:
+                "Restrict to one territory (ISO 3166-1 alpha-2, or GLOBAL). Omit, or pass 'all', for every territory combined.",
+            },
+            limit: { type: 'integer', minimum: 1, maximum: 20, default: 3 },
+          },
         },
         response: { 200: { type: 'array', items: CLUSTER_SCHEMA } },
       },
     },
     async (request) => {
       const { id } = request.params as { id: string };
-      const { limit = 3 } = request.query as { limit?: number };
+      const { limit = 3, territory } = request.query as { limit?: number; territory?: string };
       const asOf = new Date();
-      const items = await readScoredItems(request.user.tenantId, id, asOf);
+      const items = await readScoredItems(request.user.tenantId, id, asOf, territory);
 
       return brandImpact(clusterTopics(items, asOf), limit);
     },
@@ -282,6 +321,11 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: 'object',
           properties: {
+            territory: {
+              type: 'string',
+              description:
+                "Restrict to one territory (ISO 3166-1 alpha-2, or GLOBAL). Omit, or pass 'all', for every territory combined.",
+            },
             dimension: {
               type: 'string',
               enum: [...DIMENSIONS],
@@ -295,12 +339,20 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { id } = request.params as { id: string };
-      const { dimension, limit = DEFAULT_TOPIC_LIMIT } = request.query as {
+      const {
+        dimension,
+        limit = DEFAULT_TOPIC_LIMIT,
+        territory,
+      } = request.query as {
         dimension?: Dimension;
         limit?: number;
+        territory?: string;
       };
       const asOf = new Date();
-      const clusters = clusterTopics(await readScoredItems(request.user.tenantId, id, asOf), asOf);
+      const clusters = clusterTopics(
+        await readScoredItems(request.user.tenantId, id, asOf, territory),
+        asOf,
+      );
 
       /* Unfiltered, the clusters arrive damage-sorted from `clusterTopics`. Re-sorting by the
          same presence measure the dimension view uses keeps the two consistent — a caller asking
@@ -325,16 +377,23 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
         params: { type: 'object', properties: { id: { type: 'string' } } },
         querystring: {
           type: 'object',
-          properties: { limit: { type: 'integer', minimum: 1, maximum: 20, default: 3 } },
+          properties: {
+            territory: {
+              type: 'string',
+              description:
+                "Restrict to one territory (ISO 3166-1 alpha-2, or GLOBAL). Omit, or pass 'all', for every territory combined.",
+            },
+            limit: { type: 'integer', minimum: 1, maximum: 20, default: 3 },
+          },
         },
         response: { 200: { type: 'array', items: CLUSTER_SCHEMA } },
       },
     },
     async (request) => {
       const { id } = request.params as { id: string };
-      const { limit = 3 } = request.query as { limit?: number };
+      const { limit = 3, territory } = request.query as { limit?: number; territory?: string };
       const asOf = new Date();
-      const items = await readScoredItems(request.user.tenantId, id, asOf);
+      const items = await readScoredItems(request.user.tenantId, id, asOf, territory);
       return topStrengths(clusterTopics(items, asOf), limit);
     },
   );
@@ -451,6 +510,7 @@ async function readScoredItems(
   tenantId: string,
   brandEntityId: string,
   asOf: Date,
+  territory?: string,
 ): Promise<ScoredItem[]> {
   const since = new Date(asOf.getTime() - BRAND_IMPACT_LOOKBACK_DAYS * MS_PER_DAY);
   const rows = await db
@@ -470,7 +530,13 @@ async function readScoredItems(
        endpoint explains has always counted mentions as well as the foreign key; this read path
        did not, so a product discussed in group-level coverage scored on the dashboard while its
        clusters and drill-down showed less. One predicate, imported by both. */
-    .where(and(attributedTo(brandEntityId, tenantId), gte(signals.publishedAt, since)));
+    .where(
+      and(
+        attributedTo(brandEntityId, tenantId),
+        territoryFilter(territory),
+        gte(signals.publishedAt, since),
+      ),
+    );
 
   return rows.map((r) => ({
     signalId: r.signalId,

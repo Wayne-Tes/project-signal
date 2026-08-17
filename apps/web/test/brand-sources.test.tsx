@@ -146,9 +146,40 @@ describe('adding a feed', () => {
         source: 'rss',
         label: 'Third feed',
         config: { feedUrl: 'https://c.example/feed.xml' },
+        /* Defaults to 'unknown', never to a guessed country. A feed filed under the wrong
+           territory produces reporting that is confidently wrong and that nobody ever finds. */
+        territory: 'unknown',
         isEnabled: true,
       });
     });
+  });
+
+  it('sends the territory chosen on the form', async () => {
+    render(<BrandManager />);
+    await waitFor(() => expect(screen.getByLabelText('Feed URL')).toBeTruthy());
+
+    await userEvent.type(screen.getByLabelText('Feed URL'), 'https://d.example/feed.xml');
+    await userEvent.selectOptions(screen.getByLabelText('Territory'), 'AU');
+    await userEvent.click(screen.getByRole('button', { name: 'Add feed' }));
+
+    await waitFor(() => {
+      const post = calls('POST')[0];
+      expect(JSON.parse(post![1].body).territory).toBe('AU');
+    });
+  });
+
+  it('offers the territory by name, not by raw code', async () => {
+    /* The stored value is the ISO code; the label is presentation. Showing "AU" in a dropdown
+       makes the operator guess, and guessing is how "UK" ends up somewhere ISO calls "GB". */
+    render(<BrandManager />);
+    await waitFor(() => expect(screen.getByLabelText('Territory')).toBeTruthy());
+
+    const select = screen.getByLabelText('Territory') as HTMLSelectElement;
+    const names = [...select.options].map((o) => o.textContent);
+    expect(names).toContain('Australia');
+    expect(names).toContain('United Kingdom');
+    expect(names).toContain('Not set');
+    expect(names).not.toContain('AU');
   });
 
   it('will not submit until every required field is filled', async () => {

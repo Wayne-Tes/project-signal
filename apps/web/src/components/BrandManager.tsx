@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { apiFetch } from '@/lib/api';
+import { TERRITORIES, TERRITORY_LABELS } from '@project-signal/shared-types';
 import { sourceMeta } from '@/config/sources';
 import { SourceGlyph } from './primitives';
 
@@ -10,6 +11,7 @@ type SourceConfig = {
   id: string;
   source: string;
   label: string | null;
+  territory?: string;
   isEnabled: boolean;
   config: Record<string, string>;
   lastFetchedAt: string | null;
@@ -185,6 +187,7 @@ function SourcesPanel({ brandId }: { brandId: string }) {
   const [source, setSource] = useState(SOURCE_TYPES[0]!);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [label, setLabel] = useState('');
+  const [territory, setTerritory] = useState<string>('unknown');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -215,10 +218,17 @@ function SourcesPanel({ brandId }: { brandId: string }) {
     try {
       await apiFetch(`/brands/${brandId}/integrations`, {
         method: 'POST',
-        body: JSON.stringify({ source, config: fields, label: label.trim(), isEnabled: true }),
+        body: JSON.stringify({
+          source,
+          config: fields,
+          label: label.trim(),
+          territory,
+          isEnabled: true,
+        }),
       });
       setFields({});
       setLabel('');
+      setTerritory('unknown');
       load();
     } catch (e) {
       /* Shown verbatim. The API 409 says "this exact feed is already configured", which is the
@@ -490,6 +500,27 @@ function SourcesPanel({ brandId }: { brandId: string }) {
               placeholder="e.g. Google News — MyConcern"
               onChange={(e) => setLabel(e.target.value)}
             />
+          </div>
+          {/* Territory sits on the FEED, not the brand: @TeachStarterUSA and @TeachStarter are
+              the same product in two countries. Defaults to "Not set" rather than guessing a
+              country — a feed filed under the wrong one produces reporting that is confidently
+              wrong and that nobody ever finds. */}
+          <div>
+            <label style={lbl} htmlFor="sourceTerritory">
+              Territory
+            </label>
+            <select
+              id="sourceTerritory"
+              style={{ ...inp, ...field(170) }}
+              value={territory}
+              onChange={(e) => setTerritory(e.target.value)}
+            >
+              {TERRITORIES.map((t) => (
+                <option key={t} value={t}>
+                  {TERRITORY_LABELS[t]}
+                </option>
+              ))}
+            </select>
           </div>
           {SOURCE_FIELDS[source]!.map((f) => (
             <div key={f.key} style={fieldBox(230)}>

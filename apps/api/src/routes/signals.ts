@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { attributedTo, db, signals, sentimentResults } from '@project-signal/db';
+import { attributedTo, db, signals, sentimentResults, territoryFilter } from '@project-signal/db';
 import { and, desc, eq, gt, lt, or, count, avg, sql, type SQL } from 'drizzle-orm';
 import { DIMENSIONS } from '@project-signal/scoring';
 import { requireBrandAccess } from '../plugins/auth.js';
@@ -43,6 +43,9 @@ const SIGNAL_SCHEMA = {
     title: { type: 'string', nullable: true },
     author: { type: 'string', nullable: true },
     rating: { type: 'integer', nullable: true },
+    /* Declared, or fast-json-stringify strips it and the drill-down silently loses the badge —
+       the same failure that once made this endpoint return items: [{}, {}]. */
+    territory: { type: 'string' },
     /* The scorer's verdict on THIS signal, joined from `sentiment_results`. The audience is a
        marketing manager, not an engineer: showing a quotation without saying whether the model
        read it as positive or negative — and on which dimension — leaves them to infer the
@@ -158,6 +161,11 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
             limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT, default: DEFAULT_LIMIT },
             cursor: { type: 'string' },
             source: { type: 'string' },
+            territory: {
+              type: 'string',
+              description:
+                "Restrict to signals collected from one territory. Omit, or pass 'all', for every territory.",
+            },
             sourceConfigId: {
               type: 'string',
               description:
@@ -196,10 +204,12 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
         sourceConfigId,
         topic,
         dimension,
+        territory,
       } = request.query as {
         limit?: number;
         cursor?: string;
         source?: string;
+        territory?: string;
         sourceConfigId?: string;
         topic?: string;
         dimension?: string;
@@ -210,6 +220,10 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
          computed from — an article about the group naming this product counted toward its index
          and then did not appear as evidence for it. */
       const filters = [attributedTo(id, request.user.tenantId)];
+      /*  returns undefined for 'no filter', which and() drops — so this reads
+         the same whether or not a territory was asked for. */
+      const byTerritory = territoryFilter(territory);
+      if (byTerritory) filters.push(byTerritory);
       if (cursor) {
         let decoded: { publishedAt: Date; id: string };
         try {
@@ -260,6 +274,7 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
           title: signals.title,
           author: signals.author,
           rating: signals.rating,
+          territory: signals.territory,
           publishedAt: signals.publishedAt,
           ingestedAt: signals.ingestedAt,
           label: sentimentResults.label,

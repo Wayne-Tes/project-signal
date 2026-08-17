@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { db, signals } from '@project-signal/db';
+import { db, signals, sourceConfigs } from '@project-signal/db';
 import { getObjectStore, keyFromRef } from '@project-signal/storage';
 import { clampContent, joinTitleAndBody, stripHtml } from '@project-signal/source-adapters';
 import { and, eq, isNull, sql } from 'drizzle-orm';
@@ -253,6 +253,93 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
         failed,
         remaining: Number(remainingRow?.remaining ?? 0),
         errors: [...errors].slice(0, 10),
+      };
+    },
+  );
+
+  /**
+   * POST /admin/backfill/territory
+   *
+   * Stamps `signals.territory` from the feed each signal arrived through.
+   *
+   * WHY A BACKFILL AND NOT A JOIN. `signals.source_config_id` is nullable and `ON DELETE SET
+   * NULL`, so resolving territory by join would lose it the moment a feed is deleted — and the
+   * evidence a feed gathered belongs to the brand, not to the configuration. The column is
+   * stamped at insert for exactly that reason; this fills in the rows that predate it.
+   *
+   * SIGNALS WITH NO SOURCE CONFIG KEEP `unknown`, and so do those whose feed has no territory
+   * set. There is genuinely nothing to inherit in either case, and inventing one would put
+   * confidently wrong rows into territory reporting — which nobody would ever catch, because
+   * every number would still look plausible. `remainingUnknown` reports how many are left so the
+   * gap is a figure on a screen rather than a silence.
+   *
+   * Idempotent: only rows still at `unknown` are considered, so re-running costs one statement.
+   * Set-based rather than row-by-row — this is a join the database does far better than the app,
+   * and unlike the content backfill there is no per-row failure to isolate.
+   */
+  fastify.post(
+    '/admin/backfill/territory',
+    {
+      preHandler: requireRole('owner', 'admin'),
+      schema: {
+        security: [{ BearerAuth: [] }],
+        description:
+          "Stamps signals.territory from the feed each signal came through. Only touches rows still at 'unknown'; signals with no source config, or whose feed has no territory, are left alone.",
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              updated: { type: 'integer' },
+              remainingUnknown: { type: 'integer' },
+              withoutSourceConfig: { type: 'integer' },
+            },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const database = db.get();
+      const tenantId = request.user.tenantId;
+
+      /* Tenant-scoped, in the UPDATE and in both correlated subqueries. The first version of the
+         content backfill above was not, and read every tenant's signals — the defect this whole
+         family of endpoints exists not to repeat. */
+      const updated = await database
+        .update(signals)
+        .set({
+          territory: sql`(SELECT ${sourceConfigs.territory} FROM ${sourceConfigs}
+            WHERE ${sourceConfigs.id} = ${signals.sourceConfigId}
+              AND ${sourceConfigs.tenantId} = ${tenantId})`,
+        })
+        .where(
+          and(
+            eq(signals.tenantId, tenantId),
+            eq(signals.territory, 'unknown'),
+            sql`EXISTS (SELECT 1 FROM ${sourceConfigs}
+              WHERE ${sourceConfigs.id} = ${signals.sourceConfigId}
+                AND ${sourceConfigs.tenantId} = ${tenantId}
+                AND ${sourceConfigs.territory} <> 'unknown')`,
+          ),
+        )
+        .returning({ id: signals.id });
+
+      const [counts] = await database
+        .select({
+          remaining: sql<number>`COUNT(*) FILTER (WHERE ${signals.territory} = 'unknown')`,
+          orphaned: sql<number>`COUNT(*) FILTER (WHERE ${signals.sourceConfigId} IS NULL)`,
+        })
+        .from(signals)
+        .where(eq(signals.tenantId, tenantId));
+
+      request.log.info(
+        { updated: updated.length, remaining: counts?.remaining, orphaned: counts?.orphaned },
+        'signal territory backfill complete',
+      );
+
+      return {
+        updated: updated.length,
+        remainingUnknown: Number(counts?.remaining ?? 0),
+        withoutSourceConfig: Number(counts?.orphaned ?? 0),
       };
     },
   );

@@ -82,3 +82,118 @@ export interface Report {
   storageRef: string;
   generatedAt: Date;
 }
+
+// --- Territory ---------------------------------------------------------------
+
+/**
+ * Where a feed collects from.
+ *
+ * WHY THIS IS A PROPERTY OF THE FEED, NOT THE BRAND. A brand is not British.
+ * `@TeachStarterUSA` and `@TeachStarter` are the same product in two countries, and the marketing
+ * team's channel sheet is organised exactly that way — one country per channel. Putting it on the
+ * brand would force a choice that does not exist.
+ *
+ * ISO 3166-1 alpha-2, plus two sentinels:
+ *
+ *   - `GLOBAL`  — a genuinely worldwide account, not "we have not decided".
+ *   - `unknown` — not yet classified. The default, and the honest answer for every signal
+ *     collected before this column existed.
+ *
+ * A CLOSED LIST, not a shape check. `UK` is two uppercase letters and looks entirely plausible,
+ * but it is not an assigned ISO country code — `GB` is — so a pattern check would happily store
+ * `UK` and `GB` as different territories for the same country, and the split would only surface
+ * as two half-empty rows in a report months later. `Tes Social Channels.md` says "UK" and "AUS"
+ * throughout, so this is not a hypothetical.
+ */
+export const TERRITORIES = [
+  'GB',
+  'IE',
+  'US',
+  'CA',
+  'AU',
+  'NZ',
+  'AE',
+  'ZA',
+  'IN',
+  'SG',
+  'HK',
+  'GLOBAL',
+  'unknown',
+] as const;
+
+export type Territory = (typeof TERRITORIES)[number];
+
+/** The aggregate row on `dimension_scores` — every territory combined. Never a signal's value. */
+export const TERRITORY_ALL = 'all';
+
+export function isTerritory(value: string): value is Territory {
+  return (TERRITORIES as readonly string[]).includes(value);
+}
+
+/**
+ * What people actually type, mapped to what ISO calls it.
+ *
+ * Exists because the channel sheet this feature was built for uses "UK", "AUS" and "Global"
+ * throughout. Rejecting those outright would make the import a manual find-and-replace and would
+ * teach whoever does it that the field is hostile; silently accepting them would split one
+ * country across two codes. Correcting them is the third option, and it is the right one.
+ *
+ * Keys are compared upper-cased and trimmed.
+ */
+const TERRITORY_ALIASES: Record<string, Territory> = {
+  UK: 'GB',
+  'GREAT BRITAIN': 'GB',
+  'UNITED KINGDOM': 'GB',
+  ENGLAND: 'GB',
+  SCOTLAND: 'GB',
+  WALES: 'GB',
+  AUS: 'AU',
+  AUSTRALIA: 'AU',
+  USA: 'US',
+  'UNITED STATES': 'US',
+  IRELAND: 'IE',
+  'NEW ZEALAND': 'NZ',
+  CANADA: 'CA',
+  WORLDWIDE: 'GLOBAL',
+  INTERNATIONAL: 'GLOBAL',
+  '': 'unknown',
+};
+
+/**
+ * Normalises an input to a territory, or returns null if it cannot be resolved.
+ *
+ * Returns `null` rather than falling back to `unknown`, so the API can refuse a typo with a
+ * message instead of storing something plausible. A feed silently filed under the wrong territory
+ * produces reporting that is confidently wrong, which is worse than a 400 — the same reasoning
+ * that made a source with no collector a validation error rather than a stored row
+ * (KNOWN-GAPS #24).
+ *
+ * `Global?` — which appears six times in the channel sheet — resolves to null on purpose. The
+ * question mark is the sheet's author saying they are not sure, and guessing on their behalf is
+ * exactly what must not happen.
+ */
+export function normaliseTerritory(value: string | null | undefined): Territory | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim();
+  if (isTerritory(trimmed)) return trimmed;
+  const upper = trimmed.toUpperCase();
+  if (isTerritory(upper)) return upper;
+  return TERRITORY_ALIASES[upper] ?? null;
+}
+
+/** Display names. The stored value is the code; this is the only place it becomes prose. */
+export const TERRITORY_LABELS: Record<Territory, string> = {
+  GB: 'United Kingdom',
+  IE: 'Ireland',
+  US: 'United States',
+  CA: 'Canada',
+  AU: 'Australia',
+  NZ: 'New Zealand',
+  AE: 'United Arab Emirates',
+  ZA: 'South Africa',
+  IN: 'India',
+  SG: 'Singapore',
+  HK: 'Hong Kong',
+  GLOBAL: 'Global',
+  unknown: 'Not set',
+};

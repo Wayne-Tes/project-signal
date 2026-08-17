@@ -21,7 +21,12 @@ import { db, signals, sourceConfigs } from '@project-signal/db';
 import { and, count, eq, max } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { requireRole } from '../plugins/auth.js';
-import { COLLECTING_SOURCES, isCollectingSource } from '@project-signal/shared-types';
+import {
+  COLLECTING_SOURCES,
+  isCollectingSource,
+  normaliseTerritory,
+  TERRITORIES,
+} from '@project-signal/shared-types';
 
 interface BrandParams {
   id: string;
@@ -39,9 +44,11 @@ interface CreateIntegrationBody {
   /** What a person calls this feed. Optional; the UI falls back to summarising the config. */
   label?: string;
   isEnabled?: boolean;
+  territory?: string;
 }
 
 interface UpdateIntegrationBody {
+  territory?: string;
   isEnabled?: boolean;
   config?: Record<string, unknown>;
   label?: string;
@@ -88,7 +95,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
     async (request, reply) => {
       const tenantId = request.user.tenantId;
       const { id: brandEntityId } = request.params;
-      const { source, config, label, isEnabled = true } = request.body;
+      const { source, config, label, isEnabled = true, territory } = request.body;
 
       if (!source || typeof source !== 'string') {
         return reply.status(400).send({ status: 'error', error: 'source is required' });
@@ -109,6 +116,21 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
       }
       if (!config || typeof config !== 'object') {
         return reply.status(400).send({ status: 'error', error: 'config must be an object' });
+      }
+
+      /* Refused rather than stored, for the same reason a source with no collector is refused
+         (KNOWN-GAPS #24): a feed filed under the wrong territory produces reporting that is
+         confidently wrong, and nobody ever finds it. `normaliseTerritory` corrects the spellings
+         the marketing team's channel sheet actually uses — "UK", "AUS", "USA" — and returns null
+         for anything it cannot resolve, including the sheet's six "Global?" entries, where the
+         question mark is its author saying they are unsure. Guessing on their behalf is exactly
+         what must not happen. */
+      const resolvedTerritory = territory === undefined ? 'unknown' : normaliseTerritory(territory);
+      if (resolvedTerritory === null) {
+        return reply.status(400).send({
+          status: 'error',
+          error: `Unrecognised territory '${territory}'. Use an ISO 3166-1 alpha-2 code, GLOBAL, or unknown. Valid: ${TERRITORIES.join(', ')}.`,
+        });
       }
 
       /* An EXACT duplicate is refused, a different one of the same type is not.
@@ -144,6 +166,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
           brandEntityId,
           source,
           label: label?.trim() || null,
+          territory: resolvedTerritory,
           config,
           isEnabled,
         })
@@ -165,12 +188,27 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
     async (request, reply) => {
       const tenantId = request.user.tenantId;
       const { id: brandEntityId, configId } = request.params;
-      const { isEnabled, config, label } = request.body;
+      const { isEnabled, config, label, territory } = request.body;
 
       const updates: Partial<typeof sourceConfigs.$inferInsert> = {
         updatedAt: new Date(),
       };
 
+      /* Changing this does NOT rewrite the territory of signals already collected. Those were
+         collected from a feed that was configured this way at the time, and that is a fact about
+         the past — `signals.territory` is stamped at insert precisely so it survives both a
+         reconfiguration and a deletion. Correcting a misconfiguration retrospectively is an
+         explicit backfill, which is a separate, deliberate act. */
+      if (territory !== undefined) {
+        const resolved = normaliseTerritory(territory);
+        if (resolved === null) {
+          return reply.status(400).send({
+            status: 'error',
+            error: `Unrecognised territory '${territory}'. Use an ISO 3166-1 alpha-2 code, GLOBAL, or unknown. Valid: ${TERRITORIES.join(', ')}.`,
+          });
+        }
+        updates.territory = resolved;
+      }
       if (isEnabled !== undefined) updates.isEnabled = isEnabled;
       if (config !== undefined) updates.config = config;
       /* An empty string clears the label rather than storing "". `undefined` means untouched;
@@ -269,6 +307,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
           id: sourceConfigs.id,
           source: sourceConfigs.source,
           label: sourceConfigs.label,
+          territory: sourceConfigs.territory,
           isEnabled: sourceConfigs.isEnabled,
           lastFetchedAt: sourceConfigs.lastFetchedAt,
           signalCount: count(signals.id),

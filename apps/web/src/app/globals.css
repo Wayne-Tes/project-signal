@@ -531,3 +531,37 @@ svg.sparkline { display: block; overflow: visible; }
   flex-wrap: wrap;
   margin-bottom: var(--s-4);
 }
+
+/* --- Territory picker ----------------------------------------------------
+   A lens, not an action, so it reads as quiet chrome next to the period and
+   role rather than competing with the buttons beside it. Tokens only. */
+.terr-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--t3);
+}
+.terr-picker select {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  color: var(--t2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.terr-picker select:hover { color: var(--t1); border-color: var(--t3); }
+.terr-picker select:focus-visible { outline: 2px solid var(--peri); outline-offset: 1px; }
+
+/* Visually hidden, still announced. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -5,6 +5,7 @@ import { Activity, ArrowDownRight, ArrowUpRight, Sparkles } from 'lucide-react';
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
 import {
+  withTerritory,
   changeHeadline,
   formatDelta,
   sentimentTone,
@@ -152,12 +153,12 @@ function SourceTable({ rows }: { rows: ApiSourceChange[] }) {
 }
 
 export function WhatsChangedView({ nav }: { nav: NavActions }) {
-  const { brandId, error: brandError } = useBrand();
+  const { brandId, error: brandError, territory } = useBrand();
   const [days, setDays] = useState<number>(7);
   const [basis, setBasis] = useState<'ingested' | 'published'>('ingested');
 
   const { data, loading, error } = useApi<ApiWhatsNew>(
-    brandId ? `/brands/${brandId}/whats-new?days=${days}&basis=${basis}` : null,
+    brandId ? withTerritory(`/brands/${brandId}/whats-new?days=${days}&basis=${basis}`, territory) : null,
   );
 
   const openTopic = (topic: string) => nav.openTopic(topic);

@@ -7,6 +7,7 @@
  * reasonable on their own.
  */
 import { and, eq, or, sql, type SQL } from 'drizzle-orm';
+import { TERRITORY_ALL } from '@project-signal/shared-types';
 import { signals } from './schema/signals.js';
 import { signalMentions } from './schema/signalMentions.js';
 
@@ -70,4 +71,22 @@ export function attributedTo(brandEntityId: string, tenantId: string): SQL {
      are always present, so this cannot be undefined — asserted rather than propagated so every
      call site does not have to handle an impossible case. */
   return predicate as SQL;
+}
+
+/**
+ * Narrows a signal query to one territory, or to everything.
+ *
+ * Returns `undefined` for "no filter", which `and(...)` drops — so a call site reads
+ * `and(attributedTo(id, tenantId), territoryFilter(t), …)` whether or not a territory was asked
+ * for, with no branching.
+ *
+ * `TERRITORY_ALL` means every territory rather than a territory called "all". That value only
+ * ever appears on `dimension_scores`, as the aggregate row; no signal carries it, so filtering
+ * `signals.territory = 'all'` would silently return nothing — an empty dashboard with no error,
+ * which is the worst of the available failures. Treating it as "no filter" here is what stops a
+ * caller passing the aggregate's own name straight through from a URL and getting silence.
+ */
+export function territoryFilter(territory: string | undefined | null): SQL | undefined {
+  if (!territory || territory === TERRITORY_ALL) return undefined;
+  return eq(signals.territory, territory);
 }

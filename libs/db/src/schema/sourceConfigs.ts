@@ -57,6 +57,22 @@ export const sourceConfigs = pgTable(
      * config, which is honest but far less readable than "Google News — Tes MyConcern".
      */
     label: varchar('label', { length: 120 }),
+    /**
+     * Where this feed collects from — the AUTHORITY for a signal's territory.
+     *
+     * A brand is not British; a feed is. `@TeachStarterUSA` and `@TeachStarter` are the same
+     * product in two countries, which is why this sits here rather than on `brand_entities`, and
+     * why the marketing team's channel sheet has one country per channel rather than per brand.
+     *
+     * ISO 3166-1 alpha-2, `GLOBAL`, or `unknown`. Validated against `TERRITORIES` in shared-types
+     * by the API — a varchar here would otherwise accept `UK`, which is not an assigned ISO code
+     * and would split Great Britain across two values.
+     *
+     * Defaults to `unknown` rather than to a guess: every feed that existed before this column
+     * did so without a territory, and inventing one for them would produce reporting that is
+     * confidently wrong.
+     */
+    territory: varchar('territory', { length: 16 }).notNull().default('unknown'),
     isEnabled: boolean('is_enabled').notNull().default(true),
     // Source-specific settings — shape varies by source, see comment above.
     config: jsonb('config').notNull().default({}),

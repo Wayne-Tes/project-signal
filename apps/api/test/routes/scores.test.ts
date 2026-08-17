@@ -17,6 +17,9 @@ vi.mock('@project-signal/db', () => {
        here it only has to be callable, because these tests assert response shape rather than
        SQL. Returning a sentinel keeps `and(...)` happy without pretending to be SQL. */
     attributedTo: vi.fn(() => ({ _attributedTo: true })),
+    /* Returns undefined for 'no territory asked for', which is what and() drops. Returning a
+       truthy sentinel here would make every test behave as though a filter were applied. */
+    territoryFilter: vi.fn(() => undefined),
     brandEntities: {},
     dimensionScores: {},
     signals: {},

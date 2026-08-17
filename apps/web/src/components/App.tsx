@@ -6,6 +6,7 @@ import type { NavActions, NavLevel } from '@/lib/types';
 import { AppShell, Badge, Button, Row, useAppearance } from '@/design-system';
 import { allowedViews, navForRole, type ViewId } from '@/config/navigation';
 import { DrillDown } from './DrillDown';
+import { TerritoryPicker } from './TerritoryPicker';
 import { useBrand } from '@/lib/brand-context';
 import { useReportingPeriod } from '@/hooks/useReportingPeriod';
 import { csvFilename, downloadCsv, toCsv, type ExportableSignal } from '@/lib/export-csv';
@@ -160,6 +161,11 @@ export function App() {
               dimension_scores. It previously printed a fixed string from the fictional-bank
               fixture — a plausible reporting window corresponding to nothing. Absent until
               there is data, rather than showing an invented one. */}
+          {/* The territory lens sits with the period and the role: things that qualify WHAT you
+              are looking at, rather than actions. Hides itself when the brand collects from
+              fewer than two territories. */}
+          <TerritoryPicker />
+
           {period && <span className="ds-eyebrow">{period}</span>}
 
           {role ? <Badge tone="info">{role}</Badge> : null}

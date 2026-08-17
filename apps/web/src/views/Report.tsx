@@ -3,6 +3,7 @@
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
 import {
+  withTerritory,
   DIMENSION_LABELS,
   roundScore,
   toActionCards,
@@ -57,14 +58,14 @@ function paperBand(score: number): string {
 }
 
 export function ReportView() {
-  const { brandId, selected, error: brandError } = useBrand();
+  const { brandId, selected, error: brandError, territory } = useBrand();
 
-  const score = useApi<ApiBrandScore>(brandId ? `/brands/${brandId}/score` : null);
+  const score = useApi<ApiBrandScore>(brandId ? withTerritory(`/brands/${brandId}/score`, territory) : null);
   const history = useApi<ApiDimensionRow[]>(
-    brandId ? `/brands/${brandId}/dimension-scores?days=90` : null,
+    brandId ? withTerritory(`/brands/${brandId}/dimension-scores?days=90`, territory) : null,
   );
-  const impact = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/brand-impact` : null);
-  const stats = useApi<ReportStats>(brandId ? `/brands/${brandId}/stats` : null);
+  const impact = useApi<ApiCluster[]>(brandId ? withTerritory(`/brands/${brandId}/brand-impact`, territory) : null);
+  const stats = useApi<ReportStats>(brandId ? withTerritory(`/brands/${brandId}/stats`, territory) : null);
 
   const loading = score.loading || history.loading || impact.loading || stats.loading;
   const error = score.error ?? history.error ?? impact.error ?? stats.error ?? brandError;

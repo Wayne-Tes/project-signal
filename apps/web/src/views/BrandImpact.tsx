@@ -3,7 +3,7 @@
 import { Target } from 'lucide-react';
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
-import { toHeelCards, type ApiCluster } from '@/lib/brand-data';
+import { withTerritory, toHeelCards, type ApiCluster } from '@/lib/brand-data';
 import { ViewState } from '@/components/ViewState';
 import { Badge, Card, EmptyState, Grid, PageHeader, Row, Trend } from '@/design-system';
 import type { NavActions } from '@/lib/types';
@@ -16,9 +16,9 @@ import type { NavActions } from '@/lib/types';
  * volume x negative sentiment x recency, computed by the API.
  */
 export function BrandImpactView({ nav }: { nav: NavActions }) {
-  const { brandId, error: brandError } = useBrand();
+  const { brandId, error: brandError, territory } = useBrand();
   const { data, loading, error } = useApi<ApiCluster[]>(
-    brandId ? `/brands/${brandId}/brand-impact` : null,
+    brandId ? withTerritory(`/brands/${brandId}/brand-impact`, territory) : null,
   );
   const clusters = data ? toHeelCards(data) : [];
 
