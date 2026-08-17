@@ -6,6 +6,7 @@ import { useInView } from '@/hooks/useInView';
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
 import {
+  withTerritory,
   toDimensionCards,
   toHistory,
   type ApiBrandScore,
@@ -29,10 +30,10 @@ import type { NavActions } from '@/lib/types';
 export function TrendsView({ nav }: { nav: NavActions }) {
   const [ref, play] = useInView(0.1);
   const [highlight, setHighlight] = useState<string | null>(null);
-  const { brandId, error: brandError } = useBrand();
+  const { brandId, error: brandError, territory } = useBrand();
 
-  const score = useApi<ApiBrandScore>(brandId ? `/brands/${brandId}/score` : null);
-  const history = useApi<ApiDimensionRow[]>(brandId ? `/brands/${brandId}/dimension-scores` : null);
+  const score = useApi<ApiBrandScore>(brandId ? withTerritory(`/brands/${brandId}/score`, territory) : null);
+  const history = useApi<ApiDimensionRow[]>(brandId ? withTerritory(`/brands/${brandId}/dimension-scores`, territory) : null);
 
   const cards = score.data ? toDimensionCards(score.data, score.data.previousDimensions) : [];
   const points = history.data ? toHistory(history.data) : [];

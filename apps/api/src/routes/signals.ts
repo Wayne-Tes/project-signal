@@ -43,6 +43,9 @@ const SIGNAL_SCHEMA = {
     title: { type: 'string', nullable: true },
     author: { type: 'string', nullable: true },
     rating: { type: 'integer', nullable: true },
+    /* Declared, or fast-json-stringify strips it and the drill-down silently loses the badge —
+       the same failure that once made this endpoint return items: [{}, {}]. */
+    territory: { type: 'string' },
     /* The scorer's verdict on THIS signal, joined from `sentiment_results`. The audience is a
        marketing manager, not an engineer: showing a quotation without saying whether the model
        read it as positive or negative — and on which dimension — leaves them to infer the
@@ -271,6 +274,7 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
           title: signals.title,
           author: signals.author,
           rating: signals.rating,
+          territory: signals.territory,
           publishedAt: signals.publishedAt,
           ingestedAt: signals.ingestedAt,
           label: sentimentResults.label,

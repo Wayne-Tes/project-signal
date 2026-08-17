@@ -1068,6 +1068,19 @@ and passed as a Docker build arg by the deploy workflows — see
 | `Report`      | **mock** | Print-styled weekly report. Epic 12.                                                                                                             |
 | `Admin`       | live     | Tenant creation, `BrandManager`, `UserManager`                                                                                                   |
 
+### The territory lens
+
+`components/TerritoryPicker.tsx` sits in the top bar and sets `territory` on the brand context;
+every view builds its query through `withTerritory()` in `lib/brand-data.ts`, so all of them ask
+the same question of the same scope. Two views constructing that query separately is how a UK
+headline ends up above an all-territories breakdown — both plausible, silently disagreeing.
+
+The picker **only offers territories the brand actually collects from**, read from its configured
+feeds. A full ISO list would be a dozen options, eleven of which return an empty dashboard — and
+an empty dashboard is indistinguishable from a broken one. It hides itself entirely below two
+options, and the selection is **not persisted**: a brand is a durable choice, a territory is a
+lens, and a stale one restored on the next visit would put Australian numbers under a UK heading.
+
 ### Charts and motion
 
 All visualisation is **hand-rolled SVG** — there is no charting library. `components/charts.tsx`

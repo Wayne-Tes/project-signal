@@ -3,7 +3,7 @@
 import { ListChecks } from 'lucide-react';
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
-import { toActionCards, type ApiCluster } from '@/lib/brand-data';
+import { withTerritory, toActionCards, type ApiCluster } from '@/lib/brand-data';
 import { ViewState } from '@/components/ViewState';
 import { Badge, Card, EmptyState, Grid, PageHeader, Row } from '@/design-system';
 import type { NavActions } from '@/lib/types';
@@ -22,9 +22,9 @@ import type { NavActions } from '@/lib/types';
  * current damage is a real quantity; "+3.4 pts" was not.
  */
 export function RoadmapView({ nav }: { nav: NavActions }) {
-  const { brandId, error: brandError } = useBrand();
+  const { brandId, error: brandError, territory } = useBrand();
   const { data, loading, error } = useApi<ApiCluster[]>(
-    brandId ? `/brands/${brandId}/brand-impact` : null,
+    brandId ? withTerritory(`/brands/${brandId}/brand-impact`, territory) : null,
   );
   const actions = data ? toActionCards(data) : [];
 

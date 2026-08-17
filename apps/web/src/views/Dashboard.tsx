@@ -4,6 +4,7 @@ import { useCountUp } from '@/hooks/useCountUp';
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
 import {
+  withTerritory,
   toDimensionCards,
   toHeelCards,
   toHistory,
@@ -101,13 +102,13 @@ function HeroBars({
  */
 export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; hero?: string }) {
   const [ref, play] = useInView(0.1);
-  const { brandId, error: brandError } = useBrand();
+  const { brandId, error: brandError, territory } = useBrand();
 
-  const score = useApi<ApiBrandScore>(brandId ? `/brands/${brandId}/score` : null);
-  const history = useApi<ApiDimensionRow[]>(brandId ? `/brands/${brandId}/dimension-scores` : null);
-  const stats = useApi<BrandStats>(brandId ? `/brands/${brandId}/stats` : null);
-  const heels = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/brand-impact` : null);
-  const strengths = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/strengths` : null);
+  const score = useApi<ApiBrandScore>(brandId ? withTerritory(`/brands/${brandId}/score`, territory) : null);
+  const history = useApi<ApiDimensionRow[]>(brandId ? withTerritory(`/brands/${brandId}/dimension-scores`, territory) : null);
+  const stats = useApi<BrandStats>(brandId ? withTerritory(`/brands/${brandId}/stats`, territory) : null);
+  const heels = useApi<ApiCluster[]>(brandId ? withTerritory(`/brands/${brandId}/brand-impact`, territory) : null);
+  const strengths = useApi<ApiCluster[]>(brandId ? withTerritory(`/brands/${brandId}/strengths`, territory) : null);
 
   const cards = score.data ? toDimensionCards(score.data, score.data.previousDimensions) : [];
   const points = history.data ? toHistory(history.data) : [];

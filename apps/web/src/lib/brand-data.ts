@@ -474,3 +474,22 @@ export function changeHeadline(data: ApiWhatsNew | null | undefined, days: numbe
 
   return `${collected}${backfill}. ${movement}, and ${subjects}.`;
 }
+
+// --- Territory ---------------------------------------------------------------
+
+/**
+ * Appends `?territory=` to an API path, unless the view is showing everything.
+ *
+ * Centralised so every view builds the same URL. Two views that construct the query differently
+ * is how a dashboard comes to show a UK headline above an all-territories breakdown — both
+ * plausible, silently disagreeing, and impossible to spot without reading the network tab.
+ *
+ * `TERRITORY_ALL` produces NO parameter rather than `territory=all`. On `dimension_scores` the
+ * API treats a missing value as the aggregate, so the two are equivalent there; on `signals`
+ * they are not, because no signal carries `'all'` and filtering for it returns nothing. Omitting
+ * it keeps one meaning on both sides.
+ */
+export function withTerritory(path: string, territory: string | undefined): string {
+  if (!territory || territory === 'all') return path;
+  return `${path}${path.includes('?') ? '&' : '?'}territory=${encodeURIComponent(territory)}`;
+}

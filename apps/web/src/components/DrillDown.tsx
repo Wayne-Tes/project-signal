@@ -1,8 +1,10 @@
 'use client';
 
+import { TERRITORY_LABELS, type Territory } from '@project-signal/shared-types';
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
 import {
+  withTerritory,
   DIMENSION_LABELS,
   isDimensionKey,
   roundScore,
@@ -40,6 +42,8 @@ interface ApiSignal {
   title: string | null;
   author: string | null;
   rating: number | null;
+  /** Where the feed that collected this signal collects from. `unknown` until classified. */
+  territory: string;
   sentiment: {
     label: string;
     score: number;
@@ -66,8 +70,8 @@ function MetricRow({ items }: { items: { label: string; value: string; tone?: st
 
 /** Level 1 — the index and its five dimensions. */
 function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
-  const { brandId, selected } = useBrand();
-  const { data, loading } = useApi<ApiBrandScore>(brandId ? `/brands/${brandId}/score` : null);
+  const { brandId, selected, territory } = useBrand();
+  const { data, loading } = useApi<ApiBrandScore>(brandId ? withTerritory(`/brands/${brandId}/score`, territory) : null);
 
   if (loading) return <p className="drill-sub">Loading…</p>;
 
@@ -192,6 +196,14 @@ function SignalList({ items }: { items: ApiSignal[] }) {
               <span className="auth">{s.author || meta.label}</span>
               {s.author && <span className="conf">on {meta.label}</span>}
               {s.rating !== null && <Stars rating={s.rating} />}
+              {/* Shown whenever it is known, not only when a territory filter is active. Someone
+                  reading "Australia" above a list has to be able to confirm the rows really are
+                  Australian — a filter you cannot verify from the evidence is a filter you end up
+                  not trusting. Hidden when unclassified rather than printed as "Not set", which
+                  would put noise on every row of a tenant that has not set any. */}
+              {s.territory && s.territory !== 'unknown' && (
+                <span className="conf">{TERRITORY_LABELS[s.territory as Territory] ?? s.territory}</span>
+              )}
               <span className="when">{s.publishedAt?.slice(0, 10)}</span>
             </div>
 
@@ -268,9 +280,9 @@ function SignalList({ items }: { items: ApiSignal[] }) {
  * evidence; this is that evidence.
  */
 function DimensionLevel({ dimKey, onCluster }: { dimKey: string; onCluster: (topic: string) => void }) {
-  const { brandId } = useBrand();
+  const { brandId, territory } = useBrand();
   const topics = useApi<ApiCluster[]>(
-    brandId ? `/brands/${brandId}/topics?dimension=${encodeURIComponent(dimKey)}` : null,
+    brandId ? withTerritory(`/brands/${brandId}/topics?dimension=${encodeURIComponent(dimKey)}`, territory) : null,
   );
   const signals = useApi<{ items: ApiSignal[] }>(
     brandId
@@ -356,12 +368,12 @@ function DimensionLevel({ dimKey, onCluster }: { dimKey: string; onCluster: (top
 
 /** Level 3 — the actual signals behind one topic. */
 function ClusterLevel({ topic }: { topic: string }) {
-  const { brandId } = useBrand();
-  const clusters = useApi<ApiCluster[]>(brandId ? `/brands/${brandId}/brand-impact` : null);
+  const { brandId, territory } = useBrand();
+  const clusters = useApi<ApiCluster[]>(brandId ? withTerritory(`/brands/${brandId}/brand-impact`, territory) : null);
   /* The `topic` filter added to the signals route for exactly this: the evidence behind a
      cluster, rather than "recent signals" standing in for it. */
   const signals = useApi<{ items: ApiSignal[] }>(
-    brandId ? `/brands/${brandId}/signals?limit=20&topic=${encodeURIComponent(topic)}` : null,
+    brandId ? withTerritory(`/brands/${brandId}/signals?limit=20&topic=${encodeURIComponent(topic)}`, territory) : null,
   );
 
   const cluster = (clusters.data ?? []).find((c) => c.topic === topic);

@@ -10,11 +10,25 @@ import {
   type ReactNode,
 } from 'react';
 import { apiFetch } from '@/lib/api';
+import { TERRITORY_ALL } from '@project-signal/shared-types';
 import type { ApiBrand } from '@/lib/brand-data';
 
 interface BrandContextValue {
   brands: ApiBrand[];
   brandId: string | null;
+  /**
+   * The territory currently being viewed, or 'all'.
+   *
+   * Held here rather than in each view for the same reason the brand is: every analytical view
+   * asks the same question of the same scope, and holding it per view means two of them can
+   * disagree about what the user is looking at while both render confidently.
+   *
+   * NOT PERSISTED. The brand is a durable choice; a territory filter is a lens you look through
+   * and put down, and a stale one silently restored on the next visit would have someone reading
+   * Australian numbers under a UK heading.
+   */
+  territory: string;
+  setTerritory: (t: string) => void;
   selected: ApiBrand | null;
   setBrandId: (id: string) => void;
   loading: boolean;
@@ -37,6 +51,7 @@ export function BrandProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  const [territory, setTerritory] = useState<string>(TERRITORY_ALL);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -69,11 +84,13 @@ export function BrandProvider({ children }: { children: ReactNode }) {
       brandId,
       selected: brands.find((b) => b.id === brandId) ?? null,
       setBrandId,
+      territory,
+      setTerritory,
       loading,
       error,
       reload,
     }),
-    [brands, brandId, loading, error, reload],
+    [brands, brandId, territory, loading, error, reload],
   );
 
   return <BrandContext.Provider value={value}>{children}</BrandContext.Provider>;
