@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   achievableSummary,
+  evidenceNote,
   formatHorizon,
   roadmapHeadline,
   type ApiRoadmap,
@@ -32,6 +33,7 @@ const action = (delta: number, topic = 'pricing') => ({
   damage: 4,
   damageShare: 40,
   dimensions: ['trust'],
+  play: null,
   ifResolved: { from: 51.6, to: 51.6 + delta, delta, affectedSignals: 6 },
 });
 
@@ -106,5 +108,48 @@ describe('formatHorizon', () => {
     /* Null means "not from doing nothing" — which is the argument for taking an action, and must
        not be rendered as a duration. */
     expect(formatHorizon(null)).toBeNull();
+  });
+});
+
+describe('evidenceNote', () => {
+  const play = {
+    id: 'p',
+    title: 't',
+    summary: 's',
+    steps: ['a'],
+    measure: 'm',
+    owner: 'support',
+    horizon: 'now',
+    evidenceStatus: 'none' as const,
+    evidence: [] as { title: string; url: string; source: string; relevance: string }[],
+  };
+
+  /**
+   * A play is not worse for being unevidenced. It is worse for pretending otherwise — a client
+   * who catches one invented citation stops believing every number beside it.
+   */
+  it('says plainly when a play has no source yet', () => {
+    const note = evidenceNote(play)!;
+    expect(note).toContain('not yet backed');
+    expect(note).not.toMatch(/proven|studies show|research/i);
+  });
+
+  it('counts real sources when there are any', () => {
+    const note = evidenceNote({
+      ...play,
+      evidenceStatus: 'external',
+      evidence: [{ title: 'a', url: 'https://x.test', source: 'y', relevance: 'z' }],
+    })!;
+    expect(note).toContain('1 published source');
+    expect(note).toContain('open to check');
+  });
+
+  /* The strongest form available, and the one this product earns on its own. */
+  it('prefers the brand’s own measured outcomes when it has them', () => {
+    expect(evidenceNote({ ...play, evidenceStatus: 'internal' })!).toContain('your own measured outcomes');
+  });
+
+  it('says nothing when there is no play', () => {
+    expect(evidenceNote(null)).toBeNull();
   });
 });

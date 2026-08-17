@@ -597,3 +597,14 @@ svg.sparkline { display: block; overflow: visible; }
 .rm-caveat { color: var(--t3); font-size: 12px; }
 .rm-evidence { color: var(--t3); font-size: 12px; margin: 10px 0 0; }
 .rm-dims { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+
+.rm-play { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.rm-play-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rm-play-head strong { color: var(--t1); font-size: 13px; }
+.rm-play-summary { color: var(--t2); font-size: 13px; line-height: 1.6; margin: 8px 0 0; }
+.rm-steps { color: var(--t2); font-size: 13px; line-height: 1.65; margin: 10px 0 0; padding-left: 20px; }
+.rm-steps li { margin-bottom: 5px; }
+.rm-measure { color: var(--t2); font-size: 12px; line-height: 1.6; margin: 10px 0 0; }
+.rm-measure strong { color: var(--t1); }
+.rm-cite { display: block; color: var(--peri); font-size: 12px; margin-top: 6px; text-decoration: none; }
+.rm-cite:hover { text-decoration: underline; }

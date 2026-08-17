@@ -547,6 +547,18 @@ export interface ApiCounterfactual {
   affectedSignals: number;
 }
 
+export interface ApiPlay {
+  id: string;
+  title: string;
+  summary: string;
+  steps: string[];
+  measure: string;
+  owner: string;
+  horizon: string;
+  evidenceStatus: 'none' | 'internal' | 'external';
+  evidence: { title: string; url: string; source: string; published?: string; relevance: string }[];
+}
+
 export interface ApiAction {
   topic: string;
   volume: number;
@@ -554,6 +566,7 @@ export interface ApiAction {
   damage: number;
   damageShare: number;
   dimensions: string[];
+  play: ApiPlay | null;
   ifResolved: ApiCounterfactual | null;
 }
 
@@ -635,4 +648,22 @@ export function formatHorizon(days: number | null): string | null {
   if (days === 0) return 'already there';
   const weeks = Math.round(days / 7);
   return weeks === 1 ? '1 week' : `${weeks} weeks`;
+}
+
+/**
+ * How a play's evidence should be described, in words that do not overclaim.
+ *
+ * A play is not worse for being unevidenced — it is worse for pretending otherwise. Most ship
+ * with the mechanism only, and saying so plainly is what keeps the rest of the page credible: a
+ * client who catches one invented citation stops believing every number beside it.
+ */
+export function evidenceNote(play: ApiPlay | null | undefined): string | null {
+  if (!play) return null;
+  if (play.evidenceStatus === 'external' && play.evidence.length > 0) {
+    return `${play.evidence.length} published source${play.evidence.length === 1 ? '' : 's'} — open to check`;
+  }
+  if (play.evidenceStatus === 'internal') {
+    return 'Backed by your own measured outcomes on this brand';
+  }
+  return 'Standard practice, not yet backed by a published source or your own outcomes';
 }

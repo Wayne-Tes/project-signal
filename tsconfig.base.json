@@ -23,6 +23,7 @@
       "@project-signal/storage": ["libs/storage/src/index.ts"],
       "@project-signal/help-content": ["libs/help-content/src/index.ts"],
       "@project-signal/scoring": ["libs/scoring/src/index.ts"],
+      "@project-signal/playbook": ["libs/playbook/src/index.ts"],
       "@project-signal/source-adapters": ["libs/source-adapters/src/index.ts"]
     }
   },

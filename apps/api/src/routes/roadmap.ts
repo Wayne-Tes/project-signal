@@ -32,6 +32,7 @@ import {
   type SentimentLabel,
   type Territory,
 } from '@project-signal/shared-types';
+import { bestPlayFor } from '@project-signal/playbook';
 import { and, desc, eq, gte, ne } from 'drizzle-orm';
 import { requireBrandAccess, requireRole } from '../plugins/auth.js';
 
@@ -76,6 +77,33 @@ const ACTION_SCHEMA = {
     damage: { type: 'number' },
     damageShare: { type: 'number' },
     dimensions: { type: 'array', items: { type: 'string' } },
+    play: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        id: { type: 'string' },
+        title: { type: 'string' },
+        summary: { type: 'string' },
+        steps: { type: 'array', items: { type: 'string' } },
+        measure: { type: 'string' },
+        owner: { type: 'string' },
+        horizon: { type: 'string' },
+        evidenceStatus: { type: 'string' },
+        evidence: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              url: { type: 'string' },
+              source: { type: 'string' },
+              published: { type: 'string' },
+              relevance: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
     ifResolved: {
       type: 'object',
       nullable: true,
@@ -378,6 +406,10 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
           damage: c.damage,
           damageShare: totalDamage > 0 ? (c.damage / totalDamage) * 100 : 0,
           dimensions: c.dimensions,
+          /* MATCHED, not generated. The model's job is to adapt a play's wording to this
+             cluster's evidence — never to invent the intervention, and never to produce a case
+             study, which is the one thing it would do fluently and unverifiably. */
+          play: bestPlayFor(c),
           /* THE CEILING, NOT A FORECAST — what this subject is worth if nobody were negative about
              it any more. It says nothing about how much is achievable or when, and the UI copy has
              to keep saying so: the fabricated "+3.4 pts" this replaces was believed precisely

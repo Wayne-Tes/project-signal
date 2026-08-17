@@ -6,6 +6,7 @@ import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
 import {
   achievableSummary,
+  evidenceNote,
   formatHorizon,
   roadmapHeadline,
   withTerritory,
@@ -248,6 +249,40 @@ function ActionCard({
         Based on {action.ifResolved?.affectedSignals ?? 0} negative signal
         {(action.ifResolved?.affectedSignals ?? 0) === 1 ? '' : 's'}. Open to read them.
       </p>
+
+      {/* THE PART THE OWNER ASKED FOR: not what the feedback is, but what to do about it.
+          Matched from the curated playbook rather than generated — a model asked for advice
+          produces a fluent, unverifiable case study, and this codebase has paid for that kind of
+          confident invention twice already. */}
+      {action.play && (
+        <div className="rm-play">
+          <div className="rm-play-head">
+            <strong>{action.play.title}</strong>
+            <Badge tone="neutral">{action.play.owner}</Badge>
+            <Badge tone={action.play.horizon === 'now' ? 'warn' : 'info'}>
+              {action.play.horizon}
+            </Badge>
+          </div>
+          <p className="rm-play-summary">{action.play.summary}</p>
+          <ol className="rm-steps">
+            {action.play.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <p className="rm-measure">
+            <strong>How you will know:</strong> {action.play.measure}
+          </p>
+          {/* Stated, never implied. A play is not worse for being unevidenced — it is worse for
+              pretending otherwise, and a client who catches one invented citation stops believing
+              every number beside it. */}
+          <p className="rm-caveat">{evidenceNote(action.play)}</p>
+          {action.play.evidence.map((c) => (
+            <a key={c.url} className="rm-cite" href={c.url} target="_blank" rel="noreferrer noopener">
+              {c.title} — {c.source} ↗
+            </a>
+          ))}
+        </div>
+      )}
 
       <div className="rm-dims">
         {action.dimensions.slice(0, 3).map((d) => (
