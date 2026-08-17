@@ -318,6 +318,27 @@ describe('GET /brands/:id/stats', () => {
     expect(JSON.parse(res.body).totalSignals).toBe(0);
   });
 
+  /**
+   * The coverage tile is shown beside a territory-filtered score, so its counts must be filtered
+   * too. This endpoint was left out of the territory threading and reported all-territory counts
+   * under a "United Kingdom" heading — two surfaces disagreeing about what the user is looking
+   * at, which is the exact failure the shared query helper exists to prevent. Found by driving
+   * the deployed app, not by a test.
+   */
+  it('passes the territory through to the counts', async () => {
+    const { territoryFilter } = await import('@project-signal/db');
+    _queue.push([
+      { totalSignals: 1, thisWeek: '0', previousWeek: '0', scored: '1', classified: '1' },
+    ]);
+    _queue.push([{ lastDate: '2026-08-17' }]);
+    _queue.push([{ configured: 1, active: '1' }]);
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/stats?territory=GB' });
+
+    expect(res.statusCode).toBe(200);
+    expect(territoryFilter).toHaveBeenCalledWith('GB');
+  });
+
   it('is brand-scoped', async () => {
     const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
     const res = await app.inject({ method: 'GET', url: '/brands/brand-2/stats' });

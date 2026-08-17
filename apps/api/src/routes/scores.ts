@@ -427,10 +427,21 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
             },
           },
         },
+        querystring: {
+          type: 'object',
+          properties: {
+            territory: {
+              type: 'string',
+              description:
+                "Restrict the signal counts to one territory. Omit, or pass 'all', for every territory combined.",
+            },
+          },
+        },
       },
     },
     async (request) => {
       const { id } = request.params as { id: string };
+      const { territory } = request.query as { territory?: string };
       const database = db.get();
       const now = Date.now();
       const weekAgo = new Date(now - 7 * MS_PER_DAY);
@@ -463,7 +474,11 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .from(signals)
         .leftJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
-        .where(attributedTo(id, request.user.tenantId));
+        /* Territory-filtered like every other read. Without this the coverage tile reports
+           all-territory counts under a territory heading — two surfaces disagreeing about what
+           the user is looking at, which is the exact failure `withTerritory` exists to prevent
+           and which this endpoint was left out of. Found by driving the deployed app. */
+        .where(and(attributedTo(id, request.user.tenantId), territoryFilter(territory)));
 
       /* The last day the rollup produced anything for this brand. `null` here while
          `classifiedSignals` is non-zero is the precise signature of a brand falling out of the
@@ -475,6 +490,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
           and(
             eq(dimensionScores.tenantId, request.user.tenantId),
             eq(dimensionScores.brandEntityId, id),
+            eq(dimensionScores.territory, territory || TERRITORY_ALL),
           ),
         );
 
