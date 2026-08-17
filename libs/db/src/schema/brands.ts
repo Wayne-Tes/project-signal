@@ -1,5 +1,6 @@
 import {
   boolean,
+  real,
   index,
   jsonb,
   pgTable,
@@ -56,6 +57,20 @@ export const brandEntities = pgTable('brand_entities', {
   // default in @project-signal/scoring. Kept as jsonb rather than five columns so adding or
   // reweighting a dimension is not a migration.
   dimensionWeights: jsonb('dimension_weights'),
+  /**
+   * The Brand Perception Index this brand is aiming at, 0–100. Null means none was set.
+   *
+   * NULL IS NOT ZERO AND NOT A DEFAULT. When it is null the API derives a target from the tracked
+   * competitor set instead, and says so — a target with no stated provenance is just a number, and
+   * a number nobody chose is one nobody defends in a meeting.
+   *
+   * There is deliberately no fallback constant. The Brand Perception Index is defined by this
+   * codebase, so no external body publishes a benchmark for it; picking a plausible-looking 75
+   * would be inventing an industry standard, which is exactly the fabrication that put "+3.4 pts"
+   * on a fictional bank's roadmap. With nothing measurable to aim at, the honest answer is that
+   * there is no target yet.
+   */
+  targetScore: real('target_score'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

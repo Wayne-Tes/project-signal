@@ -34,3 +34,17 @@ export {
   type SourceChange,
   type TopicChange,
 } from './change.js';
+
+export {
+  counterfactual,
+  gapTo,
+  median,
+  project,
+  PROJECTION_HORIZON_DAYS,
+  resolveTarget,
+  type Benchmarks,
+  type Counterfactual,
+  type Projection,
+  type Target,
+  type TargetSource,
+} from './target.js';
