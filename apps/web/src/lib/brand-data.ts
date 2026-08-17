@@ -493,3 +493,41 @@ export function withTerritory(path: string, territory: string | undefined): stri
   if (!territory || territory === 'all') return path;
   return `${path}${path.includes('?') ? '&' : '?'}territory=${encodeURIComponent(territory)}`;
 }
+
+/**
+ * The right sentence when there is no index to show.
+ *
+ * "No data" has two causes and they need opposite responses. If the brand has never been scored,
+ * the pipeline is the answer. If a TERRITORY has been selected, the far likelier cause is that
+ * this territory has no rollup rows yet — and blaming the pipeline sends a channel manager to
+ * raise a support ticket about a system that is working correctly.
+ *
+ * Found by driving the deployed app: selecting "United Kingdom" produced "the daily rollup has
+ * not scored it", which is false — the brand is scored, the territory is not. A plausible message
+ * pointing at the wrong cause is worse than a vague one.
+ */
+export function emptyScoreMessage(territory: string | undefined): string {
+  if (territory && territory !== 'all') {
+    const label = TERRITORY_LABEL_LOOKUP[territory] ?? territory;
+    return `No Brand Perception Index for ${label} yet. The brand may still be scored overall — switch to All territories to see it. Per-territory scores appear after the next rollup once feeds are classified.`;
+  }
+  return 'This brand has no Brand Perception Index yet — the daily rollup has not scored it.';
+}
+
+/* Kept local rather than importing the full map into every consumer: this is presentation, and
+   an unrecognised code falls back to itself rather than throwing. */
+const TERRITORY_LABEL_LOOKUP: Record<string, string> = {
+  GB: 'the United Kingdom',
+  IE: 'Ireland',
+  US: 'the United States',
+  CA: 'Canada',
+  AU: 'Australia',
+  NZ: 'New Zealand',
+  AE: 'the United Arab Emirates',
+  ZA: 'South Africa',
+  IN: 'India',
+  SG: 'Singapore',
+  HK: 'Hong Kong',
+  GLOBAL: 'global channels',
+  unknown: 'unclassified feeds',
+};

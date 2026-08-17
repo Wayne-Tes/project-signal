@@ -15,6 +15,7 @@ import {
   type DimensionCard,
   coverageFooter,
   coverageTone,
+  emptyScoreMessage,
 } from '@/lib/brand-data';
 import { scoreColor } from '@/lib/utils';
 import { Delta } from '@/components/primitives';
@@ -135,9 +136,7 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
         loading={score.loading || stats.loading}
         error={score.error ?? stats.error ?? brandError}
         empty={
-          composite === null
-            ? 'This brand has no Brand Perception Index yet — the daily rollup has not scored it.'
-            : null
+          composite === null ? emptyScoreMessage(territory) : null
         }
       >
         <div className="grid" style={{ gridTemplateColumns: '360px 1fr' }}>
