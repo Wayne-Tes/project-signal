@@ -33,8 +33,9 @@ import {
   type Territory,
 } from '@project-signal/shared-types';
 import { bestPlayFor } from '@project-signal/playbook';
-import { and, desc, eq, gte, ne } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, ne } from 'drizzle-orm';
 import { requireBrandAccess, requireRole } from '../plugins/auth.js';
+import { adaptPlay } from '../lib/adapt-play.js';
 
 /**
  * The action roadmap — what to fix, what it is worth, and what to aim at.
@@ -461,6 +462,96 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!row) return reply.notFound('Brand not found');
       return row;
+    },
+  );
+
+  /**
+   * POST /brands/:id/roadmap/adapt — rewrite a matched play in the language of the evidence.
+   *
+   * ON DEMAND, NOT ON EVERY PAGE LOAD. Adapting all eight actions on each render would put eight
+   * model calls behind a dashboard people refresh, for a nicety that sits on top of a play which
+   * already stands on its own. The user asks for it, and pays for it, one action at a time.
+   *
+   * The model is given the play's steps and the verbatim signals, and nothing else — not the
+   * measure, the owner, the horizon or the evidence, so it cannot alter what it never saw.
+   */
+  fastify.post(
+    '/brands/:id/roadmap/adapt',
+    {
+      preHandler: requireBrandAccess,
+      schema: {
+        security: [{ BearerAuth: [] }],
+        params: { type: 'object', properties: { id: { type: 'string' } } },
+        body: {
+          type: 'object',
+          properties: { topic: { type: 'string', minLength: 1 }, territory: { type: 'string' } },
+          required: ['topic'],
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              playId: { type: 'string', nullable: true },
+              adaptedSteps: { type: 'array', items: { type: 'string' } },
+              whatPeopleAreSaying: { type: 'string' },
+              modelVersion: { type: 'string' },
+              /* False when the model was unavailable or returned something unusable, so the UI
+                 can say it is showing the curated wording rather than silently implying the
+                 tailoring happened. */
+              adapted: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const { topic, territory } = request.body as { topic: string; territory?: string };
+      const tenantId = request.user.tenantId;
+      const asOf = new Date();
+      const key = topic.trim().toLowerCase();
+
+      const items = await readItems(tenantId, id, asOf, territory);
+      const cluster = clusterTopics(items, asOf).find((c) => c.topic === key);
+      if (!cluster) return reply.notFound('No such subject for this brand');
+
+      const play = bestPlayFor(cluster);
+      if (!play) {
+        return { playId: null, adaptedSteps: [], whatPeopleAreSaying: '', modelVersion: '', adapted: false };
+      }
+
+      /* The most negative signals carrying this topic — the ones the action is actually for.
+         `content` is the readable text; a signal collected before that column existed has none
+         and is skipped rather than sent as an empty string. */
+      const ids = new Set(
+        items
+          .filter((i) => i.topics.some((t) => t.trim().toLowerCase() === key))
+          .sort((a, b) => a.score - b.score)
+          .slice(0, 12)
+          .map((i) => i.signalId),
+      );
+
+      const rows = ids.size
+        ? await db
+            .get()
+            .select({ content: signals.content })
+            .from(signals)
+            .where(and(eq(signals.tenantId, tenantId), inArray(signals.id, [...ids])))
+        : [];
+
+      const adapted = await adaptPlay(
+        play,
+        key,
+        rows.map((r) => r.content ?? '').filter(Boolean),
+      );
+
+      return {
+        playId: play.id,
+        adaptedSteps: adapted?.adaptedSteps ?? play.steps,
+        whatPeopleAreSaying: adapted?.whatPeopleAreSaying ?? '',
+        modelVersion: adapted?.modelVersion ?? '',
+        adapted: adapted !== null,
+      };
     },
   );
 
