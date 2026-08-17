@@ -122,6 +122,16 @@ export interface NavActions {
   openOverview: () => void;
   openDimension: (dimKey: string) => void;
   openCluster: (clusterId: string, dimKey: string) => void;
+  /**
+   * Opens a topic directly, with no dimension above it.
+   *
+   * `openCluster` always inserts a dimension level, because it is called from inside a
+   * dimension's drill-down and the route the user took is what the stacked spines show. The
+   * "What's changed" view has no such context — a subject there is ranked by how it moved, not by
+   * which dimension it belongs to — and passing a fabricated dimension would put a step in the
+   * breadcrumb the user never walked through.
+   */
+  openTopic: (clusterId: string) => void;
   to: (i: number) => void;
   close: () => void;
 }

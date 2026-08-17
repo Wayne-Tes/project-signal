@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   BookOpen,
   FileText,
@@ -27,6 +28,7 @@ export type ViewId =
   | 'dashboard'
   | 'trends'
   | 'brand-impact'
+  | 'whats-changed'
   | 'roadmap'
   | 'competitors'
   | 'report'
@@ -57,6 +59,14 @@ const NAV: NavDef[] = [
     label: 'Brand impact',
     group: 'Intelligence',
     icon: <Target {...ICON} />,
+  },
+  /* Directly after Brand impact, which is the "what is wrong" view — this is the "what moved"
+     view, and the two are read together. */
+  {
+    id: 'whats-changed',
+    label: "What's changed",
+    group: 'Intelligence',
+    icon: <Activity {...ICON} />,
   },
   {
     id: 'roadmap',

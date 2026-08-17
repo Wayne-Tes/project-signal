@@ -30,6 +30,7 @@ const nav = {
   openOverview: vi.fn(),
   openDimension: vi.fn(),
   openCluster: vi.fn(),
+  openTopic: vi.fn(),
   to: vi.fn(),
   close: vi.fn(),
 };

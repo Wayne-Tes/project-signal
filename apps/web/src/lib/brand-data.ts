@@ -357,3 +357,120 @@ export function coverageTone(stats: ApiStats | null | undefined): string {
     return 'var(--coral)';
   return 'var(--t1)';
 }
+
+// --- What changed ------------------------------------------------------------
+
+export interface ApiTopicChange {
+  topic: string;
+  volume: number;
+  previousVolume: number;
+  sentiment: number;
+  previousSentiment: number | null;
+  volumeDelta: number;
+  sentimentDelta: number | null;
+  firstSeenAt: string | null;
+  isNew: boolean;
+  sampleSignalIds: string[];
+}
+
+export interface ApiSourceChange {
+  source: string;
+  volume: number;
+  previousVolume: number;
+  sentiment: number | null;
+  previousSentiment: number | null;
+  sentimentDelta: number | null;
+}
+
+/** `GET /brands/:id/whats-new` — mirrors apps/api/src/routes/change.ts. */
+export interface ApiWhatsNew {
+  basis: 'ingested' | 'published';
+  from: string;
+  to: string;
+  signalsThisPeriod: number;
+  signalsPreviousPeriod: number;
+  backfilledThisPeriod: number;
+  sentiment: number | null;
+  previousSentiment: number | null;
+  sentimentDelta: number | null;
+  newTopics: ApiTopicChange[];
+  risingTopics: ApiTopicChange[];
+  fallingTopics: ApiTopicChange[];
+  improvingTopics: ApiTopicChange[];
+  worseningTopics: ApiTopicChange[];
+  bySource: ApiSourceChange[];
+}
+
+/**
+ * A signed number for display, with an explicit answer for "there is nothing to compare".
+ *
+ * Returns `null` for an absent comparison so the caller must decide what to render, rather than
+ * receiving a `"+0"` it will show as a green improvement. That substitution is exactly the defect
+ * that put `▲ +0` on every dimension bar, and the only reliable guard against it is refusing to
+ * produce the string in the first place.
+ */
+export function formatDelta(value: number | null, digits = 0): string | null {
+  if (value === null || Number.isNaN(value)) return null;
+  const rounded = Number(value.toFixed(digits));
+  /* A true zero is a real finding — "measured, and it did not move" — and reads as such. */
+  if (rounded === 0) return 'no change';
+  /* U+2212 minus, not a hyphen: it aligns with the digits in a tabular-numeric column. */
+  return rounded > 0 ? `+${rounded}` : `−${Math.abs(rounded)}`;
+}
+
+/**
+ * Colour for a movement in SENTIMENT.
+ *
+ * Deliberately not reused for volume. More conversation is not good news or bad news on its own —
+ * a surge of praise and a surge of complaints are both "rising" — so colouring volume by
+ * direction would assert something the number does not say.
+ */
+export function sentimentTone(delta: number | null): string {
+  if (delta === null || delta === 0) return 'var(--t2)';
+  return delta > 0 ? 'var(--mint)' : 'var(--coral)';
+}
+
+/**
+ * One sentence a channel manager can read without decoding the page.
+ *
+ * The test of this view is whether a weekly report could be written from what is on screen, and
+ * that starts with a plain summary rather than five tables the reader has to reconcile.
+ */
+export function changeHeadline(data: ApiWhatsNew | null | undefined, days: number): string {
+  if (!data) return '';
+  const period = days === 7 ? 'this week' : `in the last ${days} days`;
+
+  if (data.signalsThisPeriod === 0) {
+    return data.signalsPreviousPeriod > 0
+      ? `Nothing collected ${period} — ${data.signalsPreviousPeriod.toLocaleString()} arrived in the period before it.`
+      : `Nothing collected ${period}.`;
+  }
+
+  const collected =
+    data.basis === 'ingested'
+      ? `${data.signalsThisPeriod.toLocaleString()} signal${data.signalsThisPeriod === 1 ? '' : 's'} collected ${period}`
+      : `${data.signalsThisPeriod.toLocaleString()} signal${data.signalsThisPeriod === 1 ? '' : 's'} published ${period}`;
+
+  /* Backfill is called out rather than buried. Connecting a feed imports its whole history at
+     once, and reporting that as a week's conversation is the first thing a reader would spot as
+     wrong — after they had already acted on it. */
+  const backfill =
+    data.backfilledThisPeriod > 0
+      ? `, of which ${data.backfilledThisPeriod.toLocaleString()} ${data.backfilledThisPeriod === 1 ? 'is' : 'are'} older material newly picked up`
+      : '';
+
+  const movement =
+    data.sentimentDelta === null
+      ? 'No earlier period to compare against yet'
+      : data.sentimentDelta === 0
+        ? 'Sentiment is unchanged'
+        : `Sentiment is ${data.sentimentDelta > 0 ? 'up' : 'down'} ${Math.abs(data.sentimentDelta).toFixed(2)}`;
+
+  const newCount = data.newTopics.length;
+  const subjects =
+    newCount === 0
+      ? 'no subjects are new'
+      : `${newCount} new subject${newCount === 1 ? '' : 's'}`;
+
+  return `${collected}${backfill}. ${movement}, and ${subjects}.`;
+}

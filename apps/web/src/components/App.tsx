@@ -15,6 +15,7 @@ import { Dashboard } from '@/views/Dashboard';
 import { TrendsView } from '@/views/Trends';
 import { BrandImpactView } from '@/views/BrandImpact';
 import { RoadmapView } from '@/views/Roadmap';
+import { WhatsChangedView } from '@/views/WhatsChanged';
 import { CompetitorsView } from '@/views/Competitors';
 import { ReportView } from '@/views/Report';
 import { AdminView } from '@/views/Admin';
@@ -118,6 +119,9 @@ export function App() {
             ? [...p, { kind: 'dimension', dimKey }]
             : [{ kind: 'dimension', dimKey }],
         ),
+      /* No dimension level: the caller genuinely does not know one, and inventing one would show
+         a step in the breadcrumb the user never took. */
+      openTopic: (clusterId) => setPath([{ kind: 'cluster', clusterId }]),
       openCluster: (clusterId, dimKey) =>
         setPath((p) => {
           const base = p.filter((l) => l.kind !== 'cluster');
@@ -254,6 +258,7 @@ export function App() {
         )}
         {activeView === 'trends' && <TrendsView nav={drill} />}
         {activeView === 'brand-impact' && <BrandImpactView nav={drill} />}
+        {activeView === 'whats-changed' && <WhatsChangedView nav={drill} />}
         {activeView === 'roadmap' && <RoadmapView nav={drill} />}
         {activeView === 'competitors' && <CompetitorsView />}
         {activeView === 'report' && <ReportView />}
