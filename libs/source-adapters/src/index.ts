@@ -30,6 +30,29 @@ export interface RawItem {
   url: string;
   /** The verbatim words. Markup already stripped — see `text.ts` for why that happens here. */
   text: string;
+  /**
+   * WHAT THE SOURCE ACTUALLY RETURNED, before any normalisation. Persisted to S3, never read
+   * by the pipeline.
+   *
+   * `text` above is processed: markup stripped, entities decoded, title joined, paragraphs
+   * deduplicated, clamped. That is the right thing to score and to show — and it means the S3
+   * object, which is written from it, was never the untouched payload it was described as
+   * (KNOWN-GAPS #28). Because the object key is derived from the external id, re-collecting an
+   * item OVERWRITES it, so after a normalisation change ships the stored "raw" payload is
+   * quietly rewritten in the new shape.
+   *
+   * That is not theoretical: a fix for duplicated Google News headlines failed to repair the
+   * rows it was written for, because the backfill re-read a source that had itself already been
+   * rewritten with the duplication baked in.
+   *
+   * Carrying the original here means a future normalisation change can be re-derived from what
+   * the source said rather than from what we last decided it said. Optional because a source
+   * with a single plain-text field has nothing distinct to carry, and inventing a copy would
+   * just double the object for no information.
+   */
+  sourceText?: string;
+  /** The source's own title, before normalisation. Same reasoning as `sourceText`. */
+  sourceTitle?: string;
   /** Headline or subject, where the source distinguishes one from the body. */
   title?: string;
   /** Who said it, as the source names them. */

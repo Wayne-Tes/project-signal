@@ -45,7 +45,13 @@ const MAX_BATCH = 1000;
 
 /** The shape the ingestion handler writes to S3. Every field is optional — old objects vary. */
 interface RawPayload {
+  /** 2 and above carry `sourceText`. Absent means written before that existed. */
+  schemaVersion?: number;
+  /** What the ADAPTER produced: markup stripped, title joined, deduplicated, clamped. */
   text?: string;
+  /** What the SOURCE returned, untouched. Only on schemaVersion >= 2. */
+  sourceText?: string;
+  sourceTitle?: string;
   title?: string;
   metadata?: Record<string, unknown>;
 }
@@ -76,9 +82,32 @@ function ratingFrom(metadata: Record<string, unknown> | undefined): number | nul
 }
 
 function titleFrom(payload: RawPayload): string | null {
-  const raw = payload.title ?? payload.metadata?.['title'] ?? payload.metadata?.['videoTitle'];
+  /* `sourceTitle` first: it is what the source sent, and re-deriving from the processed copy is
+     what made an earlier fix unable to repair its own output. */
+  const raw =
+    payload.sourceTitle ??
+    payload.title ??
+    payload.metadata?.['title'] ??
+    payload.metadata?.['videoTitle'];
   if (typeof raw !== 'string' || !raw.trim()) return null;
   return stripHtml(raw) || null;
+}
+
+/**
+ * The best available body, preferring what the source actually said.
+ *
+ * THE POINT OF KNOWN-GAPS #28. `text` is the adapter's output, and because re-collection
+ * overwrites the object under the same key, it is whatever the LAST normalisation produced —
+ * not what was published. Re-deriving from it means a corrupted normalisation cannot be undone,
+ * which is exactly what happened when duplicated Google News headlines survived a backfill:
+ * the source being re-read had already been rewritten with the duplication in it.
+ *
+ * Objects written before `schemaVersion: 2` have no `sourceText`, so they fall back to `text`.
+ * That is a real limitation and not a silent one — those rows cannot be recovered any better
+ * than this, and only a fresh collection will produce a payload that can be.
+ */
+function bodyFrom(payload: RawPayload): string {
+  return String(payload.sourceText ?? payload.text ?? '');
 }
 
 const backfillRoutes: FastifyPluginAsync = async (fastify) => {
@@ -204,7 +233,7 @@ const backfillRoutes: FastifyPluginAsync = async (fastify) => {
         try {
           const payload = JSON.parse(await store.get(keyFromRef(row.ref))) as RawPayload;
           const title = titleFrom(payload);
-          const body = stripHtml(String(payload.text ?? ''));
+          const body = stripHtml(bodyFrom(payload));
           const content = clampContent(joinTitleAndBody(title ?? undefined, body));
 
           if (!content) {

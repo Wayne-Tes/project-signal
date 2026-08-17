@@ -246,6 +246,73 @@ describe('POST /admin/backfill/content', () => {
   });
 });
 
+/**
+ * Re-deriving from what the SOURCE said, not from what we last decided it said.
+ *
+ * KNOWN-GAPS #28. The S3 key is derived from the item's external id, so re-collection overwrites
+ * the object — and until `schemaVersion: 2` the payload held only the adapter's processed text.
+ * A normalisation change therefore rewrote the whole "audit trail" in its own image, and a fix
+ * for duplicated Google News headlines could not repair the rows it was written for: the backfill
+ * re-read a payload that had already been rewritten with the duplication baked into it.
+ */
+describe('preferring the untouched source text', () => {
+  it('re-derives from sourceText when the payload carries it', async () => {
+    _objects.set(
+      'v2.json',
+      JSON.stringify({
+        schemaVersion: 2,
+        /* What a previous, broken normalisation left behind — the headline twice. */
+        text: 'Report published - Yahoo Finance UK\n\nReport published Yahoo Finance UK',
+        sourceText: '<a href="https://news.google.com/rss/articles/CBM">Report published</a>',
+        sourceTitle: 'Report published - Yahoo Finance UK',
+      }),
+    );
+    queue([{ id: 's1', ref: 's3://bucket/v2.json' }]);
+
+    const app = await buildTestApp(backfillRoutes, DEFAULT_OWNER);
+    await run(app);
+
+    /* Recovered from the ORIGINAL, so the corruption in `text` is not carried forward. */
+    expect(_updates[0]!['content']).not.toMatch(/Report published.*Report published/s);
+    expect(_updates[0]!['content']).not.toContain('<a href');
+    expect(_updates[0]!['content']).toContain('Report published');
+  });
+
+  /* Objects written before the change have no `sourceText`. Falling back to `text` is the best
+     available answer and a real limitation — only a fresh collection produces a recoverable
+     payload — but it must not fail. */
+  it('falls back to the processed text for payloads written before schemaVersion 2', async () => {
+    _objects.set('v1.json', JSON.stringify({ text: 'Only the processed form exists here.' }));
+    queue([{ id: 's2', ref: 's3://bucket/v1.json' }]);
+
+    const app = await buildTestApp(backfillRoutes, DEFAULT_OWNER);
+    const res = await run(app);
+
+    expect(res.json()).toMatchObject({ updated: 1, failed: 0 });
+    expect(_updates[0]!['content']).toBe('Only the processed form exists here.');
+  });
+
+  it('prefers sourceTitle over the normalised title', async () => {
+    _objects.set(
+      'v2b.json',
+      JSON.stringify({
+        schemaVersion: 2,
+        text: 'body',
+        sourceText: 'body',
+        sourceTitle: 'Original &amp; unescaped',
+        title: 'something the adapter rewrote',
+      }),
+    );
+    queue([{ id: 's3', ref: 's3://bucket/v2b.json' }]);
+
+    const app = await buildTestApp(backfillRoutes, DEFAULT_OWNER);
+    await run(app);
+
+    /* Entity decoded on the way out, but derived from the SOURCE's title. */
+    expect(_updates[0]!['title']).toBe('Original & unescaped');
+  });
+});
+
 describe('GET /admin/backfill/content/status', () => {
   it('reports how much is left, so a run is a decision rather than a guess', async () => {
     _rowQueue.push([{ total: 383, withContent: 200 }]);

@@ -53,6 +53,7 @@ export class YoutubeAdapter implements SourceAdapter {
           externalId: c.id,
           url: `https://www.youtube.com/watch?v=${video.id.videoId}&lc=${c.id}`,
           text: clampContent(stripHtml(String(c.snippet.textOriginal ?? ''))),
+          sourceText: c.snippet.textOriginal ?? undefined,
           /* The VIDEO's title, not the comment's — a comment has none, and "which video was this
              said under" is the context a channel manager needs to act on it. */
           title: video.snippet.title,

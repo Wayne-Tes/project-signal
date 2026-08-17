@@ -87,13 +87,20 @@ function extractItems(parsed: Record<string, unknown>): RawItem[] {
  */
 function fromRssItem(item: RssItem): RawItem {
   const guid = typeof item.guid === 'object' ? item.guid['#text'] : item.guid;
-  const title = item.title ? stripHtml(String(item.title)) : undefined;
-  const body = stripHtml(String(item['content:encoded'] ?? item.description ?? ''));
+  const sourceTitle = item.title === undefined ? undefined : String(item.title);
+  const sourceBody = String(item['content:encoded'] ?? item.description ?? '');
+  const title = sourceTitle ? stripHtml(sourceTitle) : undefined;
+  const body = stripHtml(sourceBody);
 
   return {
     externalId: guid ?? item.link ?? '',
     url: item.link ?? '',
     text: clampContent(joinTitleAndBody(title, body)),
+    /* The markup as the feed sent it. Google News wraps its headline in an anchor whose href is
+       longer than the sentence; that anchor is the only surviving evidence of what was actually
+       published, and stripping it before storage is what made the S3 object non-raw. */
+    sourceText: sourceBody || undefined,
+    sourceTitle,
     title,
     publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
     metadata: { title },
@@ -102,14 +109,18 @@ function fromRssItem(item: RssItem): RawItem {
 
 function fromAtomEntry(entry: AtomEntry): RawItem {
   const rawTitle = typeof entry.title === 'object' ? entry.title['#text'] : entry.title;
-  const title = rawTitle ? stripHtml(String(rawTitle)) : undefined;
+  const sourceTitle = rawTitle === undefined ? undefined : String(rawTitle);
+  const title = sourceTitle ? stripHtml(sourceTitle) : undefined;
   const link = typeof entry.link === 'object' ? entry.link['@_href'] : (entry.link ?? '');
-  const body = stripHtml(String(entry.content ?? entry.summary ?? ''));
+  const sourceBody = String(entry.content ?? entry.summary ?? '');
+  const body = stripHtml(sourceBody);
 
   return {
     externalId: entry.id ?? link,
     url: link,
     text: clampContent(joinTitleAndBody(title, body)),
+    sourceText: sourceBody || undefined,
+    sourceTitle,
     title,
     publishedAt: entry.published
       ? new Date(entry.published)
