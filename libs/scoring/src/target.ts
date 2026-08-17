@@ -261,3 +261,105 @@ export function gapTo(current: number | null, target: Target | null): number | n
   if (current === null || target === null) return null;
   return Math.max(0, target.value - current);
 }
+
+// --- Outcomes ----------------------------------------------------------------
+
+/**
+ * What happened after an action was accepted.
+ *
+ * `unmeasurable` is a first-class verdict, not an error state. An action accepted yesterday, or on
+ * a brand whose rollup has not run since, genuinely has no outcome yet — and reporting "no change"
+ * for it would be a claim we cannot support. The distinction between "we measured and nothing
+ * moved" and "we cannot tell yet" is the difference between an experiment log and a comfort
+ * blanket.
+ */
+export type OutcomeVerdict = 'improved' | 'unchanged' | 'worsened' | 'unmeasurable';
+
+export interface Outcome {
+  verdict: OutcomeVerdict;
+  /** Index movement since the baseline, or null when it cannot be measured. */
+  indexDelta: number | null;
+  /**
+   * Change in the subject's damage score. Context only — **the verdict never keys off this.**
+   *
+   * `damage = volume × negativity × recency`, so it is volume-sensitive in a way that makes it a
+   * treacherous measure of success. Drowning complaints in fresh praise RAISES damage: volume and
+   * recency both climb faster than mean negativity falls. Verified against real data — an action
+   * that took the index from 23.1 to 61.7 moved damage from 2.51 to 2.87, upward.
+   *
+   * So a rise here is not failure and a fall is not proof. The index is what the target is set
+   * against and the index is what the verdict uses; this is reported beside it because a change in
+   * how much a subject is discussed is worth seeing, not because it grades the work.
+   */
+  damageDelta: number | null;
+  /**
+   * How much of the claimed ceiling actually materialised, as a percentage.
+   *
+   * THE NUMBER THAT MAKES THE LOG WORTH KEEPING. Over enough actions it says whether the ceiling
+   * is a useful predictor at all, and whether a given play works — neither of which any amount of
+   * borrowed case-study evidence can tell you about YOUR brand.
+   *
+   * Null when there was no ceiling claimed, or nothing measurable to compare it to. Uncapped on
+   * purpose: a result above 100% means other things improved too, and clamping it would hide that
+   * the attribution is loose rather than pretending it is precise.
+   */
+  capturedPercent: number | null;
+  /** Days between the baseline and the measurement. */
+  elapsedDays: number | null;
+}
+
+/**
+ * How far the index must move before it counts as movement.
+ *
+ * The composite drifts by fractions on re-scoring alone. Without a floor, every action would be
+ * reported as "improved" or "worsened" the day after it was accepted, which would make the log
+ * noise rather than evidence. Half a point on a 0–100 scale is a deliberate opening position; it
+ * should be revisited against real outcome data, not reasoned about further.
+ */
+export const OUTCOME_MOVE_THRESHOLD = 0.5;
+
+/** Below this, the index has not had time to respond and any verdict would be premature. */
+export const OUTCOME_MIN_DAYS = 7;
+
+export function evaluateOutcome(input: {
+  baselineIndex: number | null;
+  baselineDamage: number | null;
+  ceilingDelta: number | null;
+  currentIndex: number | null;
+  currentDamage: number | null;
+  baselineAt: Date;
+  asOf: Date;
+}): Outcome {
+  const elapsedDays = Math.floor((input.asOf.getTime() - input.baselineAt.getTime()) / MS_PER_DAY);
+
+  const measurable =
+    input.baselineIndex !== null && input.currentIndex !== null && elapsedDays >= OUTCOME_MIN_DAYS;
+
+  const indexDelta =
+    input.baselineIndex !== null && input.currentIndex !== null
+      ? input.currentIndex - input.baselineIndex
+      : null;
+
+  const damageDelta =
+    input.baselineDamage !== null && input.currentDamage !== null
+      ? input.currentDamage - input.baselineDamage
+      : null;
+
+  if (!measurable || indexDelta === null) {
+    return { verdict: 'unmeasurable', indexDelta, damageDelta, capturedPercent: null, elapsedDays };
+  }
+
+  const verdict: OutcomeVerdict =
+    indexDelta > OUTCOME_MOVE_THRESHOLD
+      ? 'improved'
+      : indexDelta < -OUTCOME_MOVE_THRESHOLD
+        ? 'worsened'
+        : 'unchanged';
+
+  const capturedPercent =
+    input.ceilingDelta !== null && input.ceilingDelta > 0
+      ? (indexDelta / input.ceilingDelta) * 100
+      : null;
+
+  return { verdict, indexDelta, damageDelta, capturedPercent, elapsedDays };
+}

@@ -7,12 +7,14 @@ import {
   sentimentResults,
   signals,
   territoryFilter,
+  trackedActions,
 } from '@project-signal/db';
 import {
   brandImpact,
   clusterTopics,
   compositeScore,
   counterfactual,
+  evaluateOutcome,
   gapTo,
   HALF_LIFE_DAYS,
   median,
@@ -427,6 +429,243 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!row) return reply.notFound('Brand not found');
       return row;
+    },
+  );
+
+  /**
+   * POST /brands/:id/roadmap/actions — commit to an action, and stamp its baseline.
+   *
+   * THE BASELINE IS THE WHOLE POINT, AND IT CANNOT BE RETROFITTED. A row created after the work
+   * began has to guess where the index stood at the start, and a guessed baseline makes every
+   * later verdict a guess too. So the index, the subject's damage and the ceiling we claimed are
+   * all captured here, at accept, from the same computation the roadmap was displaying.
+   *
+   * `ceilingDelta` is recorded rather than recomputed later precisely so it can be checked. A log
+   * that quietly rewrites its own predictions to match the outcome proves nothing at all.
+   */
+  fastify.post(
+    '/brands/:id/roadmap/actions',
+    {
+      preHandler: requireBrandAccess,
+      schema: {
+        security: [{ BearerAuth: [] }],
+        params: { type: 'object', properties: { id: { type: 'string' } } },
+        body: {
+          type: 'object',
+          properties: {
+            topic: { type: 'string', minLength: 1 },
+            territory: { type: 'string' },
+            note: { type: 'string' },
+          },
+          required: ['topic'],
+        },
+        response: {
+          201: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              topic: { type: 'string' },
+              territory: { type: 'string' },
+              status: { type: 'string' },
+              baselineIndex: { type: 'number', nullable: true },
+              ceilingDelta: { type: 'number', nullable: true },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const { topic, territory, note } = request.body as {
+        topic: string;
+        territory?: string;
+        note?: string;
+      };
+      const tenantId = request.user.tenantId;
+      const asOf = new Date();
+
+      const [brand] = await db
+        .get()
+        .select({ weights: brandEntities.dimensionWeights })
+        .from(brandEntities)
+        .where(and(eq(brandEntities.id, id), eq(brandEntities.tenantId, tenantId)));
+      if (!brand) return reply.notFound('Brand not found');
+
+      const weights = parseWeights(brand.weights);
+      const items = await readItems(tenantId, id, asOf, territory);
+      const key = topic.trim().toLowerCase();
+      const cluster = clusterTopics(items, asOf).find((c) => c.topic === key);
+      const cf = counterfactual(items, key, asOf, weights);
+
+      const [row] = await db
+        .get()
+        .insert(trackedActions)
+        .values({
+          tenantId,
+          brandEntityId: id,
+          topic: key,
+          territory: territory || TERRITORY_ALL,
+          /* Stamped from the same numbers the user was looking at when they accepted. Nulls are
+             honest: a brand with no rollup yet has no baseline index, and inventing one would
+             make its first verdict meaningless. */
+          baselineIndex: compositeScore(scoreAllDimensions(items, asOf), weights),
+          baselineDamage: cluster?.damage ?? null,
+          baselineVolume: cluster?.volume ?? null,
+          ceilingDelta: cf?.delta ?? null,
+          acceptedBy: request.user.uid,
+          note: note?.trim() || null,
+        })
+        .returning();
+
+      return reply.status(201).send(row);
+    },
+  );
+
+  /**
+   * GET /brands/:id/roadmap/actions — the log, with each outcome computed on read.
+   *
+   * The verdict is NOT stored. It is derived from today's numbers, because a stored verdict goes
+   * stale — "improved", on a subject that has since collapsed, is worse than no verdict at all.
+   * Same reasoning as the portfolio index.
+   */
+  fastify.get(
+    '/brands/:id/roadmap/actions',
+    {
+      preHandler: requireBrandAccess,
+      schema: {
+        security: [{ BearerAuth: [] }],
+        params: { type: 'object', properties: { id: { type: 'string' } } },
+        response: {
+          200: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                topic: { type: 'string' },
+                territory: { type: 'string' },
+                status: { type: 'string' },
+                note: { type: 'string', nullable: true },
+                baselineAt: { type: 'string' },
+                baselineIndex: { type: 'number', nullable: true },
+                ceilingDelta: { type: 'number', nullable: true },
+                outcome: {
+                  type: 'object',
+                  properties: {
+                    verdict: { type: 'string' },
+                    indexDelta: { type: 'number', nullable: true },
+                    damageDelta: { type: 'number', nullable: true },
+                    capturedPercent: { type: 'number', nullable: true },
+                    elapsedDays: { type: 'integer', nullable: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const tenantId = request.user.tenantId;
+      const asOf = new Date();
+
+      const rows = await db
+        .get()
+        .select()
+        .from(trackedActions)
+        .where(and(eq(trackedActions.tenantId, tenantId), eq(trackedActions.brandEntityId, id)))
+        .orderBy(desc(trackedActions.baselineAt));
+      if (rows.length === 0) return [];
+
+      const [brand] = await db
+        .get()
+        .select({ weights: brandEntities.dimensionWeights })
+        .from(brandEntities)
+        .where(and(eq(brandEntities.id, id), eq(brandEntities.tenantId, tenantId)));
+      const weights = parseWeights(brand?.weights);
+
+      /* Read once per distinct territory, not once per action: twenty actions in one territory
+         should not issue twenty identical scans of the same signals. */
+      const byTerritory = new Map<string, { index: number | null; damage: Map<string, number> }>();
+      for (const territory of new Set(rows.map((r) => r.territory))) {
+        const scope = territory === TERRITORY_ALL ? undefined : territory;
+        const items = await readItems(tenantId, id, asOf, scope);
+        byTerritory.set(territory, {
+          index: compositeScore(scoreAllDimensions(items, asOf), weights),
+          damage: new Map(clusterTopics(items, asOf).map((c) => [c.topic, c.damage])),
+        });
+      }
+
+      return rows.map((row) => {
+        const now = byTerritory.get(row.territory);
+        return {
+          ...row,
+          baselineAt: row.baselineAt.toISOString(),
+          outcome: evaluateOutcome({
+            baselineIndex: row.baselineIndex,
+            baselineDamage: row.baselineDamage,
+            ceilingDelta: row.ceilingDelta,
+            currentIndex: now?.index ?? null,
+            /* A subject that has dropped out of the clusters entirely now has zero damage — which
+               is the best possible outcome, not missing data. */
+            currentDamage: now ? (now.damage.get(row.topic) ?? 0) : null,
+            baselineAt: row.baselineAt,
+            asOf,
+          }),
+        };
+      });
+    },
+  );
+
+  /** PATCH — record what was done, or close it. Baselines are never touched. */
+  fastify.patch(
+    '/brands/:id/roadmap/actions/:actionId',
+    {
+      preHandler: requireBrandAccess,
+      schema: {
+        security: [{ BearerAuth: [] }],
+        params: {
+          type: 'object',
+          properties: { id: { type: 'string' }, actionId: { type: 'string' } },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['accepted', 'completed', 'abandoned'] },
+            note: { type: 'string' },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, actionId } = request.params as { id: string; actionId: string };
+      const { status, note } = request.body as { status?: string; note?: string };
+
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (status !== undefined) {
+        updates['status'] = status;
+        /* Stamped when it closes, so "how long did this take" is answerable later. */
+        updates['completedAt'] = status === 'completed' ? new Date() : null;
+      }
+      if (note !== undefined) updates['note'] = note.trim() || null;
+
+      const [row] = await db
+        .get()
+        .update(trackedActions)
+        .set(updates)
+        /* Id AND brand AND tenant. The id alone would let one tenant close another's action. */
+        .where(
+          and(
+            eq(trackedActions.id, actionId),
+            eq(trackedActions.brandEntityId, id),
+            eq(trackedActions.tenantId, request.user.tenantId),
+          ),
+        )
+        .returning();
+
+      if (!row) return reply.notFound('Action not found');
+      return { ...row, baselineAt: row.baselineAt.toISOString() };
     },
   );
 };

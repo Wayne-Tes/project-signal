@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   counterfactual,
+  evaluateOutcome,
   gapTo,
   median,
   project,
@@ -237,5 +238,84 @@ describe('gapTo', () => {
   it('is null when either side is missing', () => {
     expect(gapTo(null, { value: 63, source: 'owner', label: 'x' })).toBeNull();
     expect(gapTo(51, null)).toBeNull();
+  });
+});
+
+describe('evaluateOutcome', () => {
+  const base = {
+    baselineIndex: 50,
+    baselineDamage: 4,
+    ceilingDelta: 10,
+    baselineAt: new Date(NOW.getTime() - 60 * DAY),
+    asOf: NOW,
+  };
+
+  it('reports improvement when the index rose past the noise floor', () => {
+    const o = evaluateOutcome({ ...base, currentIndex: 56, currentDamage: 1 });
+    expect(o.verdict).toBe('improved');
+    expect(o.indexDelta).toBe(6);
+    /* Negative damage delta is good — less damage. */
+    expect(o.damageDelta).toBe(-3);
+  });
+
+  it('reports a decline rather than rounding it away', () => {
+    expect(evaluateOutcome({ ...base, currentIndex: 44, currentDamage: 6 }).verdict).toBe('worsened');
+  });
+
+  /* The composite drifts by fractions on re-scoring alone. Without the floor every action would
+     read as improved or worsened the day after it was accepted, making the log noise. */
+  it('treats sub-threshold drift as unchanged', () => {
+    expect(evaluateOutcome({ ...base, currentIndex: 50.3, currentDamage: 4 }).verdict).toBe(
+      'unchanged',
+    );
+  });
+
+  /**
+   * `unmeasurable` is a first-class verdict, not an error. "We measured and nothing moved" and
+   * "we cannot tell yet" are different claims, and collapsing them turns an experiment log into
+   * a comfort blanket.
+   */
+  it('refuses to judge an action that has not had time to land', () => {
+    const o = evaluateOutcome({
+      ...base,
+      baselineAt: new Date(NOW.getTime() - 2 * DAY),
+      currentIndex: 58,
+      currentDamage: 1,
+    });
+    expect(o.verdict).toBe('unmeasurable');
+    expect(o.capturedPercent).toBeNull();
+    /* The movement is still reported — it just is not dignified with a verdict. */
+    expect(o.indexDelta).toBe(8);
+  });
+
+  it('refuses to judge when there is no baseline to compare against', () => {
+    expect(evaluateOutcome({ ...base, baselineIndex: null, currentIndex: 60, currentDamage: 1 }).verdict).toBe(
+      'unmeasurable',
+    );
+  });
+
+  /**
+   * The number that makes the whole log worth keeping: did we get what we said we would? Over
+   * enough actions it says whether the ceiling predicts anything — which no borrowed case study
+   * can tell you about YOUR brand.
+   */
+  it('reports how much of the claimed ceiling actually materialised', () => {
+    const o = evaluateOutcome({ ...base, currentIndex: 55, currentDamage: 1 });
+    expect(o.capturedPercent).toBeCloseTo(50);
+  });
+
+  /* Uncapped on purpose: over 100% means other things improved too, and clamping would hide that
+     the attribution is loose rather than pretending it is precise. */
+  it('does not cap capture at 100%, because attribution is loose and saying so is honest', () => {
+    const o = evaluateOutcome({ ...base, currentIndex: 65, currentDamage: 0 });
+    expect(o.capturedPercent).toBeGreaterThan(100);
+  });
+
+  it('reports no capture when no ceiling was ever claimed', () => {
+    expect(evaluateOutcome({ ...base, ceilingDelta: null, currentIndex: 56, currentDamage: 1 }).capturedPercent).toBeNull();
+  });
+
+  it('reports elapsed days so a verdict can be read in context', () => {
+    expect(evaluateOutcome({ ...base, currentIndex: 56, currentDamage: 1 }).elapsedDays).toBe(60);
   });
 });
