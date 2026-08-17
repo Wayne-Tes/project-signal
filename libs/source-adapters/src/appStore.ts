@@ -146,7 +146,8 @@ function toRawItem(entry: AppleEntry): RawItem {
   const body = contentText(entry.content);
   const rating = numberOrUndefined(entry['im:rating']);
 
-  const title = entry.title ? stripHtml(String(entry.title)) : undefined;
+  const sourceTitle = entry.title === undefined ? undefined : String(entry.title);
+  const title = sourceTitle ? stripHtml(sourceTitle) : undefined;
 
   return {
     externalId: String(id),
@@ -155,6 +156,8 @@ function toRawItem(entry: AppleEntry): RawItem {
        crashes" over three paragraphs of detail — and scoring only the body would discard it.
        `joinTitleAndBody` handles the case where a one-line review repeats its own title. */
     text: clampContent(joinTitleAndBody(title, stripHtml(body))),
+    sourceText: body || undefined,
+    sourceTitle,
     title,
     author: entry.author?.name,
     rating,

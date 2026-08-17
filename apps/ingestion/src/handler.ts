@@ -171,30 +171,39 @@ export async function handleIngestionJob(
 
     // Persist the payload BEFORE the row, so raw_storage_ref can never point at an object that
     // does not exist. The reverse order would leave rows whose evidence is unresolvable if the
-    // upload fails. This is the text the sentiment worker scores.
+    // upload fails.
     //
-    // IT IS NOT AN IMMUTABLE AUDIT TRAIL, despite having been described as one here and
-    // elsewhere. Two things are true and were not obvious:
+    // THE OBJECT NOW CARRIES BOTH FORMS, and the distinction is the whole point (KNOWN-GAPS #28):
     //
-    //   1. The key is derived from the item's external id, so re-collecting an item OVERWRITES
-    //      its object rather than adding a version.
-    //   2. `item.text` is what the ADAPTER produced — markup already stripped, title already
-    //      joined — not the bytes the source returned.
+    //   `sourceText` / `sourceTitle` — what the SOURCE returned, untouched. Markup intact,
+    //     entities undecoded, title not joined. Nothing in the pipeline reads these.
+    //   `text` — what the ADAPTER produced, and what the scorer and the drill-down use.
     //
-    // So after a normalisation change ships, the next collection run rewrites these objects in
-    // the new shape, and anything re-derived from them inherits it. That is how a fix for
-    // duplicated headlines failed to repair the rows it was written for: the source it re-read
-    // had itself been rewritten with the duplication in place.
+    // Until both were stored, only the processed form existed. The key is derived from the
+    // item's external id, so re-collecting OVERWRITES rather than versioning — which meant that
+    // after a normalisation change shipped, the next collection run silently rewrote every
+    // "raw" object in the new shape. That is how a fix for duplicated Google News headlines
+    // failed to repair the rows it was written for: the backfill re-read a source that had
+    // itself already been rewritten with the duplication baked in.
     //
-    // The mitigation is that text normalisation is IDEMPOTENT (`dedupeParagraphs`), so
-    // re-processing converges rather than compounds. The real fix — storing the untouched source
-    // string alongside the processed one — is recorded in docs/KNOWN-GAPS.md #28.
+    // With the original carried alongside, a future normalisation change can be re-derived from
+    // what the source actually said rather than from what we last decided it said. Idempotent
+    // normalisation (`dedupeParagraphs`) stays as the second line of defence, because the
+    // overwrite behaviour itself has not changed — S3 versioning on the raw bucket is what
+    // covers that, see infra-aws/stack/s3.tf.
+    //
+    // `schemaVersion` so a later reader can tell a payload written before this change (no
+    // `sourceText`, and therefore not recoverable) from one written after it where the source
+    // genuinely had no distinct body.
     const rawStorageRef = await store.put(
       rawKey(cfg.tenantId, cfg.brandEntityId, cfg.source, item.externalId),
       JSON.stringify({
+        schemaVersion: 2,
         externalId: item.externalId,
         url: item.url,
         text: item.text,
+        sourceText: item.sourceText,
+        sourceTitle: item.sourceTitle,
         publishedAt: item.publishedAt,
         metadata: item.metadata,
         fetchedAt: new Date().toISOString(),

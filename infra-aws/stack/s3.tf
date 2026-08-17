@@ -109,8 +109,42 @@ resource "aws_s3_bucket_lifecycle_configuration" "raw" {
       storage_class = "STANDARD_IA"
     }
 
+    # Versioning (below) keeps every overwrite forever unless something removes them. The audit
+    # value of an old version decays fast — it exists to answer "what did this look like before
+    # the last collection run", not to be a permanent archive — so noncurrent versions expire
+    # after 90 days. Without this rule the bucket grows without bound at one extra object per
+    # item per collection run, which for an hourly schedule is 24 copies a day of data that
+    # usually has not changed.
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
+  }
+}
+
+# --- Versioning on `raw` ---------------------------------------------------------------------
+#
+# WHY. The object key is derived from the item's external id, so re-collecting an item OVERWRITES
+# its payload rather than adding to it. Combined with the payload having held only the ADAPTER's
+# processed text, that meant a normalisation change silently rewrote the entire "audit trail" in
+# its own image — and a fix for duplicated Google News headlines could not repair the rows it was
+# written for, because the backfill re-read a source that had already been rewritten with the
+# duplication in it (KNOWN-GAPS #28).
+#
+# Carrying `sourceText` in the payload fixes the data going forward. Versioning is the other half:
+# it makes the overwrite itself recoverable, so the question "what did we actually store before
+# that deploy" has an answer rather than a shrug. It would have turned that diagnosis into one
+# command.
+#
+# NOT applied to `reports`: those are generated artefacts, regenerable from the signals, and
+# versioning them would pay storage for something we can rebuild.
+resource "aws_s3_bucket_versioning" "raw" {
+  bucket = aws_s3_bucket.raw.id
+
+  versioning_configuration {
+    status = "Enabled"
   }
 }

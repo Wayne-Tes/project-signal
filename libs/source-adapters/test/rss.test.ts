@@ -213,3 +213,70 @@ describe('the real Google News shape', () => {
     expect(items[0]?.rating).toBeUndefined();
   });
 });
+
+/**
+ * Carrying what the source actually said — KNOWN-GAPS #28.
+ *
+ * `text` is the adapter's output: markup stripped, title joined, deduplicated, clamped. The S3
+ * object was written from that alone, and because re-collection overwrites the object under the
+ * same key, the stored "audit trail" was whatever the LAST normalisation produced rather than
+ * what was published. That is not theoretical — a fix for duplicated Google News headlines could
+ * not repair the rows it was written for, because the backfill re-read a payload that had already
+ * been rewritten with the duplication in it.
+ *
+ * Google News is the worst case and the reason this matters: its `<description>` is an anchor
+ * tag whose href is longer than the sentence inside it, and that anchor is the only surviving
+ * evidence of what the feed actually sent.
+ */
+describe('the untouched source text', () => {
+  it('keeps the markup the feed sent, alongside the stripped text', async () => {
+    const xml = `<?xml version="1.0"?>
+<rss version="2.0"><channel><item>
+  <guid>g1</guid><link>https://e.test/1</link>
+  <title>Headline &amp; more</title>
+  <description>&lt;a href="https://news.google.com/rss/articles/CBMiqgFBVV95cUxQ"&gt;Headline &amp; more&lt;/a&gt;</description>
+  <pubDate>Mon, 01 Jan 2024 10:00:00 GMT</pubDate>
+</item></channel></rss>`;
+    mockFetch.mockResolvedValue(xmlResponse(xml));
+
+    const { items } = await adapter.fetch(config);
+    const item = items[0]!;
+
+    /* The processed form: no markup, entity decoded, and NOT the headline twice. */
+    expect(item.text).not.toContain('<a href');
+    expect(item.text).toContain('Headline & more');
+
+    /* The original, byte for byte as the feed sent it — including the anchor. */
+    expect(item.sourceText).toContain('<a href');
+    expect(item.sourceText).toContain('news.google.com/rss/articles');
+    expect(item.sourceTitle).toBe('Headline & more');
+  });
+
+  it('carries the source title separately from the normalised one', async () => {
+    mockFetch.mockResolvedValue(xmlResponse(RSS_XML));
+    const { items } = await adapter.fetch(config);
+    expect(items[0]!.sourceTitle).toBe('First Post');
+  });
+
+  it('carries it for Atom entries too, not only RSS', async () => {
+    mockFetch.mockResolvedValue(xmlResponse(ATOM_XML));
+    const { items } = await adapter.fetch(config);
+    expect(items[0]!.sourceText).toBe('Atom entry content here');
+    expect(items[0]!.sourceTitle).toBe('Atom Title');
+  });
+
+  /* Absent rather than an empty string: a source with nothing to carry should not produce a
+     field that reads as "the source said nothing" when it means "there was no separate body". */
+  it('leaves it undefined when the source had no body', async () => {
+    const xml = `<?xml version="1.0"?>
+<rss version="2.0"><channel><item>
+  <guid>g2</guid><link>https://e.test/2</link><title>Only a title</title>
+  <pubDate>Mon, 01 Jan 2024 10:00:00 GMT</pubDate>
+</item></channel></rss>`;
+    mockFetch.mockResolvedValue(xmlResponse(xml));
+
+    const { items } = await adapter.fetch(config);
+    expect(items[0]!.sourceText).toBeUndefined();
+    expect(items[0]!.sourceTitle).toBe('Only a title');
+  });
+});

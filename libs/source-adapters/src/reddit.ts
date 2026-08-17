@@ -138,11 +138,15 @@ function toRawItem(row: ApifyRedditItem): RawItem {
   /* Title AND body. A Reddit post is very often a title alone — "Anyone else having problems with
      MyConcern today?" — and a post with an empty body is the norm, not the exception. Scoring
      only the body would discard the entire signal in the most common case. */
-  const title = row.title ? stripHtml(String(row.title)) : undefined;
-  const text = clampContent(joinTitleAndBody(title, stripHtml(String(row.body ?? ''))));
+  const sourceTitle = row.title === undefined || row.title === null ? undefined : String(row.title);
+  const sourceBody = row.body === undefined || row.body === null ? undefined : String(row.body);
+  const title = sourceTitle ? stripHtml(sourceTitle) : undefined;
+  const text = clampContent(joinTitleAndBody(title, stripHtml(sourceBody ?? '')));
 
   return {
     title,
+    sourceText: sourceBody || undefined,
+    sourceTitle,
     author: row.username,
     /* The fullname (`t3_…`), which is unique across all of Reddit. `parsedId` is unique only
        within a type, so a post and a comment could collide on it. */

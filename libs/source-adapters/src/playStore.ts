@@ -85,6 +85,7 @@ function toRawItem(review: PlayStoreReview): RawItem {
     externalId: review.reviewId ?? '',
     url,
     text: clampContent(stripHtml(String(review.body ?? ''))),
+    sourceText: review.body === undefined || review.body === null ? undefined : String(review.body),
     /* Play Store reviews have no title — the body is the whole review. Left undefined rather
        than duplicating the body into it, so the UI can tell "no headline" from "headline". */
     author: review.reviewer,

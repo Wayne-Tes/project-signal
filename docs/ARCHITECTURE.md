@@ -178,6 +178,13 @@ mentions that don't use the canonical brand name (e.g. "Cadence", "Cadence Bank"
 (default `unknown`), `source_url`, `raw_storage_ref`, `content`, `title`, `author`, `rating`,
 `published_at`, `ingested_at`.
 
+`raw_storage_ref` points at the S3 object written at collection time, which carries **both** forms
+under `schemaVersion: 2`: `sourceText` / `sourceTitle` are what the source returned untouched, and
+`text` is the adapter's processed output. Nothing in the pipeline reads the former — they exist so
+a future normalisation change can be re-derived from what was published rather than from what we
+last decided it said. The bucket is **versioned** (90-day noncurrent expiry), because the object
+key is derived from the external id and re-collection therefore overwrites. See KNOWN-GAPS #28.
+
 `territory` is **copied from the feed at insert**, not joined at read time. `source_config_id` is
 nullable and `ON DELETE SET NULL`, so a join would erase the territory of every signal a feed ever
 collected the moment that feed is deleted — and that evidence belongs to the brand, not to the

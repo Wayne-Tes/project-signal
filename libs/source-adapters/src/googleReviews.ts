@@ -49,6 +49,7 @@ function toRawItem(review: ApifyReview): RawItem {
     externalId: review.reviewId ?? review.reviewUrl ?? '',
     url: review.reviewUrl ?? '',
     text: clampContent(stripHtml(String(review.text ?? ''))),
+    sourceText: review.text === undefined || review.text === null ? undefined : String(review.text),
     /* A Google review has no title, and its rating is `stars` rather than `rating` — the reason
        these are normalised onto RawItem instead of left for the UI to alias per source. */
     author: review.name,

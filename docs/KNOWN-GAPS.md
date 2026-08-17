@@ -52,7 +52,7 @@
 | 25  | `firebaseUid` naming survives in the schema and API contract       | 🟡 open     | db ↔ API ↔ web        |
 | 26  | ~~The drill-down contradicted the number it was drilling into~~    | ✅ resolved | API ↔ web             |
 | 27  | ~~Apify reported SUCCESS while collecting nothing~~                | ✅ resolved | source-adapters       |
-| 28  | The "raw" S3 payload is neither raw nor immutable                  | 🟠 mitigated | ingestion ↔ storage  |
+| 28  | ~~The "raw" S3 payload is neither raw nor immutable~~              | ✅ resolved | ingestion ↔ storage   |
 | 29  | ~~Index and its own evidence counted different populations~~       | ✅ resolved | API ↔ ingestion       |
 | 30  | ~~A signal scored into no dimension vanished from every surface~~  | ✅ resolved | sentiment ↔ API ↔ web |
 
@@ -926,7 +926,7 @@ FREE plan belonging to the former contractor. See `docs/OWNER-ACTIONS.md` §4b.
 
 ---
 
-## 28. 🟠 The "raw" S3 payload is neither raw nor immutable
+## 28. ✅ The "raw" S3 payload was neither raw nor immutable — **resolved (2026-08-17)**
 
 Described in several comments — and in a commit message — as "the untouched payload" and "the
 audit trail". **Both claims are false**, and it took a failed fix to notice.
@@ -959,6 +959,32 @@ which is why it is written down rather than rushed.
 
 Consider S3 object versioning on the raw bucket at the same time. It is cheap, it makes overwrites
 recoverable, and it would have made this diagnosable in one command instead of several.
+
+### Resolved 2026-08-17 — both halves
+
+**1. The payload now carries both forms.** `RawItem` gained `sourceText` and `sourceTitle`: what
+the source actually returned, before any normalisation. All six adapters populate them, and
+ingestion writes them alongside `text` under `schemaVersion: 2`.
+
+Nothing in the pipeline reads them — the scorer and the drill-down still use `text`, which must be
+the processed form so that what is scored is what is shown. They exist so a FUTURE normalisation
+change can be re-derived from what was published rather than from what we last decided it said.
+
+`POST /admin/backfill/content` now prefers `sourceText` when it is present. That is the specific
+thing that failed before: the backfill re-read a payload that had already been rewritten with the
+duplication baked in, so re-running it faithfully reproduced the corruption.
+
+**2. Versioning is enabled on the raw bucket**, with `noncurrent_version_expiration` at 90 days.
+The overwrite behaviour itself has not changed — the key is still derived from the external id —
+but an overwrite is now recoverable rather than silent. The expiry bounds it: without one the
+bucket grows by one object per item per collection run, which on an hourly schedule is 24 copies
+a day of data that usually has not changed. Applied to `raw` only; `reports` are generated
+artefacts and regenerable.
+
+**The limitation, stated plainly:** objects written before this change have no `sourceText`, so
+those rows cannot be recovered any better than they already have been. Only a fresh collection
+produces a payload that can be. `schemaVersion` is what lets a later reader tell "written before
+the fix" apart from "the source genuinely had no separate body".
 
 ---
 
