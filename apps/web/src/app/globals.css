@@ -608,3 +608,23 @@ svg.sparkline { display: block; overflow: visible; }
 .rm-measure strong { color: var(--t1); }
 .rm-cite { display: block; color: var(--peri); font-size: 12px; margin-top: 6px; text-decoration: none; }
 .rm-cite:hover { text-decoration: underline; }
+
+/* --- CRM connections ----------------------------------------------------- */
+.crm-warn {
+  color: var(--coral);
+  font-size: 12.5px;
+  line-height: 1.6;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--coral) 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--coral) 8%, transparent);
+}
+.crm-form { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.crm-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px;
+}
+.crm-provider { color: var(--t1); font-weight: 500; font-size: 13px; }
+.crm-meta { color: var(--t3); font-size: 12px; font-family: var(--font-mono); }
+.crm-error { color: var(--coral); font-size: 12px; margin: 8px 0 0; }
