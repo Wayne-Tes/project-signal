@@ -1,13 +1,13 @@
 import {
   db,
+  attributedTo,
   brandEntities,
   signals,
   sentimentResults,
-  signalMentions,
 } from '@project-signal/db';
 import { HALF_LIFE_DAYS, scoreAllDimensions, type ScoredItem } from '@project-signal/scoring';
 import type { Dimension, SentimentLabel } from '@project-signal/shared-types';
-import { and, eq, gte, or, sql } from 'drizzle-orm';
+import { and, eq, gte } from 'drizzle-orm';
 import { dimensionScores } from '@project-signal/db';
 
 /**
@@ -34,30 +34,10 @@ function toDateKey(d: Date): string {
  * (brand_entity_id, date, dimension) means re-running for the same day overwrites rather than
  * duplicating, so a retried or manually re-triggered run is safe.
  */
-/**
- * Every signal that counts toward an entity: the ones attributed TO it, plus the ones that
- * merely mention it.
- *
- * The FK is where a signal came from — a review on a product's own listing. The mention table is
- * what a signal talks about — an article about the group that names the product. Both are
- * feedback about the product, so both belong in its score; scoring on the FK alone would leave a
- * product invisible unless it happened to own a review page.
- *
- * EXISTS rather than a join: a join would multiply the signal row by its mentions and inflate
- * every count and weight downstream. The scorer already excludes an entity from its own
- * candidate list, so a signal cannot be both attributed to and mentioning the same entity — but
- * EXISTS makes that a property of the query rather than a thing to remember.
- */
-export function attributedTo(brandEntityId: string) {
-  return or(
-    eq(signals.brandEntityId, brandEntityId),
-    sql`EXISTS (
-      SELECT 1 FROM ${signalMentions}
-      WHERE ${signalMentions.signalId} = ${signals.id}
-        AND ${signalMentions.brandEntityId} = ${brandEntityId}
-    )`,
-  );
-}
+/* `attributedTo` used to be defined here and used by this file alone, while every read path in
+   the API filtered on the foreign key only — so the index and the evidence behind it came from
+   different populations. It now lives in `@project-signal/db` so there is exactly one definition;
+   see the comment there for the full reasoning. */
 
 export async function rollupDimensionScores(
   asOf: Date = new Date(),
@@ -89,7 +69,7 @@ export async function rollupDimensionScores(
       })
       .from(signals)
       .innerJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
-      .where(and(attributedTo(brand.id), gte(signals.publishedAt, since)));
+      .where(and(attributedTo(brand.id, brand.tenantId), gte(signals.publishedAt, since)));
 
     const items: ScoredItem[] = scored.map((row) => ({
       signalId: row.signalId,

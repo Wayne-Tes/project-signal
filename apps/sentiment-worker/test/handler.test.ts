@@ -89,6 +89,31 @@ describe('handlePubSubMessage', () => {
     expect(mockScoreSignal).not.toHaveBeenCalledWith(mockSignal.sourceUrl);
   });
 
+  /**
+   * `minItems: 1` on the tool schema is a request to the model, not a guarantee from it.
+   *
+   * A signal that comes back with no dimensions contributes to no index, no cluster and no
+   * drill-down, and used to do so in total silence — which is how two brands ended up with zero
+   * rollup rows and nothing anywhere saying why. It is still STORED (refusing it would lose a
+   * real sentiment score, and inventing a dimension would be fabrication), but it must be
+   * audible: in the log here, and as `classifiedSignals` on `GET /brands/:id/stats`.
+   */
+  it('warns, but still stores, when the model returns no dimensions', async () => {
+    _dbRows = [mockSignal];
+    mockScoreSignal.mockResolvedValueOnce({ ...mockScore, dimensions: [] });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await handlePubSubMessage('signal-1');
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no dimensions'));
+
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as unknown as { values: ReturnType<typeof vi.fn> };
+    expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ dimensions: [] }));
+
+    warn.mockRestore();
+  });
+
   it('persists the sentiment result', async () => {
     _dbRows = [mockSignal];
     mockScoreSignal.mockResolvedValueOnce(mockScore);

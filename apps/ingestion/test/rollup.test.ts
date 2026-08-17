@@ -31,7 +31,11 @@ vi.mock('@project-signal/db', () => {
     brandEntities: {},
     signals: {},
     sentimentResults: {},
-    /* The rollup now counts signals that MENTION an entity, not only those attributed to it. */
+    /* The rollup counts signals that MENTION an entity, not only those attributed to it. The
+       predicate that expresses that moved to `@project-signal/db` so the API's read paths use
+       the identical one — its SQL is covered in `apps/api/test/routes/attributed-to.test.ts`.
+       Here it only has to be callable. */
+    attributedTo: vi.fn(() => ({ _attributedTo: true })),
     signalMentions: {},
     dimensionScores: { brandEntityId: {}, date: {}, dimension: {} },
     sourceConfigs: {},

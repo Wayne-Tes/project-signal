@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { db, signals, sentimentResults } from '@project-signal/db';
+import { attributedTo, db, signals, sentimentResults } from '@project-signal/db';
 import { and, desc, eq, gt, lt, or, count, avg, sql, type SQL } from 'drizzle-orm';
 import { DIMENSIONS } from '@project-signal/scoring';
 import { requireBrandAccess } from '../plugins/auth.js';
@@ -205,7 +205,11 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
         dimension?: string;
       };
 
-      const filters = [eq(signals.tenantId, request.user.tenantId), eq(signals.brandEntityId, id)];
+      /* `attributedTo` covers the tenant filter AND both attribution mechanisms. Filtering on the
+         foreign key alone made this list a strict subset of the signals the score above it was
+         computed from — an article about the group naming this product counted toward its index
+         and then did not appear as evidence for it. */
+      const filters = [attributedTo(id, request.user.tenantId)];
       if (cursor) {
         let decoded: { publishedAt: Date; id: string };
         try {
@@ -334,13 +338,7 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .from(signals)
         .innerJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
-        .where(
-          and(
-            eq(signals.tenantId, request.user.tenantId),
-            eq(signals.brandEntityId, id),
-            gt(signals.publishedAt, since),
-          ),
-        );
+        .where(and(attributedTo(id, request.user.tenantId), gt(signals.publishedAt, since)));
 
       const row = rows[0];
       return {

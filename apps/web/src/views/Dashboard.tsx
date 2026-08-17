@@ -10,7 +10,10 @@ import {
   type ApiBrandScore,
   type ApiCluster,
   type ApiDimensionRow,
+  type ApiStats,
   type DimensionCard,
+  coverageFooter,
+  coverageTone,
 } from '@/lib/brand-data';
 import { scoreColor } from '@/lib/utils';
 import { Delta } from '@/components/primitives';
@@ -20,14 +23,7 @@ import { LineChart, Sparkline } from '@/components/charts';
 import { ViewState } from '@/components/ViewState';
 import type { NavActions } from '@/lib/types';
 
-interface BrandStats {
-  signalsThisWeek: number;
-  signalsPreviousWeek: number;
-  totalSignals: number;
-  scoredSignals: number;
-  activeSources: number;
-  configuredSources: number;
-}
+type BrandStats = ApiStats;
 
 function HeroBars({
   cards,
@@ -277,22 +273,24 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
             </div>
             <div className="foot">configured for this brand</div>
           </div>
-          {/* Replaces "Competitive rank" and "Open critical actions". Rank needs every brand's
-              composite (the Competitors view does that), and open actions need the roadmap,
-              which nothing produces. Scoring coverage is real and answers a question the
-              operator actually has. */}
+          {/* THE COVERAGE FUNNEL: collected → scored → classified → rolled up.
+
+              This used to report scored/total only, which reads as healthy right up until the
+              point where nothing works. A signal can be scored and still tagged to no dimension,
+              in which case it reaches no index, no cluster and no drill-down — and a brand whose
+              signals are all like that produces no rollup rows at all. Two brands sat in exactly
+              that state and the product said nothing; the owner found it. The percentage is
+              therefore taken against CLASSIFIED, which is the step that actually arrives
+              somewhere, and the footer names the stage that is losing signals. */}
           <div className="card stat">
             <div className="lab">Scoring coverage</div>
-            <div className="num">
+            <div className="num" style={{ color: coverageTone(stats.data) }}>
               {stats.data && stats.data.totalSignals > 0
-                ? Math.round((stats.data.scoredSignals / stats.data.totalSignals) * 100)
+                ? Math.round((stats.data.classifiedSignals / stats.data.totalSignals) * 100)
                 : 0}
               <span style={{ fontSize: 16, color: 'var(--t3)' }}>%</span>
             </div>
-            <div className="foot">
-              {(stats.data?.scoredSignals ?? 0).toLocaleString()} of{' '}
-              {(stats.data?.totalSignals ?? 0).toLocaleString()} scored
-            </div>
+            <div className="foot">{coverageFooter(stats.data)}</div>
           </div>
           <div className="card stat">
             <div className="lab">Worst cluster damage</div>

@@ -35,6 +35,26 @@ export interface ApiDimensionRow {
   signalCount: number;
 }
 
+/**
+ * `GET /brands/:id/stats` — the coverage funnel and the source counts.
+ *
+ * `classifiedSignals` and `lastRollupDate` are the funnel's last two stages and were added
+ * because the first two are not enough to tell a healthy brand from a broken one. See
+ * `coverageFooter` below.
+ */
+export interface ApiStats {
+  signalsThisWeek: number;
+  signalsPreviousWeek: number;
+  totalSignals: number;
+  scoredSignals: number;
+  /** Scored AND tagged to at least one dimension — the step that actually reaches the index. */
+  classifiedSignals: number;
+  /** The last day the rollup produced anything for this brand. Null means it never has. */
+  lastRollupDate: string | null;
+  activeSources: number;
+  configuredSources: number;
+}
+
 export interface ApiBrandScore {
   score: number | null;
   previousScore: number | null;
@@ -280,4 +300,60 @@ export function toActionCards(clusters: readonly ApiCluster[]): ActionCard[] {
       dimensionLabel: dimension ? DIMENSION_LABELS[dimension] : null,
     };
   });
+}
+
+// --- Coverage funnel ---------------------------------------------------------
+
+/**
+ * Which stage of the pipeline is losing signals, said in one line.
+ *
+ * WHAT THIS REPLACES. The Dashboard's coverage tile reported `scoredSignals / totalSignals` and
+ * nothing else. That reads as perfectly healthy in the one case that matters most: a brand whose
+ * signals are all scored but tagged to no dimension reaches no index, no cluster and no
+ * drill-down, and produces no rollup rows at all. "100 of 100 scored" was true and completely
+ * misleading, and two brands sat in that state until the owner noticed rather than the product.
+ *
+ * Ordered most-severe-first, because a bare percentage collapses four different situations —
+ * nothing collected, nothing scored, nothing classified, nothing rolled up — into the same "0%",
+ * and they need four different responses from whoever reads it.
+ */
+export function coverageFooter(stats: ApiStats | null | undefined): string {
+  if (!stats || stats.totalSignals === 0) return 'nothing collected for this brand yet';
+
+  const { totalSignals, scoredSignals, classifiedSignals, lastRollupDate } = stats;
+
+  if (scoredSignals === 0) return `${totalSignals.toLocaleString()} collected, none scored yet`;
+  if (classifiedSignals === 0)
+    return `${scoredSignals.toLocaleString()} scored, none tagged to a dimension`;
+  if (!lastRollupDate)
+    return `${classifiedSignals.toLocaleString()} classified, but no rollup has run`;
+
+  const unscored = totalSignals - scoredSignals;
+  const unclassified = scoredSignals - classifiedSignals;
+  const trailing =
+    unscored > 0
+      ? ` · ${unscored.toLocaleString()} awaiting scoring`
+      : unclassified > 0
+        ? ` · ${unclassified.toLocaleString()} scored into no dimension`
+        : '';
+
+  return `${classifiedSignals.toLocaleString()} of ${totalSignals.toLocaleString()} in the index${trailing}`;
+}
+
+/**
+ * Colour by whether the funnel is delivering, not by the raw percentage.
+ *
+ * A brand can sit at 0% because it is new, which is fine, or because everything it collects
+ * falls out between scoring and the rollup, which is not. Only the second is coloured as a
+ * problem — alarming on the first would train people to ignore the colour, which is the reason
+ * the anomaly banner was removed rather than left showing nothing.
+ *
+ * Returns a CUSTOM PROPERTY, never a literal hex: literals survive every test and then break the
+ * runtime palette switcher in the light theme (KNOWN-GAPS #19, #20).
+ */
+export function coverageTone(stats: ApiStats | null | undefined): string {
+  if (!stats || stats.totalSignals === 0) return 'var(--t1)';
+  if (stats.scoredSignals > 0 && (stats.classifiedSignals === 0 || !stats.lastRollupDate))
+    return 'var(--coral)';
+  return 'var(--t1)';
 }

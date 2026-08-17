@@ -299,6 +299,29 @@ client.get(); // raw postgres-js tag — used for `SELECT 1` health pings
 createSql(1); // fresh pool with an explicit max; used for migrations
 ```
 
+It also holds **shared query predicates** (`src/queries.ts`), of which there is currently one.
+
+```ts
+import { attributedTo } from '@project-signal/db';
+
+.where(and(attributedTo(brandEntityId, tenantId), gte(signals.publishedAt, since)))
+```
+
+`attributedTo` is **the** definition of "this brand's signals": the foreign key **or** a
+`signal_mentions` row, EXISTS rather than a join so one signal stays one row. It lives here
+rather than in an app because it used to live in `apps/ingestion/src/rollup.ts` and be used only
+there, while every read path in the API filtered on the foreign key alone — so the Brand
+Perception Index counted signals that merely mention a product and the evidence lists explaining
+that index did not. A product covered in group-level articles scored on the dashboard with a
+drill-down showing fewer signals than the number above it, which is KNOWN-GAPS #26's failure
+arriving through a different door.
+
+`tenantId` is a **required parameter**, not something the caller `and`s on separately, and the
+EXISTS subquery filters it too. There is no row-level security in this product, so a predicate
+that is only safe when the call site remembers something is not safe. Its rendered SQL is covered
+in `apps/api/test/routes/attributed-to.test.ts` against drizzle's real dialect — a mocked database
+never renders SQL, which is how two `Date`-serialisation defects reached production.
+
 Both `db` and `client` are lazy getters, not eagerly constructed clients — importing the lib
 does not open a connection, which matters for tests and for container cold starts.
 
@@ -573,9 +596,16 @@ difference.
 | `GET /brands/:id/dimension-scores`        | any          | bare array           | Dimension history from `dimension_scores`, `from`/`to` optional, default last 90 days. Lives in `routes/scores.ts`.     |
 | `GET /brands/:id/score`                   | any          | object               | Brand Perception Index for the latest rollup, its per-dimension breakdown, and the comparison point ≥7 days earlier.    |
 | `GET /brands/:id/brand-impact`            | any          | bare array           | Top topic clusters by damage, computed on read from `sentiment_results`. `limit` defaults to 3.                         |
+
+> **Every brand-scoped read counts the same population.** `/signals`, `/sentiment-summary`,
+> `/brand-impact`, `/topics`, `/strengths` and `/stats` all filter through `attributedTo`
+> (see [`libs/db`](#libsdb)), which is the predicate the hourly rollup uses. Until 2026-08-17 they
+> filtered on `signals.brand_entity_id` alone while the rollup also counted mentions, so a score
+> and the evidence offered for it were computed from different sets of rows. **Any new
+> brand-scoped read must use `attributedTo` rather than `eq(signals.brandEntityId, …)`.**
 | `GET /brands/:id/strengths`               | any          | bare array           | The mirror of `/brand-impact`, ranked by `volume × positivity × recency`. `limit` defaults to 3.                        |
 | `GET /brands/:id/topics`                  | any          | bare array           | **Every** cluster, optionally `?dimension=`, ranked by `volume × recency` — positive, negative and NEUTRAL alike. `limit` defaults to 12. Exists because `/brand-impact` and `/strengths` are both *signed* rankings that exclude the middle, so neither can answer "what is this dimension made of". See the note below. |
-| `GET /brands/:id/stats`                   | any          | object               | Dashboard stat row: this/previous week signal counts, total, scored (pipeline coverage), active/configured sources.     |
+| `GET /brands/:id/stats`                   | any          | object               | Dashboard stat row and the **coverage funnel**: this/previous week signal counts, `totalSignals` → `scoredSignals` → `classifiedSignals` → `lastRollupDate`, plus active/configured sources. `classifiedSignals` counts signals scored **and** tagged to ≥1 dimension; anything short of that reaches no index, no cluster and no drill-down. `classifiedSignals: 0` beside a non-zero `scoredSignals`, or a null `lastRollupDate`, is the signature of a brand silently falling out of the rollup. |
 | `POST /assistant/messages`                | any          | object               | Ask the assistant. Read-only over BRAND data; it writes only the conversation record. History is loaded server-side — see below. |
 | `GET /assistant/conversations`           | any          | bare array           | The caller's **own** conversations, most recent first. Filtered by tenant **and** user. |
 | `GET /assistant/conversations/:id`       | any          | object               | One conversation and its turns. 404 whether it is missing or someone else's. |
@@ -975,7 +1005,7 @@ and passed as a Docker build arg by the deploy workflows — see
 | `Trends`      | live     | Dimension history line chart → `/score`, `/dimension-scores`                                                                                     |
 | `BrandImpact` | live     | Top weakness cards ranked by damage → `/brand-impact`                                                                                            |
 | `Competitors` | live     | Benchmark bars → `/brands` plus one `/score` per brand                                                                                           |
-| `Roadmap`     | **mock** | Prioritised actions. **No producer exists** — nothing in Epics 11–13 generates recommendations.                                                  |
+| `Roadmap`     | live     | Actions derived from damage-ranked clusters → `/brand-impact`. **Ranking only — it states the problem, it does not yet recommend a fix.** The recommendation producer is specified in `Project-Signal-Product-Spec.md` §7.3 / §5.6 (the weekly report cycle) and planned in `PLAN-change-territory-and-actions.md` §3. |
 | `Report`      | **mock** | Print-styled weekly report. Epic 12.                                                                                                             |
 | `Admin`       | live     | Tenant creation, `BrandManager`, `UserManager`                                                                                                   |
 

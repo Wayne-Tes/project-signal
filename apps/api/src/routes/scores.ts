@@ -1,5 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { db, brandEntities, dimensionScores, signals, sentimentResults } from '@project-signal/db';
+import {
+  attributedTo,
+  db,
+  brandEntities,
+  dimensionScores,
+  signals,
+  sentimentResults,
+} from '@project-signal/db';
 import {
   brandImpact,
   clusterTopics,
@@ -13,7 +20,7 @@ import {
   type ScoredItem,
 } from '@project-signal/scoring';
 import type { Dimension, SentimentLabel } from '@project-signal/shared-types';
-import { and, asc, count, desc, eq, gte, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, lt, lte, max, sql } from 'drizzle-orm';
 import { requireBrandAccess } from '../plugins/auth.js';
 import { sourceConfigs } from '@project-signal/db';
 
@@ -354,6 +361,8 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
               signalsPreviousWeek: { type: 'integer' },
               totalSignals: { type: 'integer' },
               scoredSignals: { type: 'integer' },
+              classifiedSignals: { type: 'integer' },
+              lastRollupDate: { type: 'string', nullable: true },
               activeSources: { type: 'integer' },
               configuredSources: { type: 'integer' },
             },
@@ -372,16 +381,43 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
       // `sql` fragment bypasses the timestamptz serialiser and sends
       // "Thu Jul 30 2026 … (British Summer Time)", which Postgres rejects. Same trap as the
       // keyset predicate in routes/signals.ts — see test/routes/keyset.test.ts.
+      /* THE COVERAGE FUNNEL: collected → scored → classified → rolled up.
+
+         Each step can silently drop a signal, and until this endpoint reported them the loss was
+         invisible. `scoreAllDimensions` omits dimensions nothing touches, and the rollup skips a
+         brand when that leaves it empty — so a signal scored with no dimensions is collected,
+         paid for, scored, and then contributes to no index, no cluster and no drill-down, with
+         nothing anywhere saying so. Two brands sat at zero rollup rows for weeks on exactly that
+         path, and it was noticed by the owner rather than by the product.
+
+         `attributedTo` for the same reason as `readScoredItems` above: this count is shown beside
+         a score computed over mentions as well as the foreign key, and the two must agree. */
       const [counts] = await database
         .select({
           totalSignals: count(),
           thisWeek: sql<number>`COUNT(*) FILTER (WHERE ${gte(signals.publishedAt, weekAgo)})`,
           previousWeek: sql<number>`COUNT(*) FILTER (WHERE ${and(gte(signals.publishedAt, twoWeeksAgo), lt(signals.publishedAt, weekAgo))})`,
           scored: sql<number>`COUNT(${sentimentResults.signalId})`,
+          /* Scored AND tagged to at least one dimension. `cardinality(NULL)` is NULL, so a null
+             array fails the filter — which is the wanted answer, not an accident. */
+          classified: sql<number>`COUNT(*) FILTER (WHERE ${sentimentResults.signalId} IS NOT NULL AND cardinality(${sentimentResults.dimensions}) > 0)`,
         })
         .from(signals)
         .leftJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
-        .where(and(eq(signals.tenantId, request.user.tenantId), eq(signals.brandEntityId, id)));
+        .where(attributedTo(id, request.user.tenantId));
+
+      /* The last day the rollup produced anything for this brand. `null` here while
+         `classifiedSignals` is non-zero is the precise signature of a brand falling out of the
+         rollup, and it is the number that makes that visible on the day it happens. */
+      const [rollup] = await database
+        .select({ lastDate: max(dimensionScores.date) })
+        .from(dimensionScores)
+        .where(
+          and(
+            eq(dimensionScores.tenantId, request.user.tenantId),
+            eq(dimensionScores.brandEntityId, id),
+          ),
+        );
 
       const [sources] = await database
         .select({
@@ -401,6 +437,8 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
         signalsPreviousWeek: Number(counts?.previousWeek ?? 0),
         totalSignals: Number(counts?.totalSignals ?? 0),
         scoredSignals: Number(counts?.scored ?? 0),
+        classifiedSignals: Number(counts?.classified ?? 0),
+        lastRollupDate: rollup?.lastDate ?? null,
         activeSources: Number(sources?.active ?? 0),
         configuredSources: Number(sources?.configured ?? 0),
       };
@@ -428,13 +466,11 @@ async function readScoredItems(
     })
     .from(signals)
     .innerJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
-    .where(
-      and(
-        eq(signals.tenantId, tenantId),
-        eq(signals.brandEntityId, brandEntityId),
-        gte(signals.publishedAt, since),
-      ),
-    );
+    /* `attributedTo`, NOT `eq(signals.brandEntityId, …)`. The rollup that produces the score this
+       endpoint explains has always counted mentions as well as the foreign key; this read path
+       did not, so a product discussed in group-level coverage scored on the dashboard while its
+       clusters and drill-down showed less. One predicate, imported by both. */
+    .where(and(attributedTo(brandEntityId, tenantId), gte(signals.publishedAt, since)));
 
   return rows.map((r) => ({
     signalId: r.signalId,
