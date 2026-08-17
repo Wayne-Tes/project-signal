@@ -6,7 +6,7 @@ import {
   sentimentResults,
 } from '@project-signal/db';
 import { HALF_LIFE_DAYS, scoreAllDimensions, type ScoredItem } from '@project-signal/scoring';
-import type { Dimension, SentimentLabel } from '@project-signal/shared-types';
+import { TERRITORY_ALL, type Dimension, type SentimentLabel } from '@project-signal/shared-types';
 import { and, eq, gte } from 'drizzle-orm';
 import { dimensionScores } from '@project-signal/db';
 
@@ -31,8 +31,10 @@ function toDateKey(d: Date): string {
  *
  * This is Epic 11's core: without it the table is never written and every dimension endpoint
  * returns an empty array (KNOWN-GAPS #10). Idempotent — the unique constraint on
- * (brand_entity_id, date, dimension) means re-running for the same day overwrites rather than
- * duplicating, so a retried or manually re-triggered run is safe.
+ * (brand_entity_id, date, dimension, territory) means re-running for the same day overwrites
+ * rather than duplicating, so a retried or manually re-triggered run is safe.
+ *
+ * Writes one set of rows per TERRITORY the brand has signals from, plus the `'all'` aggregate.
  */
 /* `attributedTo` used to be defined here and used by this file alone, while every read path in
    the API filtered on the foreign key only — so the index and the evidence behind it came from
@@ -61,6 +63,7 @@ export async function rollupDimensionScores(
       .select({
         signalId: signals.id,
         publishedAt: signals.publishedAt,
+        territory: signals.territory,
         score: sentimentResults.score,
         confidence: sentimentResults.confidence,
         label: sentimentResults.label,
@@ -71,9 +74,10 @@ export async function rollupDimensionScores(
       .innerJoin(sentimentResults, eq(sentimentResults.signalId, signals.id))
       .where(and(attributedTo(brand.id, brand.tenantId), gte(signals.publishedAt, since)));
 
-    const items: ScoredItem[] = scored.map((row) => ({
+    const items: (ScoredItem & { territory: string })[] = scored.map((row) => ({
       signalId: row.signalId,
       publishedAt: row.publishedAt,
+      territory: row.territory,
       score: row.score ?? 0,
       // A missing confidence must not silently become full confidence.
       confidence: row.confidence ?? 0,
@@ -82,25 +86,57 @@ export async function rollupDimensionScores(
       topics: row.topics ?? [],
     }));
 
-    const rollups = scoreAllDimensions(items, asOf);
-    if (rollups.length === 0) continue;
+    /**
+     * One read, partitioned in memory — not one query per territory.
+     *
+     * The alternative multiplies the hottest query in the pipeline by the number of territories a
+     * brand collects from, for data already in hand. Partitioning here costs a pass over an array.
+     *
+     * `TERRITORY_ALL` is always computed, from every item regardless of territory, so the
+     * aggregate cannot drift from the parts. Territories are derived from the signals actually
+     * present rather than from the full vocabulary — a brand with no Australian feed gets no
+     * Australian rows, which is different from getting a row of zeroes.
+     */
+    const partitions = new Map<string, (ScoredItem & { territory: string })[]>([
+      [TERRITORY_ALL, items],
+    ]);
+    for (const item of items) {
+      const bucket = partitions.get(item.territory);
+      if (bucket) bucket.push(item);
+      else partitions.set(item.territory, [item]);
+    }
 
-    for (const rollup of rollups) {
-      await database
-        .insert(dimensionScores)
-        .values({
-          tenantId: brand.tenantId,
-          brandEntityId: brand.id,
-          date,
-          dimension: rollup.dimension,
-          score: rollup.score,
-          signalCount: rollup.signalCount,
-        })
-        .onConflictDoUpdate({
-          target: [dimensionScores.brandEntityId, dimensionScores.date, dimensionScores.dimension],
-          set: { score: rollup.score, signalCount: rollup.signalCount },
-        });
-      rows++;
+    for (const [territory, partition] of partitions) {
+      const rollups = scoreAllDimensions(partition, asOf);
+      if (rollups.length === 0) continue;
+
+      for (const rollup of rollups) {
+        await database
+          .insert(dimensionScores)
+          .values({
+            tenantId: brand.tenantId,
+            brandEntityId: brand.id,
+            date,
+            territory,
+            dimension: rollup.dimension,
+            score: rollup.score,
+            signalCount: rollup.signalCount,
+          })
+          /* The conflict target MUST match the unique constraint exactly. It gained `territory`
+             in migration 0014, and leaving this at three columns raises "no unique or exclusion
+             constraint matching the ON CONFLICT specification" on every single run — a hard
+             failure of the whole rollup, not a degraded one. */
+          .onConflictDoUpdate({
+            target: [
+              dimensionScores.brandEntityId,
+              dimensionScores.date,
+              dimensionScores.dimension,
+              dimensionScores.territory,
+            ],
+            set: { score: rollup.score, signalCount: rollup.signalCount },
+          });
+        rows++;
+      }
     }
   }
 

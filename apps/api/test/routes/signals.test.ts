@@ -34,6 +34,9 @@ vi.mock('@project-signal/db', () => {
     /* Real behaviour is covered in `attributed-to.test.ts` against drizzle's dialect; these
        tests assert response shape, so the predicate only has to be callable. */
     attributedTo: vi.fn(() => ({ _attributedTo: true })),
+    /* Returns undefined for 'no territory asked for', which is what and() drops. Returning a
+       truthy sentinel here would make every test behave as though a filter were applied. */
+    territoryFilter: vi.fn(() => undefined),
     tenants: {},
     brandEntities: {},
     signals: {},

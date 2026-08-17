@@ -6,6 +6,7 @@
   "main": "dist/index.js",
   "dependencies": {
     "@project-signal/config": "workspace:*",
+    "@project-signal/shared-types": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "postgres": "^3.4.0"
   },

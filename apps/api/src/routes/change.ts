@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { attributedTo, db, signals, sentimentResults } from '@project-signal/db';
+import { attributedTo, db, signals, sentimentResults, territoryFilter } from '@project-signal/db';
 import {
   summariseChange,
   type ChangeBasis,
@@ -65,11 +65,18 @@ const SOURCE_CHANGE = {
  * reason.
  *
  * Both dates are aggregated so `basis` can pick without a second query.
+ *
+ * **SCOPED TO THE SAME TERRITORY AS THE WINDOW, and that is not cosmetic.** "New" means new *to
+ * the thing you are looking at*. A topic that has been running in the US for a year and has just
+ * appeared in the UK is genuinely new to a UK channel manager, and an unscoped first-seen lookup
+ * would suppress it — the one row on the page they most needed to see, hidden by data about a
+ * market they were not asking about.
  */
 async function readFirstSeen(
   brandEntityId: string,
   tenantId: string,
   basis: ChangeBasis,
+  territory?: string,
 ): Promise<Map<string, Date>> {
   const column = basis === 'ingested' ? signals.ingestedAt : signals.publishedAt;
 
@@ -82,7 +89,7 @@ async function readFirstSeen(
     FROM ${signals}
     INNER JOIN ${sentimentResults} ON ${sentimentResults.signalId} = ${signals.id}
     CROSS JOIN LATERAL unnest(${sentimentResults.topics}) AS t(topic)
-    WHERE ${attributedTo(brandEntityId, tenantId)}
+    WHERE ${and(attributedTo(brandEntityId, tenantId), territoryFilter(territory))}
       AND btrim(t.topic) <> ''
     GROUP BY 1
   `);
@@ -122,6 +129,11 @@ const changeRoutes: FastifyPluginAsync = async (fastify) => {
                 '`ingested` is what WE learned in the window — the honest basis for "what is new since the last scans", because a newly connected feed surfaces old material. `published` is what the world said in the window, and is the right basis for trend.',
             },
             source: { type: 'string', description: 'Restrict to one source type.' },
+            territory: {
+              type: 'string',
+              description:
+                "Restrict to one territory. Omit, or pass 'all', for every territory combined.",
+            },
           },
         },
         response: {
@@ -154,7 +166,13 @@ const changeRoutes: FastifyPluginAsync = async (fastify) => {
         days = DEFAULT_WINDOW_DAYS,
         basis = 'ingested',
         source,
-      } = request.query as { days?: number; basis?: ChangeBasis; source?: string };
+        territory,
+      } = request.query as {
+        days?: number;
+        basis?: ChangeBasis;
+        source?: string;
+        territory?: string;
+      };
 
       const tenantId = request.user.tenantId;
       const asOf = new Date();
@@ -166,6 +184,8 @@ const changeRoutes: FastifyPluginAsync = async (fastify) => {
 
       const filters = [attributedTo(id, tenantId), gte(dateColumn, since)];
       if (source) filters.push(eq(signals.source, source));
+      const byTerritory = territoryFilter(territory);
+      if (byTerritory) filters.push(byTerritory);
 
       const rows = await db
         .get()
@@ -197,7 +217,7 @@ const changeRoutes: FastifyPluginAsync = async (fastify) => {
         topics: r.topics ?? [],
       }));
 
-      const firstSeen = await readFirstSeen(id, tenantId, basis);
+      const firstSeen = await readFirstSeen(id, tenantId, basis, territory);
       return summariseChange(items, firstSeen, { asOf, days, basis });
     },
   );

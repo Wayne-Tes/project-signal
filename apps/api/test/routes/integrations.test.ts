@@ -18,16 +18,22 @@ import { buildTestApp, DEFAULT_ADMIN, DEFAULT_PINNED_USER } from '../helpers/app
 let _dbRows: unknown[] = [];
 const _dbRowQueue: unknown[][] = [];
 const _ops: string[] = [];
+/** Values passed to insert()/update(), so a test can assert what was actually written. */
+const _written: Record<string, unknown>[] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
   for (const m of [
-    'select', 'from', 'where', 'insert', 'values', 'update', 'set',
+    'select', 'from', 'where', 'insert', 'update', 'set',
     'innerJoin', 'leftJoin', 'groupBy', 'limit', 'offset',
     'onConflictDoUpdate', 'onConflictDoNothing',
   ]) {
     chain[m] = vi.fn(() => chain);
   }
+  chain['values'] = vi.fn((v: Record<string, unknown>) => {
+    _written.push(v);
+    return chain;
+  });
   chain['delete'] = vi.fn(() => {
     _ops.push('delete');
     return chain;
@@ -74,6 +80,7 @@ beforeEach(() => {
   _dbRows = [];
   _dbRowQueue.length = 0;
   _ops.length = 0;
+  _written.length = 0;
   vi.clearAllMocks();
 });
 
@@ -203,6 +210,70 @@ describe('POST /brands/:id/integrations', () => {
       url: '/brands/brand-1/integrations',
       payload: { source: 'rss' },
     });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+/**
+ * Territory on a feed.
+ *
+ * Refused rather than stored when it cannot be resolved, for the same reason a source with no
+ * collector is refused (KNOWN-GAPS #24): a feed filed under the wrong territory produces
+ * reporting that is confidently wrong, and nobody ever finds it.
+ */
+describe('territory on a feed', () => {
+  it('defaults to unknown when none is given', async () => {
+    postSequence([], feed());
+    const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/brands/brand-1/integrations',
+      payload: { source: 'rss', config: { feedUrl: 'https://example.test/f.xml' } },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(_written.at(-1)).toMatchObject({ territory: 'unknown' });
+  });
+
+  /* What the marketing team's channel sheet actually contains. Rejecting these outright would
+     make the import a manual find-and-replace. */
+  it('corrects UK to GB rather than storing a code ISO does not assign', async () => {
+    postSequence([], feed());
+    const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/brands/brand-1/integrations',
+      payload: { source: 'rss', config: { feedUrl: 'https://example.test/g.xml' }, territory: 'UK' },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(_written.at(-1)).toMatchObject({ territory: 'GB' });
+  });
+
+  it('refuses an unresolvable territory instead of falling back to unknown', async () => {
+    postSequence([], feed());
+    const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/brands/brand-1/integrations',
+      payload: { source: 'rss', config: { feedUrl: 'https://example.test/h.xml' }, territory: 'EMEA' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toMatch(/Unrecognised territory/);
+  });
+
+  /* The sheet has six of these. The question mark is its author saying they are unsure, and
+     resolving it on their behalf would file six channels under a territory nobody chose. */
+  it('refuses the channel sheet\'s ambiguous "Global?"', async () => {
+    postSequence([], feed());
+    const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/brands/brand-1/integrations',
+      payload: { source: 'rss', config: { feedUrl: 'https://example.test/i.xml' }, territory: 'Global?' },
+    });
+
     expect(res.statusCode).toBe(400);
   });
 });

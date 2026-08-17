@@ -44,6 +44,26 @@ export const signals = pgTable(
     sourceConfigId: uuid('source_config_id').references(() => sourceConfigs.id, {
       onDelete: 'set null',
     }),
+    /**
+     * Where this signal came from, COPIED from the source config at insert time.
+     *
+     * Denormalised deliberately, for three reasons:
+     *
+     *   1. `source_config_id` is nullable and `ON DELETE SET NULL`. Resolving territory by join
+     *      would erase it for every signal a feed ever collected the moment that feed is deleted —
+     *      and the comment on that column already says the evidence belongs to the brand, not to
+     *      the configuration.
+     *   2. Every rollup and trend query filters on it. A join for a value that never changes for
+     *      a given row is waste on the hottest path in the product.
+     *   3. Same rule as `tenant_id` on `signal_mentions`: with no row-level security, the safe
+     *      query must not require a join to be safe.
+     *
+     * **CHANGING A FEED'S TERRITORY DOES NOT REWRITE HISTORY.** A signal was collected from a feed
+     * that was UK at the time, and that is a fact about the past. Correcting a misconfiguration is
+     * an explicit backfill, not a silent side effect of an edit — the UI says so when the field is
+     * changed.
+     */
+    territory: varchar('territory', { length: 16 }).notNull().default('unknown'),
     sourceUrl: text('source_url').notNull(),
     rawStorageRef: text('raw_storage_ref').notNull(),
     /**

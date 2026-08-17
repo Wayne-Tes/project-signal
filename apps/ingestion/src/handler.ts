@@ -212,9 +212,14 @@ export async function handleIngestionJob(
          S3 and nowhere else, which made the drill-down a list of source names and dates that a
          user had to leave the app to understand. The S3 object is still written first and still
          holds the untouched payload — this is the readable form, not a replacement for it. */
+      /* `territory` is COPIED from the feed, not joined to it at read time. `sourceConfigId` is
+         nullable and set-null on delete, so a join would erase the territory of every signal a
+         feed ever collected the moment that feed is removed — and this evidence belongs to the
+         brand, not to the configuration. See the column comment on `signals.territory`. */
       .values({
         ...base,
         sourceConfigId,
+        territory: cfg.territory,
         rawStorageRef,
         publishedAt: item.publishedAt,
         content: item.text || null,
