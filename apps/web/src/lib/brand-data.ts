@@ -35,6 +35,26 @@ export interface ApiDimensionRow {
   signalCount: number;
 }
 
+/**
+ * `GET /brands/:id/stats` — the coverage funnel and the source counts.
+ *
+ * `classifiedSignals` and `lastRollupDate` are the funnel's last two stages and were added
+ * because the first two are not enough to tell a healthy brand from a broken one. See
+ * `coverageFooter` below.
+ */
+export interface ApiStats {
+  signalsThisWeek: number;
+  signalsPreviousWeek: number;
+  totalSignals: number;
+  scoredSignals: number;
+  /** Scored AND tagged to at least one dimension — the step that actually reaches the index. */
+  classifiedSignals: number;
+  /** The last day the rollup produced anything for this brand. Null means it never has. */
+  lastRollupDate: string | null;
+  activeSources: number;
+  configuredSources: number;
+}
+
 export interface ApiBrandScore {
   score: number | null;
   previousScore: number | null;
@@ -280,4 +300,177 @@ export function toActionCards(clusters: readonly ApiCluster[]): ActionCard[] {
       dimensionLabel: dimension ? DIMENSION_LABELS[dimension] : null,
     };
   });
+}
+
+// --- Coverage funnel ---------------------------------------------------------
+
+/**
+ * Which stage of the pipeline is losing signals, said in one line.
+ *
+ * WHAT THIS REPLACES. The Dashboard's coverage tile reported `scoredSignals / totalSignals` and
+ * nothing else. That reads as perfectly healthy in the one case that matters most: a brand whose
+ * signals are all scored but tagged to no dimension reaches no index, no cluster and no
+ * drill-down, and produces no rollup rows at all. "100 of 100 scored" was true and completely
+ * misleading, and two brands sat in that state until the owner noticed rather than the product.
+ *
+ * Ordered most-severe-first, because a bare percentage collapses four different situations —
+ * nothing collected, nothing scored, nothing classified, nothing rolled up — into the same "0%",
+ * and they need four different responses from whoever reads it.
+ */
+export function coverageFooter(stats: ApiStats | null | undefined): string {
+  if (!stats || stats.totalSignals === 0) return 'nothing collected for this brand yet';
+
+  const { totalSignals, scoredSignals, classifiedSignals, lastRollupDate } = stats;
+
+  if (scoredSignals === 0) return `${totalSignals.toLocaleString()} collected, none scored yet`;
+  if (classifiedSignals === 0)
+    return `${scoredSignals.toLocaleString()} scored, none tagged to a dimension`;
+  if (!lastRollupDate)
+    return `${classifiedSignals.toLocaleString()} classified, but no rollup has run`;
+
+  const unscored = totalSignals - scoredSignals;
+  const unclassified = scoredSignals - classifiedSignals;
+  const trailing =
+    unscored > 0
+      ? ` · ${unscored.toLocaleString()} awaiting scoring`
+      : unclassified > 0
+        ? ` · ${unclassified.toLocaleString()} scored into no dimension`
+        : '';
+
+  return `${classifiedSignals.toLocaleString()} of ${totalSignals.toLocaleString()} in the index${trailing}`;
+}
+
+/**
+ * Colour by whether the funnel is delivering, not by the raw percentage.
+ *
+ * A brand can sit at 0% because it is new, which is fine, or because everything it collects
+ * falls out between scoring and the rollup, which is not. Only the second is coloured as a
+ * problem — alarming on the first would train people to ignore the colour, which is the reason
+ * the anomaly banner was removed rather than left showing nothing.
+ *
+ * Returns a CUSTOM PROPERTY, never a literal hex: literals survive every test and then break the
+ * runtime palette switcher in the light theme (KNOWN-GAPS #19, #20).
+ */
+export function coverageTone(stats: ApiStats | null | undefined): string {
+  if (!stats || stats.totalSignals === 0) return 'var(--t1)';
+  if (stats.scoredSignals > 0 && (stats.classifiedSignals === 0 || !stats.lastRollupDate))
+    return 'var(--coral)';
+  return 'var(--t1)';
+}
+
+// --- What changed ------------------------------------------------------------
+
+export interface ApiTopicChange {
+  topic: string;
+  volume: number;
+  previousVolume: number;
+  sentiment: number;
+  previousSentiment: number | null;
+  volumeDelta: number;
+  sentimentDelta: number | null;
+  firstSeenAt: string | null;
+  isNew: boolean;
+  sampleSignalIds: string[];
+}
+
+export interface ApiSourceChange {
+  source: string;
+  volume: number;
+  previousVolume: number;
+  sentiment: number | null;
+  previousSentiment: number | null;
+  sentimentDelta: number | null;
+}
+
+/** `GET /brands/:id/whats-new` — mirrors apps/api/src/routes/change.ts. */
+export interface ApiWhatsNew {
+  basis: 'ingested' | 'published';
+  from: string;
+  to: string;
+  signalsThisPeriod: number;
+  signalsPreviousPeriod: number;
+  backfilledThisPeriod: number;
+  sentiment: number | null;
+  previousSentiment: number | null;
+  sentimentDelta: number | null;
+  newTopics: ApiTopicChange[];
+  risingTopics: ApiTopicChange[];
+  fallingTopics: ApiTopicChange[];
+  improvingTopics: ApiTopicChange[];
+  worseningTopics: ApiTopicChange[];
+  bySource: ApiSourceChange[];
+}
+
+/**
+ * A signed number for display, with an explicit answer for "there is nothing to compare".
+ *
+ * Returns `null` for an absent comparison so the caller must decide what to render, rather than
+ * receiving a `"+0"` it will show as a green improvement. That substitution is exactly the defect
+ * that put `▲ +0` on every dimension bar, and the only reliable guard against it is refusing to
+ * produce the string in the first place.
+ */
+export function formatDelta(value: number | null, digits = 0): string | null {
+  if (value === null || Number.isNaN(value)) return null;
+  const rounded = Number(value.toFixed(digits));
+  /* A true zero is a real finding — "measured, and it did not move" — and reads as such. */
+  if (rounded === 0) return 'no change';
+  /* U+2212 minus, not a hyphen: it aligns with the digits in a tabular-numeric column. */
+  return rounded > 0 ? `+${rounded}` : `−${Math.abs(rounded)}`;
+}
+
+/**
+ * Colour for a movement in SENTIMENT.
+ *
+ * Deliberately not reused for volume. More conversation is not good news or bad news on its own —
+ * a surge of praise and a surge of complaints are both "rising" — so colouring volume by
+ * direction would assert something the number does not say.
+ */
+export function sentimentTone(delta: number | null): string {
+  if (delta === null || delta === 0) return 'var(--t2)';
+  return delta > 0 ? 'var(--mint)' : 'var(--coral)';
+}
+
+/**
+ * One sentence a channel manager can read without decoding the page.
+ *
+ * The test of this view is whether a weekly report could be written from what is on screen, and
+ * that starts with a plain summary rather than five tables the reader has to reconcile.
+ */
+export function changeHeadline(data: ApiWhatsNew | null | undefined, days: number): string {
+  if (!data) return '';
+  const period = days === 7 ? 'this week' : `in the last ${days} days`;
+
+  if (data.signalsThisPeriod === 0) {
+    return data.signalsPreviousPeriod > 0
+      ? `Nothing collected ${period} — ${data.signalsPreviousPeriod.toLocaleString()} arrived in the period before it.`
+      : `Nothing collected ${period}.`;
+  }
+
+  const collected =
+    data.basis === 'ingested'
+      ? `${data.signalsThisPeriod.toLocaleString()} signal${data.signalsThisPeriod === 1 ? '' : 's'} collected ${period}`
+      : `${data.signalsThisPeriod.toLocaleString()} signal${data.signalsThisPeriod === 1 ? '' : 's'} published ${period}`;
+
+  /* Backfill is called out rather than buried. Connecting a feed imports its whole history at
+     once, and reporting that as a week's conversation is the first thing a reader would spot as
+     wrong — after they had already acted on it. */
+  const backfill =
+    data.backfilledThisPeriod > 0
+      ? `, of which ${data.backfilledThisPeriod.toLocaleString()} ${data.backfilledThisPeriod === 1 ? 'is' : 'are'} older material newly picked up`
+      : '';
+
+  const movement =
+    data.sentimentDelta === null
+      ? 'No earlier period to compare against yet'
+      : data.sentimentDelta === 0
+        ? 'Sentiment is unchanged'
+        : `Sentiment is ${data.sentimentDelta > 0 ? 'up' : 'down'} ${Math.abs(data.sentimentDelta).toFixed(2)}`;
+
+  const newCount = data.newTopics.length;
+  const subjects =
+    newCount === 0
+      ? 'no subjects are new'
+      : `${newCount} new subject${newCount === 1 ? '' : 's'}`;
+
+  return `${collected}${backfill}. ${movement}, and ${subjects}.`;
 }

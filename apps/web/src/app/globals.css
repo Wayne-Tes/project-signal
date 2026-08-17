@@ -478,3 +478,56 @@ svg.sparkline { display: block; overflow: visible; }
   .page { box-shadow: none; margin: 0 auto; page-break-after: always; border-radius: 0; }
   body { background: #fff; }
 }
+
+/* --- What's changed ------------------------------------------------------
+   Rows in the movement panels. Grid rather than flex so the topic, the volume
+   and the delta line up across every panel on the page — a reader comparing
+   "getting worse" against "getting better" is scanning the third column, and
+   ragged columns make that impossible. Every colour is a token: literal hex
+   breaks the runtime palette switcher (KNOWN-GAPS #19, #20). */
+.chg-row {
+  display: grid;
+  grid-template-columns: 1fr auto minmax(84px, auto);
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.chg-row:hover { background: var(--surface-2); border-color: var(--line); }
+.chg-row:focus-visible { outline: 2px solid var(--peri); outline-offset: -2px; }
+/* The source table is information, not navigation — it must not look clickable. */
+.chg-row--static { cursor: default; }
+.chg-row--static:hover { background: transparent; border-color: transparent; }
+
+.chg-topic { color: var(--t1); font-weight: 500; overflow-wrap: anywhere; }
+.chg-meta { color: var(--t3); font-size: 12px; font-family: var(--font-mono); }
+.chg-delta {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.chg-empty { color: var(--t3); font-size: 13px; margin: 10px 2px 2px; }
+.chg-headline {
+  color: var(--t1);
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.chg-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-4);
+}

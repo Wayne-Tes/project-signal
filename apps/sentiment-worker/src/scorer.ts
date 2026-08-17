@@ -76,9 +76,23 @@ export const SENTIMENT_SCHEMA = {
       description: 'Sentiment from -1 (most negative) to 1 (most positive).',
     },
     confidence: { type: 'number', description: 'Confidence in this assessment, 0 to 1.' },
+    /**
+     * AT LEAST ONE DIMENSION IS REQUIRED, and that is a defect fix rather than a preference.
+     *
+     * `scoreAllDimensions` omits dimensions no item touches, and the rollup skips a brand when
+     * that leaves nothing. So a signal returned with `dimensions: []` was collected, stored,
+     * queued, scored — and then contributed to no index, no dimension, no cluster and no
+     * drill-down, with no error anywhere. At small volumes it takes a whole brand out of the
+     * rollup; the register shows two that sat at zero rows.
+     *
+     * The previous wording ("Omit any it does not") actively invited the empty array on the
+     * short, factual text that most of a Google News feed consists of.
+     */
     dimensions: {
       type: 'array',
-      description: 'Which brand dimensions the review touches. Omit any it does not.',
+      minItems: 1,
+      description:
+        'Which brand dimensions the text touches. At least one is required: if the text relates only weakly to the brand, choose the single closest dimension rather than returning an empty list.',
       items: { type: 'string', enum: ['trust', 'quality', 'service', 'value', 'experience'] },
     },
     topics: {

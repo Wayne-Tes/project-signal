@@ -83,6 +83,18 @@ export async function handlePubSubMessage(signalId: string): Promise<void> {
     throw err;
   }
 
+  /* `minItems: 1` in the tool schema is a REQUEST to the model, not a guarantee from it — so the
+     empty case still has to be observable. A signal scored into no dimension contributes to no
+     index, no cluster and no drill-down, and used to do so in complete silence. It is stored
+     anyway rather than being failed or given an invented dimension: a fabricated classification
+     would be worse than a visible gap, and `GET /brands/:id/stats` now reports the gap as
+     `classifiedSignals` against `scoredSignals`. */
+  if (result.dimensions.length === 0) {
+    console.warn(
+      `Signal ${signalId} scored with no dimensions — it will not contribute to any rollup`,
+    );
+  }
+
   await db
     .get()
     .insert(sentimentResults)

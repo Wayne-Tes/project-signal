@@ -31,6 +31,9 @@ vi.mock('@project-signal/db', () => {
   chain['transaction'] = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(chain));
   return {
     db: { get: vi.fn(() => chain) },
+    /* Real behaviour is covered in `attributed-to.test.ts` against drizzle's dialect; these
+       tests assert response shape, so the predicate only has to be callable. */
+    attributedTo: vi.fn(() => ({ _attributedTo: true })),
     tenants: {},
     brandEntities: {},
     signals: {},

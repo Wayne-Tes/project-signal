@@ -82,6 +82,23 @@ describe('scoreSignal', () => {
     ]);
   });
 
+  /**
+   * A signal scored into no dimension contributes to no index, no cluster and no drill-down.
+   *
+   * `scoreAllDimensions` omits dimensions nothing touches and the rollup skips a brand when that
+   * leaves it empty, so `dimensions: []` silently removes the signal from every surface in the
+   * product — and, at low volume, removes its whole brand from the rollup. Two brands sat at zero
+   * rollup rows on exactly this path.
+   *
+   * The old description ("Omit any it does not") actively invited it on the short factual text
+   * that most of a news feed consists of.
+   */
+  it('requires at least one dimension, so a signal cannot be scored into nothing', async () => {
+    const { SENTIMENT_SCHEMA } = await import('../src/scorer.js');
+    expect(SENTIMENT_SCHEMA.properties.dimensions.minItems).toBe(1);
+    expect(SENTIMENT_SCHEMA.properties.dimensions.description).toMatch(/at least one/i);
+  });
+
   it('requires every field the sentiment_results row needs', async () => {
     const { SENTIMENT_SCHEMA } = await import('../src/scorer.js');
     expect(SENTIMENT_SCHEMA.required).toEqual([

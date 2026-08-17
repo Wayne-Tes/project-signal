@@ -50,6 +50,11 @@
 | 23  | ~~Workspace import undeclared; container crashed on boot~~         | ✅ resolved | build ↔ deploy        |
 | 24  | ~~A source with no collector could be configured via the API~~     | ✅ resolved | API ↔ ingestion       |
 | 25  | `firebaseUid` naming survives in the schema and API contract       | 🟡 open     | db ↔ API ↔ web        |
+| 26  | ~~The drill-down contradicted the number it was drilling into~~    | ✅ resolved | API ↔ web             |
+| 27  | ~~Apify reported SUCCESS while collecting nothing~~                | ✅ resolved | source-adapters       |
+| 28  | The "raw" S3 payload is neither raw nor immutable                  | 🟠 mitigated | ingestion ↔ storage  |
+| 29  | ~~Index and its own evidence counted different populations~~       | ✅ resolved | API ↔ ingestion       |
+| 30  | ~~A signal scored into no dimension vanished from every surface~~  | ✅ resolved | sentiment ↔ API ↔ web |
 
 ---
 
@@ -954,6 +959,61 @@ which is why it is written down rather than rushed.
 
 Consider S3 object versioning on the raw bucket at the same time. It is cheap, it makes overwrites
 recoverable, and it would have made this diagnosable in one command instead of several.
+
+---
+
+## 29. ✅ The index and its own evidence were computed from different populations — **resolved (2026-08-17)**
+
+**Found while planning `PLAN-change-territory-and-actions.md`, not from a bug report.**
+
+Two mechanisms attribute a signal to an entity: `signals.brand_entity_id` (it arrived through a
+feed pointed at that entity) and a `signal_mentions` row (the text talks about that entity). Both
+are real feedback and the hourly rollup counted both, through a helper called `attributedTo` that
+lived in `apps/ingestion/src/rollup.ts`.
+
+**Every read path in the API counted only the first.** `/brand-impact`, `/topics`, `/strengths`,
+`/stats`, `/signals` and `/sentiment-summary` all filtered on `eq(signals.brandEntityId, …)`.
+
+So a product discussed mainly in group-level coverage scored on the dashboard while its
+drill-down listed fewer contributing signals than the number it was drilling into — or none. That
+is exactly #26's failure, reintroduced through a different door, and nothing failed: both
+populations are plausible on their own.
+
+**Fixed** by moving the predicate to `libs/db/src/queries.ts` and importing it in all six read
+paths and the rollup, so there is one definition. `tenantId` became a **required argument** rather
+than something each call site remembers to `and` on, and the EXISTS subquery filters it too —
+tenant scoping is opt-in in this product and that is how #5 and the backfill leak both happened.
+
+Covered by `apps/api/test/routes/attributed-to.test.ts`, which renders the predicate through
+drizzle's real dialect: both mechanisms present, `OR` not `AND`, tenant bound twice, both ids
+bound as parameters rather than interpolated.
+
+---
+
+## 30. ✅ A signal could be scored into no dimension and vanish — **resolved (2026-08-17)**
+
+`scoreAllDimensions` omits dimensions no item touches, and `rollupDimensionScores` skips a brand
+when that leaves nothing. So a signal returned by the model with `dimensions: []` was collected,
+stored, queued, scored — and then contributed to no index, no dimension, no cluster and no
+drill-down, with no error anywhere. At low volume it removes the brand from the rollup entirely,
+which is how two brands came to have signals and zero `dimension_scores` rows.
+
+The tool schema actively invited it: `"Which brand dimensions the review touches. **Omit any it
+does not.**"` on the short factual text that most of a news feed consists of.
+
+**Three changes, because a schema constraint alone would only move the silence:**
+
+1. `minItems: 1` on `SENTIMENT_SCHEMA.properties.dimensions`, with a description telling the model
+   to pick the closest dimension rather than return an empty list.
+2. The worker `warn`s when it still comes back empty. It **stores the row anyway** — refusing it
+   would lose a real sentiment score, and assigning a dimension the model did not choose would be
+   fabrication.
+3. `GET /brands/:id/stats` reports the whole funnel — `totalSignals` → `scoredSignals` →
+   `classifiedSignals` → `lastRollupDate` — and the Dashboard's coverage tile names the stalled
+   stage instead of showing one percentage. `100 of 100 scored` was true and useless.
+
+The general lesson is (3): the defect was not that signals were dropped, it was that dropping them
+was invisible. `coverageFooter` / `coverageTone` in `apps/web/src/lib/brand-data.ts`.
 
 ---
 

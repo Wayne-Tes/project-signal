@@ -21,3 +21,16 @@ export {
 } from './score.js';
 
 export { parseWeights } from './weights.js';
+
+export {
+  BACKFILL_THRESHOLD_DAYS,
+  isBackfilled,
+  splitPeriods,
+  summariseChange,
+  summariseSources,
+  type ChangeBasis,
+  type ChangeItem,
+  type ChangeSummary,
+  type SourceChange,
+  type TopicChange,
+} from './change.js';

@@ -13,6 +13,10 @@ vi.mock('@project-signal/db', () => {
   chain['then'] = (r: unknown, j?: unknown) => Promise.resolve(next()).then(r as never, j as never);
   return {
     db: { get: vi.fn(() => chain) },
+    /* The real predicate is exercised against drizzle's dialect in `attributed-to.test.ts`;
+       here it only has to be callable, because these tests assert response shape rather than
+       SQL. Returning a sentinel keeps `and(...)` happy without pretending to be SQL. */
+    attributedTo: vi.fn(() => ({ _attributedTo: true })),
     brandEntities: {},
     dimensionScores: {},
     signals: {},
@@ -254,8 +258,12 @@ describe('GET /brands/:id/strengths', () => {
 });
 
 describe('GET /brands/:id/stats', () => {
-  it('returns the headline counts', async () => {
-    _queue.push([{ totalSignals: 40, thisWeek: '9', previousWeek: '6', scored: '31' }]);
+  /* Query order in the handler: counts → last rollup date → source counts. */
+  it('returns the headline counts and the coverage funnel', async () => {
+    _queue.push([
+      { totalSignals: 40, thisWeek: '9', previousWeek: '6', scored: '31', classified: '28' },
+    ]);
+    _queue.push([{ lastDate: '2026-08-16' }]);
     _queue.push([{ configured: 5, active: '3' }]);
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
     const res = await app.inject({ method: 'GET', url: '/brands/brand-1/stats' });
@@ -265,13 +273,41 @@ describe('GET /brands/:id/stats', () => {
       signalsPreviousWeek: 6,
       totalSignals: 40,
       scoredSignals: 31,
+      classifiedSignals: 28,
+      lastRollupDate: '2026-08-16',
       activeSources: 3,
       configuredSources: 5,
     });
   });
 
+  /**
+   * The signature of the defect this funnel exists to expose.
+   *
+   * Signals collected and scored, none of them tagged to a dimension, and therefore no rollup
+   * row ever written. Two brands sat in exactly this state and nothing in the product said so —
+   * `scoredSignals` alone reads as healthy. `classifiedSignals: 0` beside `lastRollupDate: null`
+   * is what makes it legible.
+   */
+  it('reports a brand that is scored but classified into nothing', async () => {
+    _queue.push([
+      { totalSignals: 10, thisWeek: '2', previousWeek: '1', scored: '10', classified: '0' },
+    ]);
+    _queue.push([{ lastDate: null }]);
+    _queue.push([{ configured: 1, active: '1' }]);
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/stats' });
+
+    const body = JSON.parse(res.body);
+    expect(body.scoredSignals).toBe(10);
+    expect(body.classifiedSignals).toBe(0);
+    expect(body.lastRollupDate).toBeNull();
+  });
+
   it('reports zeroes for a brand with nothing ingested', async () => {
-    _queue.push([{ totalSignals: 0, thisWeek: '0', previousWeek: '0', scored: '0' }]);
+    _queue.push([
+      { totalSignals: 0, thisWeek: '0', previousWeek: '0', scored: '0', classified: '0' },
+    ]);
+    _queue.push([{ lastDate: null }]);
     _queue.push([{ configured: 0, active: '0' }]);
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
     const res = await app.inject({ method: 'GET', url: '/brands/brand-1/stats' });
