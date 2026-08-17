@@ -150,3 +150,44 @@ test('the drill-down reaches individual signals with links to the source', async
   await expect(first).toBeVisible();
   await expect(first.locator('.sig-foot')).toHaveText(/read the original|no source URL recorded/);
 });
+
+/**
+ * The numbered spines, read out of a REAL browser.
+ *
+ * Reported by the owner as "all of the side column spines are numbered 01". The component test
+ * (`apps/web/test/drilldown.test.tsx`) already asserts `['01', '02']` at three levels and passes,
+ * so the numbering logic is not at fault — which leaves the things jsdom cannot see: the CSS that
+ * renders them (`writing-mode: vertical-rl` with a 180° rotation), and whichever bundle is
+ * actually deployed at the time.
+ *
+ * That is precisely the gap this harness exists for. The light-theme defect got through because
+ * every component was individually correct and nothing rendered the page and read the value back.
+ */
+test('the stacked steps are numbered in order, and are legible', async ({ page }) => {
+  await openBestDimension(page);
+
+  const topics = panel(page).locator('.drill-row');
+  if ((await topics.count()) === 0) test.skip(true, 'no topic clusters formed for this brand yet');
+  await topics.first().click();
+  await expect(page.locator('.drill-panel.stacked')).toHaveCount(2, { timeout: 15_000 });
+
+  /* The reported symptom, asserted directly: consecutive numbers, not '01' twice. */
+  const numbers = await page.locator('.drill-spine .lvl').allInnerTexts();
+  expect(numbers.map((n) => n.trim()), 'the stacked steps are not numbered in order').toEqual([
+    '01',
+    '02',
+  ]);
+
+  /* Zero-padding is what makes 01 and 10 the same width so the spines line up; a bare '1' would
+     pass the equality above only by accident of there being fewer than ten levels. */
+  for (const n of numbers) expect(n.trim()).toMatch(/^\d{2}$/);
+
+  /* Rendered, not merely present. A spine collapsed to zero width — which the vertical writing
+     mode makes possible — would satisfy every assertion above while showing the user nothing. */
+  for (const spine of await page.locator('.drill-spine').all()) {
+    await expect(spine).toBeVisible();
+    const box = await spine.boundingBox();
+    expect(box?.width ?? 0, 'a spine rendered with no width').toBeGreaterThan(4);
+    expect(box?.height ?? 0, 'a spine rendered with no height').toBeGreaterThan(20);
+  }
+});

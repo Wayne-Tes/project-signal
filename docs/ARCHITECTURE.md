@@ -444,6 +444,31 @@ clusterTopics(items, asOf); // damage = volume × negativity × recency
 brandImpact(clusters); // top 3 by damage, zero-damage excluded
 ```
 
+`src/change.ts` adds **period-over-period movement** — what the index *did*, as opposed to what it
+*is*:
+
+```ts
+splitPeriods(items, asOf, days, basis); // equal-length windows, future-dated items dropped
+summariseChange(items, firstSeen, opts); // new / rising / falling / improving / worsening
+summariseSources(current, previous); // the same movement per source
+```
+
+Three things in it are easy to get subtly wrong, and each has a comment saying why:
+
+- **`basis`** — `ingested` answers "what did we learn", `published` answers "what did the world
+  say". A backfilled two-year archive is a surge under the first and nothing under the second, so
+  the endpoint echoes which one it used and `backfilledThisPeriod` is reported separately.
+- **`isNew` is a claim about all history**, which is why `firstSeen` is read by its own unbounded
+  query. A topic returning after a quiet spell is not new, and treating it as new sends someone
+  hunting a cause that is months old.
+- **Volume movement and sentiment movement are different axes.** A topic discussed exactly as much
+  as last week whose sentiment fell from +0.5 to −0.5 appears in neither `risingTopics` nor
+  `fallingTopics` — hence `improvingTopics` / `worseningTopics`, ranked by
+  `|sentimentDelta| × volume` past a `SENTIMENT_MOVE_THRESHOLD` floor so re-scoring noise does not
+  fill the page.
+
+Absent comparisons are `null`, never `0`, throughout — the distinction that `▲ +0` lost.
+
 Two decisions worth knowing before you change them. A dimension with no items scores `null`,
 not 0 — absence of data is not the same as uniformly negative sentiment. And `compositeScore`
 renormalises weights across the dimensions that _do_ have data, so a brand with no `value`
@@ -605,6 +630,7 @@ difference.
 > brand-scoped read must use `attributedTo` rather than `eq(signals.brandEntityId, …)`.**
 | `GET /brands/:id/strengths`               | any          | bare array           | The mirror of `/brand-impact`, ranked by `volume × positivity × recency`. `limit` defaults to 3.                        |
 | `GET /brands/:id/topics`                  | any          | bare array           | **Every** cluster, optionally `?dimension=`, ranked by `volume × recency` — positive, negative and NEUTRAL alike. `limit` defaults to 12. Exists because `/brand-impact` and `/strengths` are both *signed* rankings that exclude the middle, so neither can answer "what is this dimension made of". See the note below. |
+| `GET /brands/:id/whats-new`               | any          | object               | **What changed** over `?days=` (default 7, max 90) against the equal-length period before it: `newTopics`, `risingTopics`/`fallingTopics` (volume), `improvingTopics`/`worseningTopics` (sentiment), `bySource`, and the period sentiment delta. `?basis=ingested\|published` — `ingested` is what *we* learned (the honest basis for "new since the last scans"), `published` is what the world said (the right basis for trend); the response echoes the choice. `?source=` narrows it. Computed on read — see `libs/scoring/src/change.ts` for why there is no snapshot table and what would justify one. |
 | `GET /brands/:id/stats`                   | any          | object               | Dashboard stat row and the **coverage funnel**: this/previous week signal counts, `totalSignals` → `scoredSignals` → `classifiedSignals` → `lastRollupDate`, plus active/configured sources. `classifiedSignals` counts signals scored **and** tagged to ≥1 dimension; anything short of that reaches no index, no cluster and no drill-down. `classifiedSignals: 0` beside a non-zero `scoredSignals`, or a null `lastRollupDate`, is the signature of a brand silently falling out of the rollup. |
 | `POST /assistant/messages`                | any          | object               | Ask the assistant. Read-only over BRAND data; it writes only the conversation record. History is loaded server-side — see below. |
 | `GET /assistant/conversations`           | any          | bare array           | The caller's **own** conversations, most recent first. Filtered by tenant **and** user. |
