@@ -10,3 +10,5 @@ export * from './conversations';
 export * from './signalMentions';
 export * from './scanRuns';
 export * from './trackedActions';
+export * from './accounts';
+export * from './crmConnections';

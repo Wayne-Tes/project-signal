@@ -7,6 +7,7 @@ import {
   signalMentions,
 } from '@project-signal/db';
 import { getObjectStore, keyFromRef } from '@project-signal/storage';
+import type { Voice } from '@project-signal/shared-types';
 import { and, eq, ne } from 'drizzle-orm';
 import { scoreSignal, resolveMentions, type MentionCandidate } from './scorer.js';
 
@@ -72,7 +73,9 @@ export async function handlePubSubMessage(signalId: string): Promise<void> {
 
   let result;
   try {
-    result = await scoreSignal(text, candidates);
+    /* The signal's own voice decides which prompt is used. A CRM note scored as a review measures
+       the account manager's tone rather than the customer's view. */
+    result = await scoreSignal(text, candidates, (signal.voice ?? 'direct') as Voice);
   } catch (err) {
     // The model returning non-JSON is a permanent failure for this message: retrying sends
     // the identical prompt and gets the identical garbage.

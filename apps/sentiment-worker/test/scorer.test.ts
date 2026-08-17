@@ -218,3 +218,52 @@ describe('mention detection', () => {
     });
   });
 });
+
+/**
+ * A CRM note is not a review, and scoring it as one measures the wrong person.
+ *
+ * A calm account manager relaying a furious customer reads as mild; a frustrated one relaying a
+ * minor issue reads as severe. Either way the number describes the note-writer's tone rather than
+ * the customer's view — and it would be indistinguishable from a real score, which is the
+ * expensive kind of wrong.
+ */
+describe('the reported-voice prompt', () => {
+  it('asks for the customer’s sentiment, not the writer’s', async () => {
+    const { PROMPT_TEMPLATE } = await import('../src/scorer.js');
+    const p = PROMPT_TEMPLATE('Call notes: they are unhappy about pricing.', [], 'reported');
+
+    expect(p).toMatch(/THE CUSTOMER'S sentiment/);
+    expect(p).toMatch(/not the tone of the person writing/i);
+    /* It must not be framed as a review — that framing is the defect. */
+    expect(p).not.toMatch(/following customer review/i);
+  });
+
+  it('tells the model to ignore internal commentary', async () => {
+    const { PROMPT_TEMPLATE } = await import('../src/scorer.js');
+    const p = PROMPT_TEMPLATE('x', [], 'reported');
+    expect(p).toMatch(/next steps/i);
+    expect(p).toMatch(/renewal or pipeline administration/i);
+  });
+
+  /* A note with no customer view in it must produce neutral-with-low-confidence, not an inferred
+     sentiment. Inferring one manufactures signal out of admin. */
+  it('tells the model to decline rather than infer when there is no customer view', async () => {
+    const { PROMPT_TEMPLATE } = await import('../src/scorer.js');
+    expect(PROMPT_TEMPLATE('x', [], 'reported')).toMatch(
+      /neutral with low\s+confidence rather than inferring/i,
+    );
+  });
+
+  it('leaves the public-review prompt untouched by default', async () => {
+    const { PROMPT_TEMPLATE } = await import('../src/scorer.js');
+    const p = PROMPT_TEMPLATE('The app keeps crashing.');
+    expect(p).toContain('Analyse the brand sentiment of the following customer review.');
+    expect(p).not.toMatch(/internal note/i);
+  });
+
+  it('still appends the mention candidates for a reported note', async () => {
+    const { PROMPT_TEMPLATE } = await import('../src/scorer.js');
+    const p = PROMPT_TEMPLATE('x', [{ id: 'a', name: 'Class Charts', aliases: [] }], 'reported');
+    expect(p).toContain('Class Charts');
+  });
+});

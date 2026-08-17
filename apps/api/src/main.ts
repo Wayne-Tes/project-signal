@@ -11,6 +11,7 @@ import brandsRoutes from './routes/brands.js';
 import signalsRoutes from './routes/signals.js';
 import scoresRoutes from './routes/scores.js';
 import roadmapRoutes from './routes/roadmap.js';
+import crmRoutes from './routes/crm.js';
 import changeRoutes from './routes/change.js';
 import { integrationsRoutes } from './routes/integrations.js';
 import { aliasesRoutes } from './routes/aliases.js';
@@ -68,6 +69,7 @@ const start = async () => {
     await app.register(scoresRoutes);
     await app.register(changeRoutes);
     await app.register(roadmapRoutes);
+    await app.register(crmRoutes);
     await app.register(integrationsRoutes);
     await app.register(aliasesRoutes);
     await app.register(adminRoutes);

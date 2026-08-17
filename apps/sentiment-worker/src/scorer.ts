@@ -1,6 +1,6 @@
 import { getLlmClient, getScorerModel } from '@project-signal/llm';
 import type { JsonSchema } from '@project-signal/llm';
-import type { SentimentLabel, Dimension } from '@project-signal/shared-types';
+import type { SentimentLabel, Dimension, Voice } from '@project-signal/shared-types';
 
 /** A product or sub-brand the model may attribute a mention to. */
 export interface MentionCandidate {
@@ -36,8 +36,35 @@ export interface ScoreResult {
  * some unrelated row. Names are resolved back to ids by code that can simply refuse an unknown
  * one.
  */
-export const PROMPT_TEMPLATE = (text: string, candidates: MentionCandidate[] = []): string => {
-  const base = `Analyse the brand sentiment of the following customer review.\n\nReview: ${text}`;
+export const PROMPT_TEMPLATE = (
+  text: string,
+  candidates: MentionCandidate[] = [],
+  voice: Voice = 'direct',
+): string => {
+  /**
+   * TWO PROMPTS, BECAUSE THEY ARE TWO DIFFERENT QUESTIONS.
+   *
+   * A public review is the customer speaking. A CRM note is an EMPLOYEE writing down what a
+   * customer said, and scoring it as a review measures the wrong person: a calm account manager
+   * relaying a furious customer reads as mild, and a frustrated one relaying a minor issue reads
+   * as severe. Either way the number describes the note-writer's tone rather than the customer's
+   * view, and it would be indistinguishable from a real score.
+   *
+   * The reported prompt also has to exclude internal commentary — next steps, renewal admin,
+   * pipeline notes — which is most of a CRM note by volume and none of what it is being read for.
+   */
+  const base =
+    voice === 'reported'
+      ? `The following is an internal note written by an employee about a conversation with a customer.
+
+Assess THE CUSTOMER'S sentiment as reported in it — not the tone of the person writing.
+
+Ignore internal commentary: next steps, follow-up actions, renewal or pipeline administration, and
+the author's own opinions. If the note records no customer view at all, return neutral with low
+confidence rather than inferring one.
+
+Note: ${text}`
+      : `Analyse the brand sentiment of the following customer review.\n\nReview: ${text}`;
   if (candidates.length === 0) return base;
 
   const list = candidates
@@ -123,13 +150,14 @@ export const SENTIMENT_SCHEMA = {
 export async function scoreSignal(
   text: string,
   candidates: MentionCandidate[] = [],
+  voice: Voice = 'direct',
 ): Promise<ScoreResult> {
   const model = getScorerModel();
   const result = await getLlmClient().structured<Omit<ScoreResult, 'modelVersion'>>({
     model,
-    prompt: PROMPT_TEMPLATE(text, candidates),
+    prompt: PROMPT_TEMPLATE(text, candidates, voice),
     name: 'record_sentiment',
-    description: 'Records the brand-sentiment assessment of a single customer review.',
+    description: 'Records the brand-sentiment assessment of a single customer signal.',
     schema: SENTIMENT_SCHEMA,
   });
 

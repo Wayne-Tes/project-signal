@@ -197,3 +197,66 @@ export const TERRITORY_LABELS: Record<Territory, string> = {
   GLOBAL: 'Global',
   unknown: 'Not set',
 };
+
+// --- CRM -----------------------------------------------------------------------
+
+/**
+ * The CRMs a connector exists for.
+ *
+ * Same distinction as `COLLECTING_SOURCES`: what the schema can MODEL versus what the pipeline
+ * can actually fetch. Both start empty of connectors — the plumbing ships before either mapper,
+ * because writing a field mapping against a guessed payload shape is the fabrication
+ * `DEVRULES.md` forbids, and a plausible-but-wrong mapping produces silently misattributed
+ * commercial data.
+ */
+export const CRM_PROVIDERS = ['hubspot', 'salesforce'] as const;
+export type CrmProvider = (typeof CRM_PROVIDERS)[number];
+
+export function isCrmProvider(value: string): value is CrmProvider {
+  return (CRM_PROVIDERS as readonly string[]).includes(value);
+}
+
+export const CRM_PROVIDER_LABELS: Record<CrmProvider, string> = {
+  hubspot: 'HubSpot',
+  salesforce: 'Salesforce',
+};
+
+/**
+ * Who wrote the words behind a signal.
+ *
+ * `direct` — the customer wrote them. Every public source.
+ * `reported` — an employee wrote down what a customer said. CRM notes, and later any support desk.
+ *
+ * **The Brand Perception Index is computed over `direct` only.** A CSM writes a note because
+ * something needs attention, so that channel is a work queue rather than a sample: structurally
+ * negative-biased by design. Averaging it in would move the index for reasons unrelated to brand
+ * perception, and nobody could see why, because the number would still look plausible.
+ */
+export const VOICES = ['direct', 'reported'] as const;
+export type Voice = (typeof VOICES)[number];
+
+export function isVoice(value: string): value is Voice {
+  return (VOICES as readonly string[]).includes(value);
+}
+
+/**
+ * Commercial exposure as a band, never a figure.
+ *
+ * Enough to rank a theme by what it puts at risk; not enough to constitute revenue data. The
+ * revenue uplift model is an open question in the product spec and this deliberately does not
+ * answer it.
+ */
+export const ARR_BANDS = ['<10k', '10-50k', '50-250k', '250k+'] as const;
+export type ArrBand = (typeof ARR_BANDS)[number];
+
+export function isArrBand(value: string): value is ArrBand {
+  return (ARR_BANDS as readonly string[]).includes(value);
+}
+
+/** Ranking weight per band. Used to order themes by exposure rather than by raw volume. */
+export const ARR_BAND_WEIGHT: Record<ArrBand, number> = {
+  '<10k': 1,
+  '10-50k': 3,
+  '50-250k': 8,
+  '250k+': 20,
+};
