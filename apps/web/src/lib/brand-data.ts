@@ -531,3 +531,139 @@ const TERRITORY_LABEL_LOOKUP: Record<string, string> = {
   GLOBAL: 'global channels',
   unknown: 'unclassified feeds',
 };
+
+// --- Roadmap: targets, benchmarks and what an action is worth -----------------
+
+export interface ApiTarget {
+  value: number;
+  source: 'owner' | 'competitor-median' | 'competitor-best' | 'internal-best';
+  label: string;
+}
+
+export interface ApiCounterfactual {
+  from: number;
+  to: number;
+  delta: number;
+  affectedSignals: number;
+}
+
+export interface ApiPlay {
+  id: string;
+  title: string;
+  summary: string;
+  steps: string[];
+  measure: string;
+  owner: string;
+  horizon: string;
+  evidenceStatus: 'none' | 'internal' | 'external';
+  evidence: { title: string; url: string; source: string; published?: string; relevance: string }[];
+}
+
+export interface ApiAction {
+  topic: string;
+  volume: number;
+  sentiment: number;
+  damage: number;
+  damageShare: number;
+  dimensions: string[];
+  play: ApiPlay | null;
+  ifResolved: ApiCounterfactual | null;
+}
+
+export interface ApiRoadmap {
+  current: number | null;
+  target: ApiTarget | null;
+  gap: number | null;
+  benchmarks: {
+    competitorMedian: number | null;
+    competitorBest: number | null;
+    competitorCount: number;
+    internalBest: { value: number; label: string } | null;
+  };
+  projection: {
+    assumption: string;
+    daysToTarget: number | null;
+    decliningWithoutAction: boolean;
+    points: { day: number; score: number }[];
+  } | null;
+  actions: ApiAction[];
+}
+
+/**
+ * The headline sentence for the roadmap.
+ *
+ * The view exists because ranking complaints by damage told the owner nothing he did not already
+ * know: *"that just goes back to telling me what the feedback is."* A plan needs a destination, so
+ * the first thing on the page states where you are, where you are aiming, and where that target
+ * came from — because a target with no stated provenance is just a number.
+ */
+export function roadmapHeadline(data: ApiRoadmap | null | undefined): string {
+  if (!data || data.current === null) {
+    return 'No Brand Perception Index yet — a target needs something to measure against.';
+  }
+  const current = data.current.toFixed(1);
+
+  if (!data.target) {
+    /* No competitor tracked, no second territory, no target set. Saying so, and saying what would
+       fix it, beats printing a plausible round number nobody chose. */
+    return `Currently ${current}. No target yet — set one, or add a competitor to compare against.`;
+  }
+
+  const gap = data.gap ?? 0;
+  if (gap <= 0) {
+    return `Currently ${current}, at or above your target of ${data.target.value.toFixed(1)} (${data.target.label}).`;
+  }
+  return `Currently ${current}, against a target of ${data.target.value.toFixed(1)} — ${data.target.label}. ${gap.toFixed(1)} points to close.`;
+}
+
+/**
+ * What the ranked actions add up to, against what is needed.
+ *
+ * The most useful thing this page can say is whether the work on it is ENOUGH. Summing the
+ * counterfactual ceilings and comparing to the gap answers that, and it answers it honestly in
+ * both directions — including "even fixing all of this does not get you there", which is a finding
+ * worth having before a quarter is planned around it.
+ *
+ * The sum is an over-estimate by construction: two subjects sharing a signal each claim it. That
+ * is stated in the copy rather than silently corrected, because the alternative — solving the
+ * overlap — would produce a precise-looking number resting on an arbitrary attribution rule.
+ */
+export function achievableSummary(data: ApiRoadmap | null | undefined): string | null {
+  if (!data || data.current === null || !data.target) return null;
+  const gap = data.gap ?? 0;
+  if (gap <= 0) return null;
+
+  const ceiling = data.actions.reduce((sum, a) => sum + (a.ifResolved?.delta ?? 0), 0);
+  if (ceiling <= 0) return null;
+
+  const rounded = ceiling.toFixed(1);
+  return ceiling >= gap
+    ? `Resolving everything listed here is worth up to ${rounded} points — more than the ${gap.toFixed(1)} needed, so the target is reachable from this list alone.`
+    : `Resolving everything listed here is worth up to ${rounded} points, short of the ${gap.toFixed(1)} needed. Closing the rest means new positive coverage, not only fixing complaints.`;
+}
+
+/** `77` → `11 weeks`. Days are how it is computed; weeks are how people plan. */
+export function formatHorizon(days: number | null): string | null {
+  if (days === null) return null;
+  if (days === 0) return 'already there';
+  const weeks = Math.round(days / 7);
+  return weeks === 1 ? '1 week' : `${weeks} weeks`;
+}
+
+/**
+ * How a play's evidence should be described, in words that do not overclaim.
+ *
+ * A play is not worse for being unevidenced — it is worse for pretending otherwise. Most ship
+ * with the mechanism only, and saying so plainly is what keeps the rest of the page credible: a
+ * client who catches one invented citation stops believing every number beside it.
+ */
+export function evidenceNote(play: ApiPlay | null | undefined): string | null {
+  if (!play) return null;
+  if (play.evidenceStatus === 'external' && play.evidence.length > 0) {
+    return `${play.evidence.length} published source${play.evidence.length === 1 ? '' : 's'} — open to check`;
+  }
+  if (play.evidenceStatus === 'internal') {
+    return 'Backed by your own measured outcomes on this brand';
+  }
+  return 'Standard practice, not yet backed by a published source or your own outcomes';
+}

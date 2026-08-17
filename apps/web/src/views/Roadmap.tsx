@@ -1,130 +1,296 @@
 'use client';
 
-import { ListChecks } from 'lucide-react';
+import { useState } from 'react';
+import { ListChecks, Target, TrendingDown } from 'lucide-react';
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
-import { withTerritory, toActionCards, type ApiCluster } from '@/lib/brand-data';
+import {
+  achievableSummary,
+  evidenceNote,
+  formatHorizon,
+  roadmapHeadline,
+  withTerritory,
+  type ApiAction,
+  type ApiRoadmap,
+} from '@/lib/brand-data';
+import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { ViewState } from '@/components/ViewState';
-import { Badge, Card, EmptyState, Grid, PageHeader, Row } from '@/design-system';
+import { Badge, Card, EmptyState, Grid, PageHeader, PanelHeader, Stack } from '@/design-system';
 import type { NavActions } from '@/lib/types';
 
 /**
- * Action roadmap — what to fix first, derived from real Brand impact clusters.
+ * Action roadmap — what to fix, what it is worth, and what you are aiming at.
  *
- * This view previously rendered `PS_ROADMAP`: hand-written recommendations for a fictional bank
- * with invented point-uplifts, effort estimates and confidence percentages, above a header
- * claiming they were "generated weekly by Gemini Pro". None of that was true, and a header
- * asserting an LLM produced a fabricated list is worse than the fabrication alone.
+ * WHAT THIS REPLACES, TWICE OVER. It first rendered `PS_ROADMAP`: hand-written recommendations for
+ * a fictional bank with invented point-uplifts and effort estimates, under a header claiming an
+ * LLM produced them. That was deleted. What replaced it ranked real clusters by damage — honest,
+ * but it only restated the complaint: *"that just goes back to telling me what the feedback is.
+ * There's nothing there that is an actual plan on how to fix these things."*
  *
- * Every number here now comes from the API's damage ranking. Effort, confidence and projected
- * uplift are GONE rather than reimplemented: the product has no model of what a fix costs, and
- * with a 90-day half-life on the index there is no honest point prediction to make. Share of
- * current damage is a real quantity; "+3.4 pts" was not.
+ * A plan needs a destination and a price. This page now carries both:
+ *
+ *   - a TARGET, with its provenance stated, derived from the tracked competitor set or set by the
+ *     owner — never an imported "industry standard", because the Brand Perception Index is defined
+ *     by this codebase and no external body publishes a benchmark for it;
+ *   - a CEILING per action — what resolving it is worth, computed by re-running the composite with
+ *     that subject's negativity removed;
+ *   - whether the listed work is ENOUGH to close the gap, which is the question a quarter gets
+ *     planned around.
+ *
+ * What it still does NOT claim: effort, confidence, or a date by which a fix will land. The
+ * product has no model for any of them, and the fabricated versions are exactly what was deleted.
  */
 export function RoadmapView({ nav }: { nav: NavActions }) {
   const { brandId, error: brandError, territory } = useBrand();
-  const { data, loading, error } = useApi<ApiCluster[]>(
-    brandId ? withTerritory(`/brands/${brandId}/brand-impact`, territory) : null,
+  const { role } = useAuth();
+  const { data, loading, error } = useApi<ApiRoadmap>(
+    brandId ? withTerritory(`/brands/${brandId}/roadmap`, territory) : null,
   );
-  const actions = data ? toActionCards(data) : [];
 
-  const tone = (p: string): 'critical' | 'warn' | 'info' =>
-    p === 'Critical' ? 'critical' : p === 'High' ? 'warn' : 'info';
+  const canSetTarget = role === 'admin' || role === 'owner';
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const saveTarget = async (value: number | null): Promise<void> => {
+    if (!brandId) return;
+    setSaveError('');
+    try {
+      await apiFetch(`/brands/${brandId}/target`, {
+        method: 'PATCH',
+        body: JSON.stringify({ targetScore: value }),
+      });
+      setEditing(false);
+      /* The page does not refetch itself — `useApi` has no invalidation hook — so say the save
+         landed rather than leaving the old number on screen looking like a failure. */
+      setSaved(true);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Could not save the target');
+    }
+  };
 
   return (
     <>
       <PageHeader
         eyebrow="Action roadmap"
-        title="What to fix first"
-        subtitle="Ordered by the damage each subject is doing now — volume × negative sentiment × recency. Open one to read the signals behind it."
+        title="What to fix, and what it is worth"
+        subtitle="Ranked by the damage each subject is doing now. Every figure is measured or computed from your own signals — there is no imported industry benchmark for this index, because none exists."
       />
 
       <ViewState loading={loading} error={error ?? brandError} empty={null}>
-        {actions.length === 0 ? (
-          <Card>
-            <EmptyState
-              icon={<ListChecks size={22} strokeWidth={1.8} />}
-              title="No actions to rank yet"
-              body="Actions are derived from the subjects damaging your score. Nothing has scored negatively enough to rank — which is also what you see before any signals have been scored."
-            />
-          </Card>
-        ) : (
-          <Grid min="360px">
-            {actions.map((a, i) => (
-              <Card
-                key={a.topic}
-                accent={tone(a.priority)}
-                stagger={i * 40}
-                onClick={a.dimensionKey ? () => nav.openDimension(a.dimensionKey!) : undefined}
-              >
-                <Row gap="var(--s-2)">
-                  <Badge tone={tone(a.priority)}>{a.priority}</Badge>
-                  {a.dimensionLabel && <Badge tone="neutral">{a.dimensionLabel}</Badge>}
-                  <span style={{ flex: 1 }} />
-                  <span className="ds-eyebrow">#{i + 1}</span>
-                </Row>
+        {!data ? null : (
+          <Stack gap="var(--s-5)">
+            <Card>
+              <p className="chg-headline">{roadmapHeadline(data)}</p>
 
-                <h3
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 'var(--fs-h3)',
-                    fontWeight: 'var(--fw-semibold)',
-                    color: 'var(--text-heading)',
-                    margin: 'var(--s-3) 0 var(--s-2)',
-                  }}
-                >
-                  {a.title}
-                </h3>
+              {achievableSummary(data) && (
+                <p className="rm-sub">{achievableSummary(data)}</p>
+              )}
 
-                <p
-                  style={{
-                    color: 'var(--text-body)',
-                    fontSize: 'var(--fs-sm)',
-                    lineHeight: 'var(--lh-relaxed)',
-                    margin: 0,
-                  }}
-                >
-                  {a.volume} signal{a.volume === 1 ? '' : 's'} mention this, and it accounts for{' '}
-                  <strong>{a.impactShare}%</strong> of the damage currently weighing on your index.
+              {/* The finding worth interrupting for. Decay does NOT move this index — it is a
+                  weighted mean, invariant under a uniform rescaling of its weights — so "wait and
+                  it recovers" is arithmetically false. When the signals ageing out are the
+                  positive ones, doing nothing actively makes it worse. */}
+              {data.projection?.decliningWithoutAction && (
+                <p className="rm-warn">
+                  <TrendingDown size={15} strokeWidth={1.9} aria-hidden="true" /> On current
+                  signals this declines without action — the older, more positive coverage is
+                  ageing out of the scoring window.
                 </p>
+              )}
 
-                <div style={{ marginTop: 'var(--s-4)' }}>
-                <Row gap="var(--s-4)">
-                  <div>
-                    <div className="ds-eyebrow">Share of damage</div>
-                    <div
-                      style={{
-                        fontFamily: 'var(--font-display)',
-                        fontSize: 'var(--fs-stat)',
-                        fontWeight: 'var(--fw-semibold)',
-                        color: 'var(--status-critical)',
-                        fontVariantNumeric: 'tabular-nums',
+              {data.projection?.daysToTarget !== null && data.projection && (
+                <p className="rm-sub">
+                  Reaches the target in {formatHorizon(data.projection.daysToTarget)} assuming{' '}
+                  {data.projection.assumption} — a bound, not a forecast.
+                </p>
+              )}
+
+              <div className="rm-benchmarks">
+                {data.benchmarks.competitorCount > 0 && (
+                  <span>
+                    Competitors: median{' '}
+                    <strong>{data.benchmarks.competitorMedian?.toFixed(1)}</strong>, best{' '}
+                    <strong>{data.benchmarks.competitorBest?.toFixed(1)}</strong> (
+                    {data.benchmarks.competitorCount} tracked)
+                  </span>
+                )}
+                {data.benchmarks.internalBest && (
+                  <span>
+                    Your strongest scope: <strong>{data.benchmarks.internalBest.label}</strong> at{' '}
+                    {data.benchmarks.internalBest.value.toFixed(1)}
+                  </span>
+                )}
+                {data.benchmarks.competitorCount === 0 && !data.benchmarks.internalBest && (
+                  <span>
+                    No competitor tracked and no second territory — add either to get a measured
+                    benchmark rather than a guessed one.
+                  </span>
+                )}
+              </div>
+
+              {canSetTarget && (
+                <div className="rm-target">
+                  {editing ? (
+                    <>
+                      <label htmlFor="targetScore" className="ds-eyebrow">
+                        Target index
+                      </label>
+                      <input
+                        id="targetScore"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.1}
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        aria-label="Target index"
+                      />
+                      <button
+                        type="button"
+                        className="ds-chip"
+                        onClick={() => void saveTarget(draft === '' ? null : Number(draft))}
+                      >
+                        Save
+                      </button>
+                      <button type="button" className="ds-chip" onClick={() => setEditing(false)}>
+                        Cancel
+                      </button>
+                      {/* Clearing returns the brand to a competitor-derived default. Without a way
+                          back, a target typed in error is permanent. */}
+                      <button type="button" className="ds-chip" onClick={() => void saveTarget(null)}>
+                        Clear
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="ds-chip"
+                      onClick={() => {
+                        setDraft(data.target ? String(data.target.value) : '');
+                        setSaved(false);
+                        setEditing(true);
                       }}
                     >
-                      {a.impactShare}%
-                    </div>
-                  </div>
-                  <div>
-                    <div className="ds-eyebrow">Signals</div>
-                    <div
-                      style={{
-                        fontFamily: 'var(--font-display)',
-                        fontSize: 'var(--fs-stat)',
-                        fontWeight: 'var(--fw-semibold)',
-                        color: 'var(--text-heading)',
-                        fontVariantNumeric: 'tabular-nums',
-                      }}
-                    >
-                      {a.volume}
-                    </div>
-                  </div>
-                </Row>
+                      <Target size={14} strokeWidth={1.9} aria-hidden="true" />{' '}
+                      {data.target?.source === 'owner' ? 'Change target' : 'Set a target'}
+                    </button>
+                  )}
+                  {saved && <span className="rm-saved">Saved — reload to see it applied.</span>}
+                  {saveError && <span className="rm-error">{saveError}</span>}
                 </div>
+              )}
+            </Card>
+
+            {data.actions.length === 0 ? (
+              <Card>
+                <EmptyState
+                  icon={<ListChecks size={22} strokeWidth={1.8} />}
+                  title="Nothing is damaging your score"
+                  body="Actions are derived from the subjects doing measurable damage. Nothing has scored negatively enough to rank — which is also what you see before any signals have been scored."
+                />
               </Card>
-            ))}
-          </Grid>
+            ) : (
+              <Grid min="380px">
+                {data.actions.map((a, i) => (
+                  <ActionCard key={a.topic} action={a} rank={i + 1} onOpen={() => nav.openTopic(a.topic)} />
+                ))}
+              </Grid>
+            )}
+          </Stack>
         )}
       </ViewState>
     </>
+  );
+}
+
+function ActionCard({
+  action,
+  rank,
+  onOpen,
+}: {
+  action: ApiAction;
+  rank: number;
+  onOpen: () => void;
+}) {
+  const worth = action.ifResolved?.delta ?? 0;
+
+  return (
+    <Card accent={rank === 1 ? 'critical' : rank === 2 ? 'warn' : 'info'} onClick={onOpen}>
+      <PanelHeader
+        title={action.topic}
+        subtitle={`${action.volume} signal${action.volume === 1 ? '' : 's'} · ${action.damageShare.toFixed(0)}% of current damage`}
+        actions={<span className="ds-eyebrow">#{rank}</span>}
+      />
+
+      {worth > 0 ? (
+        <p className="rm-worth">
+          Resolving this moves the index from{' '}
+          <strong>{action.ifResolved!.from.toFixed(1)}</strong> to{' '}
+          <strong>{action.ifResolved!.to.toFixed(1)}</strong>
+          <span className="rm-delta"> +{worth.toFixed(1)}</span>
+          {/* THE CEILING, NOT A FORECAST. The `+3.4 pts` this replaces was believed precisely
+              because it looked like a prediction, so the qualifier is not optional copy. */}
+          <span className="rm-caveat">
+            {' '}
+            — the most it can be worth, if nobody were negative about it any more. It assumes
+            nothing about how much is achievable, or when.
+          </span>
+        </p>
+      ) : (
+        <p className="rm-worth rm-caveat">
+          No measurable index gain — this subject carries volume but little negativity.
+        </p>
+      )}
+
+      <p className="rm-evidence">
+        Based on {action.ifResolved?.affectedSignals ?? 0} negative signal
+        {(action.ifResolved?.affectedSignals ?? 0) === 1 ? '' : 's'}. Open to read them.
+      </p>
+
+      {/* THE PART THE OWNER ASKED FOR: not what the feedback is, but what to do about it.
+          Matched from the curated playbook rather than generated — a model asked for advice
+          produces a fluent, unverifiable case study, and this codebase has paid for that kind of
+          confident invention twice already. */}
+      {action.play && (
+        <div className="rm-play">
+          <div className="rm-play-head">
+            <strong>{action.play.title}</strong>
+            <Badge tone="neutral">{action.play.owner}</Badge>
+            <Badge tone={action.play.horizon === 'now' ? 'warn' : 'info'}>
+              {action.play.horizon}
+            </Badge>
+          </div>
+          <p className="rm-play-summary">{action.play.summary}</p>
+          <ol className="rm-steps">
+            {action.play.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <p className="rm-measure">
+            <strong>How you will know:</strong> {action.play.measure}
+          </p>
+          {/* Stated, never implied. A play is not worse for being unevidenced — it is worse for
+              pretending otherwise, and a client who catches one invented citation stops believing
+              every number beside it. */}
+          <p className="rm-caveat">{evidenceNote(action.play)}</p>
+          {action.play.evidence.map((c) => (
+            <a key={c.url} className="rm-cite" href={c.url} target="_blank" rel="noreferrer noopener">
+              {c.title} — {c.source} ↗
+            </a>
+          ))}
+        </div>
+      )}
+
+      <div className="rm-dims">
+        {action.dimensions.slice(0, 3).map((d) => (
+          <Badge key={d} tone="neutral">
+            {d}
+          </Badge>
+        ))}
+      </div>
+    </Card>
   );
 }

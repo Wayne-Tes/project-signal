@@ -4872,6 +4872,7 @@ __metadata:
     "@project-signal/help-content": "workspace:*"
     "@project-signal/llm": "workspace:*"
     "@project-signal/messaging": "workspace:*"
+    "@project-signal/playbook": "workspace:*"
     "@project-signal/scoring": "workspace:*"
     "@project-signal/shared-types": "workspace:*"
     "@project-signal/source-adapters": "workspace:*"
@@ -4962,6 +4963,17 @@ __metadata:
   dependencies:
     "@aws-sdk/client-sqs": "npm:^3.1105.0"
     "@project-signal/config": "workspace:*"
+    "@project-signal/shared-types": "workspace:*"
+    esbuild: "npm:^0.21.5"
+    typescript: "npm:^5.5.0"
+    vitest: "npm:^2.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@project-signal/playbook@workspace:*, @project-signal/playbook@workspace:libs/playbook":
+  version: 0.0.0-use.local
+  resolution: "@project-signal/playbook@workspace:libs/playbook"
+  dependencies:
     "@project-signal/shared-types": "workspace:*"
     esbuild: "npm:^0.21.5"
     typescript: "npm:^5.5.0"

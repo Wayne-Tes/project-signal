@@ -34,3 +34,22 @@ export {
   type SourceChange,
   type TopicChange,
 } from './change.js';
+
+export {
+  counterfactual,
+  gapTo,
+  median,
+  project,
+  PROJECTION_HORIZON_DAYS,
+  resolveTarget,
+  evaluateOutcome,
+  OUTCOME_MIN_DAYS,
+  OUTCOME_MOVE_THRESHOLD,
+  type Benchmarks,
+  type Counterfactual,
+  type Projection,
+  type Outcome,
+  type OutcomeVerdict,
+  type Target,
+  type TargetSource,
+} from './target.js';

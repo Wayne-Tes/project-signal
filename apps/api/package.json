@@ -24,6 +24,7 @@
     "@project-signal/help-content": "workspace:*",
     "@project-signal/llm": "workspace:*",
     "@project-signal/messaging": "workspace:*",
+    "@project-signal/playbook": "workspace:*",
     "@project-signal/scoring": "workspace:*",
     "@project-signal/shared-types": "workspace:*",
     "@project-signal/source-adapters": "workspace:*",

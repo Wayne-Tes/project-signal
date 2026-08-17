@@ -1,0 +1,1 @@
+ALTER TABLE "brand_entities" ADD COLUMN "target_score" real;
