@@ -75,6 +75,39 @@ terraform -chdir=infra-aws/stack apply \
 bash infra-aws/scripts/10-preflight.sh
 ```
 
+Step 5's command is the **first** apply only, from when the stack stopped at the budget. Once
+Phase 4 exists, `image_tag` is a required variable with no default, and an apply without it fails
+rather than silently redeploying whatever was last written. Use the redeploy sequence below.
+
+## Redeploying a code change
+
+```bash
+# 1. Build and push all four images at the current commit's sha. Refuses a dirty tree, refuses a
+#    tag that already exists (ECR is IMMUTABLE), and reads the three NEXT_PUBLIC_* values out of
+#    Terraform rather than trusting anyone to retype them.
+AWS_PROFILE=psignal-dev bash infra-aws/scripts/20-build-push.sh
+
+# 2. Plan, and READ IT LINE BY LINE. Terraform owns the image, so the tag is what moves.
+terraform -chdir=infra-aws/stack plan \
+  -var-file=../envs/dev.tfvars -var-file=../envs/dev.stack.tfvars \
+  -var="image_tag=$(git rev-parse --short HEAD)"
+
+# 3. Apply. Never -auto-approve, never a plan you have not read.
+terraform -chdir=infra-aws/stack apply \
+  -var-file=../envs/dev.tfvars -var-file=../envs/dev.stack.tfvars \
+  -var="image_tag=$(git rev-parse --short HEAD)"
+```
+
+**Build the web image against the stack you are deploying to.** `NEXT_PUBLIC_*` values are
+inlined into the client bundle by `next build`, so they are fixed at build time, not at task
+start. An image built against the wrong Cognito pool or API origin builds, pushes, deploys and
+runs healthy — and nobody can sign in. `20-build-push.sh` takes them from `terraform output` for
+exactly that reason; do not pass them by hand.
+
+**The image must be `linux/amd64`.** Fargate runs amd64. A build that defaults to arm64 pushes
+cleanly and then fails at task start with `exec format error`, which reads as a broken image
+rather than a wrong architecture. The script passes `--platform linux/amd64` explicitly.
+
 Teardown, in reverse, dry run first:
 
 ```bash
