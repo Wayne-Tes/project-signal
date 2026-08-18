@@ -1,12 +1,52 @@
 # Handover — read this first
 
-**Written:** 2026-08-07
+**Written:** 2026-08-07. **Substantially updated 2026-08-18 — see §0a first.**
 **Audience:** the next agent, in a fresh repository, with no memory of how any of this came to be.
 **Status:** authoritative on current state. Where this disagrees with any other document, this wins.
 
-You are picking up a system that is **code-complete on AWS libraries, verified end to end
-locally, and not yet deployed anywhere.** This document tells you what exists, what is proven,
-what is assumed, and what to do next. Read it in full before writing code.
+> ## 0a. What changed since this was written
+>
+> **The premise of the sentence below is out of date. The system IS deployed**, in
+> `290304998906` / `eu-west-2`, and has been since 2026-08-08. Everything downstream of that in
+> §5 ("NOT proven") and §6 ("the remaining plan") should be read against this list rather than
+> taken at face value.
+>
+> ### Deployed and verified in a browser
+>
+> | | |
+> | --- | --- |
+> | **Readable evidence** | `signals.content/title/author/rating`; the drill-down shows the actual review, with the source link kept alongside |
+> | **Coverage funnel** | `/stats` reports collected → scored → classified → rolled up. It immediately exposed that **238 of 337 signals were scored into no dimension** and therefore reached no index, cluster or drill-down |
+> | **One signal population** | `attributedTo` in `libs/db` — the index and its own evidence used to be computed from different rows (KNOWN-GAPS #29) |
+> | **What's changed** | `/whats-new` and its view: new, rising, falling, improving, worsening, by source |
+> | **Territory** | On the FEED, copied onto signals; per-territory rollups; a picker in the shell |
+> | **Raw payload** | `sourceText`/`sourceTitle` at `schemaVersion: 2`, plus S3 versioning (KNOWN-GAPS #28 closed) |
+> | **Action roadmap** | Targets with stated provenance, counterfactual ceilings, outcome tracking, a curated playbook, LLM rewording |
+> | **CRM plumbing** | `crm_connections`, `accounts`, `signals.voice`; connector deliberately not written |
+>
+> ### The three things most likely to mislead you
+>
+> 1. **Decay does not move the Brand Perception Index.** It is a weighted mean, and uniform
+>    exponential decay rescales every weight by the same constant. What moves it is the lookback
+>    cut-off. A test pins this; do not "fix" the projection back to a decay curve.
+> 2. **`attributedTo` defaults to `voice = 'direct'`, and that is load-bearing.** The CRM channel
+>    is a work queue and is negative by construction — blending it measured 85.0 → 37.0 on test
+>    data. Only `/voice-of-customer` passes `'reported'`.
+> 3. **Any read of `dimension_scores` must filter `territory`.** It holds per-territory rows PLUS
+>    the `'all'` aggregate, so an unfiltered read double-counts silently.
+>
+> ### Blocked on the owner, not on engineering
+>
+> - **YouTube Data API key** — 7 channel ids resolved and waiting.
+> - **A TES-owned paid Apify plan** — 84 of the 92 channels in `Tes Social Channels.md` need one.
+>   Collection currently runs on the former contractor's personal free tier.
+> - **CRM: which one, a sandbox, and the DPO conversation.** See `OWNER-ACTIONS.md` §5d. The DPO
+>   item is the long pole and is calendar time rather than engineering time.
+> - **Feed territories** — 336 of 337 signals sit in `unknown` until someone classifies the feeds
+>   (`OWNER-ACTIONS.md` §5c).
+
+This document tells you what exists, what is proven, what is assumed, and what to do next. Read
+it in full before writing code.
 
 Then read, in order: [`../DEVRULES.md`](../DEVRULES.md),
 [`ARCHITECTURE.md`](ARCHITECTURE.md), [`KNOWN-GAPS.md`](KNOWN-GAPS.md),
