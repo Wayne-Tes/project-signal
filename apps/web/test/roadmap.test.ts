@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   achievableSummary,
+  outcomeSummary,
+  outcomeTone,
+  type ApiTrackedAction,
   evidenceNote,
   formatHorizon,
   roadmapHeadline,
@@ -151,5 +154,83 @@ describe('evidenceNote', () => {
 
   it('says nothing when there is no play', () => {
     expect(evidenceNote(null)).toBeNull();
+  });
+});
+
+/**
+ * What actually happened after an action was accepted.
+ *
+ * `unmeasurable` is reported as its own thing rather than folded into "no change". An action
+ * accepted three days ago genuinely has no outcome, and saying "unchanged" would be a claim we
+ * cannot support — the difference between an experiment log and a comfort blanket.
+ */
+describe('outcomeSummary', () => {
+  const tracked = (over: Partial<ApiTrackedAction> = {}): ApiTrackedAction => ({
+    id: 'a1',
+    topic: 'pricing',
+    territory: 'all',
+    status: 'accepted',
+    note: null,
+    baselineAt: '2026-06-01T00:00:00.000Z',
+    baselineIndex: 50,
+    ceilingDelta: 10,
+    outcome: {
+      verdict: 'improved',
+      indexDelta: 6,
+      damageDelta: -1,
+      capturedPercent: 60,
+      elapsedDays: 60,
+    },
+    ...over,
+  });
+
+  it('reports the movement and how much of the claim it captured', () => {
+    const s = outcomeSummary(tracked());
+    expect(s).toContain('Improved over 60d');
+    expect(s).toContain('Index up 6.0');
+    /* The number that says whether the ceiling predicts anything at all. */
+    expect(s).toContain('60% of the 10.0 claimed');
+  });
+
+  it('says too soon rather than pretending nothing changed', () => {
+    const s = outcomeSummary(
+      tracked({ outcome: { verdict: 'unmeasurable', indexDelta: 4, damageDelta: null, capturedPercent: null, elapsedDays: 3 } }),
+    );
+    expect(s).toContain('too soon to tell');
+    expect(s).not.toContain('No change');
+  });
+
+  it('reports a decline plainly rather than softening it', () => {
+    const s = outcomeSummary(
+      tracked({ outcome: { verdict: 'worsened', indexDelta: -4, damageDelta: 2, capturedPercent: -40, elapsedDays: 45 } }),
+    );
+    expect(s).toContain('Worsened');
+    expect(s).toContain('Index down 4.0');
+  });
+
+  it('omits the capture when no ceiling was ever claimed', () => {
+    const s = outcomeSummary(
+      tracked({ ceilingDelta: null, outcome: { verdict: 'improved', indexDelta: 3, damageDelta: null, capturedPercent: null, elapsedDays: 30 } }),
+    );
+    expect(s).not.toContain('claimed');
+  });
+});
+
+describe('outcomeTone', () => {
+  it('colours only a real result', () => {
+    expect(outcomeTone('improved')).toBe('var(--mint)');
+    expect(outcomeTone('worsened')).toBe('var(--coral)');
+  });
+
+  /* Unchanged and unmeasurable are both "nothing to celebrate or panic about". Colouring them
+     differently would imply a judgement neither supports. */
+  it('treats unchanged and unmeasurable the same, because neither is a judgement', () => {
+    expect(outcomeTone('unchanged')).toBe(outcomeTone('unmeasurable'));
+  });
+
+  it('only ever returns design tokens', () => {
+    for (const v of ['improved', 'worsened', 'unchanged', 'unmeasurable'] as const) {
+      expect(outcomeTone(v)).toMatch(/^var\(--[a-z0-9-]+\)$/);
+    }
   });
 });

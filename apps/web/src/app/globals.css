@@ -633,3 +633,9 @@ svg.sparkline { display: block; overflow: visible; }
   display: flex; align-items: flex-start; gap: 7px;
   color: var(--t3); font-size: 12.5px; line-height: 1.6; margin: 10px 0 0;
 }
+
+.rm-commit {
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+}
+.rm-outcome { font-size: 13px; font-weight: 500; }
