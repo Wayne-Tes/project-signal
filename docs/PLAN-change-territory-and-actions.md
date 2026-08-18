@@ -1,6 +1,23 @@
 # Making change visible, filtering by territory, and telling people what to do
 
-**Written:** 2026-08-17. **Status:** plan, not started. Nothing below has been built.
+**Written:** 2026-08-17. **Status:** §2, §4, §5, §6, §7 and §3 are BUILT, deployed and verified.
+§8 (CRM) has its plumbing built and is blocked only on the owner items in `OWNER-ACTIONS.md` §5d.
+
+| Workstream | State |
+| --- | --- |
+| §5 Rollup population + coverage funnel | ✅ deployed |
+| §6 `01` spines | ✅ resolved — did not reproduce; e2e spec added |
+| §2 What's new / trend | ✅ deployed, browser-verified |
+| §4 Territory | ✅ deployed, browser-verified |
+| §7 Raw payload (KNOWN-GAPS #28) | ✅ deployed, verified in S3 |
+| §3 Action roadmap | ✅ deployed — targets, outcome tracking, playbook, LLM adaptation |
+| §8 CRM | 🟠 plumbing built; connector blocked on the owner |
+
+**One correction to this plan, found while building it.** §3.2 proposed a decay-based
+time-to-target. That is arithmetically impossible: `scoreDimension` is a weighted mean, and
+uniform exponential decay rescales every weight by the same constant, leaving the mean unchanged.
+What actually moves the score is the lookback cut-off. The projection was rebuilt on that, and the
+honest finding is more useful than the original: **the index does not heal by itself.**
 
 This covers the six items listed as "planned, not started" on 2026-08-17, plus two things the
 owner asked to be planned alongside them the same day: **territory filtering** (§4) and a

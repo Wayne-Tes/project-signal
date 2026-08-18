@@ -157,6 +157,9 @@ All ids are `uuid` with `defaultRandom()`. All timestamps are `timestamptz`.
 
 ### Tables
 
+> **The three tables added for the roadmap and CRM work are documented at the end of this list**:
+> `tracked_actions`, `crm_connections` and `accounts`.
+
 **`tenants`** — multi-tenant root.
 `name`, `slug` (unique), timestamps.
 
@@ -184,6 +187,16 @@ under `schemaVersion: 2`: `sourceText` / `sourceTitle` are what the source retur
 a future normalisation change can be re-derived from what was published rather than from what we
 last decided it said. The bucket is **versioned** (90-day noncurrent expiry), because the object
 key is derived from the external id and re-collection therefore overwrites. See KNOWN-GAPS #28.
+
+`voice` is `direct` (the customer wrote the words) or `reported` (an employee wrote down what a
+customer said). **It is a correctness control, not a label**, and the default lives inside
+`attributedTo` rather than as a filter each call site adds — see [`libs/db`](#libsdb). Measured on
+real data: four positive public signals and six negative CRM notes score **85.0 direct, 5.0
+reported, 37.0 blended**. Averaging the channels would drop the index 48 points for reasons
+unrelated to brand perception, and 37 looks entirely plausible.
+
+`account_id` is the customer a CRM interaction is about, and null for every public signal.
+`ON DELETE SET NULL`, because removing an account must not delete the evidence of what they said.
 
 `territory` is **copied from the feed at insert**, not joined at read time. `source_config_id` is
 nullable and `ON DELETE SET NULL`, so a join would erase the territory of every signal a feed ever
@@ -255,6 +268,42 @@ The JSONB `config` shape varies by source (documented in `sourceConfigs.ts`):
 | `app_store`      | `{ appId, country? }`        |
 | `play_store`     | `{ appId }`                  |
 | `rss`            | `{ feedUrl }`                |
+
+**`tracked_actions`** — an action somebody committed to, and what happened afterwards.
+`tenant_id`, `brand_entity_id`, `topic`, `territory`, `status`, `baseline_at`, `baseline_index`,
+`baseline_damage`, `baseline_volume`, `ceiling_delta`, `accepted_by`, `note`, `completed_at`.
+
+What turns the roadmap from a list into an experiment log. Two rules make it worth keeping:
+
+- **The `baseline_*` columns are stamped once and never updated.** A baseline cannot be
+  retrofitted — a row created after the work began has to guess where the index stood, and a
+  guessed baseline makes every later verdict a guess too. This is why outcome tracking was built
+  *before* the playbook rather than after it.
+- **`ceiling_delta` is stored rather than recomputed.** It is a claim made at a moment in time, and
+  the point is to check it later. Recomputing would rewrite the prediction to match the outcome.
+
+There is deliberately **no `verdict` column**. The outcome is computed on read from today's
+numbers, because a stale verdict — "improved", on a subject that has since collapsed — is worse
+than none. Same reasoning as the portfolio index.
+
+**`crm_connections`** — one tenant's link to their CRM.
+`tenant_id`, `provider`, `instance_url`, `secret_arn`, `scopes`, `connected_by`, `status`,
+`last_synced_at`, `last_attempted_at`, `last_error`, **unique `(tenant_id, provider)`**.
+
+**The token is not in this table, or in any table.** `secret_arn` points at Secrets Manager;
+`source_configs.config` — the obvious home — is plain JSONB, readable by anyone with database
+access and trivially dumped into a log, and unlike an API key an OAuth refresh token grants
+standing access to a customer's commercial records. `last_attempted_at` / `last_error` mirror
+`source_configs` so an expired grant shows *why* on the row somebody can fix.
+
+**`accounts`** — the customer a CRM interaction is about.
+`tenant_id`, `provider`, `external_id`, `name`, `domain`, `segment`, `arr_band`, `owner_name`,
+`territory`, **unique `(tenant_id, provider, external_id)`**.
+
+A new axis, orthogonal to brand, product and territory. Reusing `brand_entities` was rejected: a
+customer is not a brand, and hundreds in that tree would pollute the brand switcher, the portfolio
+rollup and competitor comparison at once. `arr_band` is a **band and never a figure** — enough to
+rank a theme by commercial exposure, not enough to constitute revenue data.
 
 **Credentials are never stored in `source_configs`.** System-level API keys
 (`APIFY_API_KEY`, `YOUTUBE_API_KEY`) come from env/Secret Manager and are merged in at
@@ -357,7 +406,15 @@ arriving through a different door.
 
 `tenantId` is a **required parameter**, not something the caller `and`s on separately, and the
 EXISTS subquery filters it too. There is no row-level security in this product, so a predicate
-that is only safe when the call site remembers something is not safe. Its rendered SQL is covered
+that is only safe when the call site remembers something is not safe.
+
+Its third parameter, `voice`, **defaults to `direct`**, and that default is the same lesson applied
+again. A CRM note is written *because* something needs attention, so that channel is a work queue
+rather than a sample and is negative by construction; averaging it into the index would move the
+number for reasons unrelated to brand perception while still looking plausible. Rather than adding
+a filter every read path must remember — which is exactly how six of them drifted from the rollup
+in #29 — the safe answer is the default, and including reported voice has to be an explicit act.
+Only `/brands/:id/voice-of-customer` passes `'reported'`. Its rendered SQL is covered
 in `apps/api/test/routes/attributed-to.test.ts` against drizzle's real dialect — a mocked database
 never renders SQL, which is how two `Date`-serialisation defects reached production.
 
@@ -507,6 +564,48 @@ Three things in it are easy to get subtly wrong, and each has a comment saying w
   fill the page.
 
 Absent comparisons are `null`, never `0`, throughout — the distinction that `▲ +0` lost.
+
+`src/target.ts` adds **targets, what an action is worth, and whether it worked**:
+
+```ts
+resolveTarget(ownerTarget, benchmarks);   // owner > competitor median > internal best > null
+counterfactual(items, topic, asOf);       // the CEILING: composite with that subject neutralised
+project(items, asOf, target);             // where it goes with no new signals
+evaluateOutcome({ baseline…, current… }); // improved | unchanged | worsened | unmeasurable
+```
+
+Three things here are counter-intuitive and each is load-bearing:
+
+- **Decay does NOT move the score.** The obvious model — old complaints fade, the index recovers —
+  is arithmetically false. `scoreDimension` is a weighted mean, and advancing `asOf` multiplies
+  every weight by the same constant `2^(-T/90)`; a weighted mean is invariant under a uniform
+  rescaling. What actually moves it is the **lookback cut-off**, as the oldest signals leave the
+  window entirely. A test pins the invariance so the comfortable assumption cannot return.
+- **The counterfactual neutralises rather than removes.** Dropping a subject's items would also
+  drop its positive mentions and change every count, overstating the gain — wrong in the direction
+  that flatters us.
+- **`unmeasurable` is a verdict, not an error.** "We measured and nothing moved" and "we cannot
+  tell yet" are different claims.
+
+`src/exposure.ts` ranks the CRM channel by **distinct accounts × commercial band** rather than by
+volume, and `corroborate` finds subjects raised both publicly and privately — matched exactly,
+because a false corroboration is far more damaging than a missed one.
+
+### `libs/playbook`
+
+Curated interventions, matched to evidence rather than generated from it. A model asked "what did
+others do about this" answers fluently with a company, a percentage and a date, none of it
+checkable — and a play arriving through a pull request means the review that admits it is the
+review that checks its citation.
+
+Every play ships `evidenceStatus: 'none'` and says so on screen. A test enforces that no play can
+claim external evidence without a URL and a stated relevance. The stronger evidence is the kind
+this product earns: once `tracked_actions` shows a play used several times with a measured capture
+rate, that evidence is ours and specific to this brand.
+
+Plays rank by **specificity**, or the near-universal ones win every match. `playsFor` may return
+nothing — "no play applies" is a real answer, and a generic fallback is how a roadmap becomes
+wallpaper.
 
 Two decisions worth knowing before you change them. A dimension with no items scores `null`,
 not 0 — absence of data is not the same as uniformly negative sentiment. And `compositeScore`
@@ -669,6 +768,15 @@ difference.
 > brand-scoped read must use `attributedTo` rather than `eq(signals.brandEntityId, …)`.**
 | `GET /brands/:id/strengths`               | any          | bare array           | The mirror of `/brand-impact`, ranked by `volume × positivity × recency`. `limit` defaults to 3.                        |
 | `GET /brands/:id/topics`                  | any          | bare array           | **Every** cluster, optionally `?dimension=`, ranked by `volume × recency` — positive, negative and NEUTRAL alike. `limit` defaults to 12. Exists because `/brand-impact` and `/strengths` are both *signed* rankings that exclude the middle, so neither can answer "what is this dimension made of". See the note below. |
+| `GET /brands/:id/roadmap`                 | any          | object               | **What to fix, what it is worth, and what you are aiming at.** Per action: damage share, the matched play from `libs/playbook`, and `ifResolved` — a computed counterfactual re-running the composite with that subject's negativity neutralised. Plus the target and its provenance, the gap, the measured benchmarks, and a projection. Every figure is measured or computed; **no external benchmark is imported, because none exists for this index**. |
+| `PATCH /brands/:id/target`                | admin, owner | object               | Set or clear the brand's target index. `null` clears it back to a competitor-derived default — there has to be a way back from a target set in error. |
+| `POST /brands/:id/roadmap/actions`        | any          | object               | Commit to an action; stamps the immutable baseline. |
+| `GET /brands/:id/roadmap/actions`         | any          | bare array           | The log, with each outcome computed on read. |
+| `POST /brands/:id/roadmap/adapt`          | any          | object               | Rewrites a matched play in the language of the evidence. On demand, never on page load. `adapted: false` when the model was unusable and the curated wording is being shown. |
+| `GET /brands/:id/voice-of-customer`       | any          | object               | What Sales and CS hear directly. Ranked by **distinct accounts × commercial band**, never by volume, plus the subjects raised both publicly and privately. `connected: false` distinguishes "no CRM" from "connected and quiet". |
+| `GET /crm/connections`                    | admin, owner | bare array           | Linked CRMs and their health. Never returns a token or a secret ARN. |
+| `POST /crm/connections`                   | admin, owner | object               | Stores OAuth tokens in Secrets Manager and records the link. Refuses Salesforce without an `instanceUrl`. |
+| `DELETE /crm/connections/:id`             | admin, owner | 204                  | Disconnect. Schedules the secret for deletion with a recovery window rather than forcing it. |
 | `GET /brands/:id/whats-new`               | any          | object               | **What changed** over `?days=` (default 7, max 90) against the equal-length period before it: `newTopics`, `risingTopics`/`fallingTopics` (volume), `improvingTopics`/`worseningTopics` (sentiment), `bySource`, and the period sentiment delta. `?basis=ingested\|published` — `ingested` is what *we* learned (the honest basis for "new since the last scans"), `published` is what the world said (the right basis for trend); the response echoes the choice. `?source=` narrows it. Computed on read — see `libs/scoring/src/change.ts` for why there is no snapshot table and what would justify one. |
 | `GET /brands/:id/stats`                   | any          | object               | Dashboard stat row and the **coverage funnel**: this/previous week signal counts, `totalSignals` → `scoredSignals` → `classifiedSignals` → `lastRollupDate`, plus active/configured sources. `classifiedSignals` counts signals scored **and** tagged to ≥1 dimension; anything short of that reaches no index, no cluster and no drill-down. `classifiedSignals: 0` beside a non-zero `scoredSignals`, or a null `lastRollupDate`, is the signature of a brand silently falling out of the rollup. |
 | `POST /assistant/messages`                | any          | object               | Ask the assistant. Read-only over BRAND data; it writes only the conversation record. History is loaded server-side — see below. |
@@ -1071,7 +1179,8 @@ and passed as a Docker build arg by the deploy workflows — see
 | `BrandImpact` | live     | Top weakness cards ranked by damage → `/brand-impact`                                                                                            |
 | `Competitors` | live     | Benchmark bars → `/brands` plus one `/score` per brand                                                                                           |
 | `WhatsChanged` | live    | **What moved**, over a 7/30/90-day window → `/whats-new`. Five panels: getting worse and getting better (sentiment), new subjects, more and less discussed (volume), plus a by-source table that keeps feeds which went silent. A `Newly collected` / `Newly published` toggle chooses the `basis`. Subjects open the drill-down via `nav.openTopic`, which — unlike `openCluster` — inserts no dimension level, because there isn't one to name. |
-| `Roadmap`     | live     | Actions derived from damage-ranked clusters → `/brand-impact`. **Ranking only — it states the problem, it does not yet recommend a fix.** The recommendation producer is specified in `Project-Signal-Product-Spec.md` §7.3 / §5.6 (the weekly report cycle) and planned in `PLAN-change-territory-and-actions.md` §3. |
+| `Roadmap`     | live     | **What to fix, what it is worth, what you are aiming at.** Target with stated provenance, gap, measured benchmarks, and per action a matched play with concrete steps plus the `ifResolved` ceiling → `/roadmap`. Admins can set or clear the target inline. |
+| `VoiceOfCustomer` | live | What Sales and CS hear directly → `/voice-of-customer`. Ranked by accounts × band, with the corroboration panel. Empty until a CRM connector exists, and it says which kind of empty. |
 | `Report`      | **mock** | Print-styled weekly report. Epic 12.                                                                                                             |
 | `Admin`       | live     | Tenant creation, `BrandManager`, `UserManager`                                                                                                   |
 

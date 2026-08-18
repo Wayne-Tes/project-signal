@@ -447,6 +447,66 @@ those need a decision from whoever maintains it before they can be imported.
 
 ---
 
+## 5d. 🔴 CRM: which one, the credentials, and the DPO conversation
+
+**The plumbing is built and deployed. Four things are yours.**
+
+Admin now has a **CRM connections** panel. Connecting stores the link only — no data is collected,
+because the connector that reads interactions is written against a real sandbox rather than
+guessed at. A mapper built from a guessed payload does not fail loudly; it produces plausible
+commercial data attributed to the wrong account.
+
+### 1. 🔴 Which CRM is the system of record for CS interactions?
+
+HubSpot or Salesforce, or both. This determines which connector gets written first and nothing
+else can start without it.
+
+### 2. 🔴 Data protection sign-off — **start this now, it is the long pole**
+
+`HANDOVER.md` §3 justifies letting Bedrock inference route across EU regions on the grounds that
+*"what crosses a border is public review text, not personal data"*. **CRM notes are personal
+data** — named client contacts, their employer, their job, and commercially sensitive detail about
+a live relationship. That premise does not survive this work, so the decision has to be re-taken
+rather than inherited.
+
+Four questions for the DPO, none of which are an engineer's to answer:
+
+| | |
+| --- | --- |
+| **Inference routing** | `eu.` profiles route to seven EU regions. May client personal data go to them? |
+| **Retention** | Spec §6.2 sets 12 months on raw items. Personal data needs a defined period and an actual deletion path — neither exists. |
+| **Right to erasure** | There is currently no way to delete a signal by the person it concerns. |
+| **Access within a tenant** | Every user of a tenant can read every signal. A CSM's note about a named account may not be appropriate for all of them. |
+
+**My recommendation, subject to their sign-off: pseudonymise at ingest.** Strip contact names,
+emails and phone numbers before the text is stored or sent to Bedrock, keeping the *account*
+attribution, which is the only part the analysis needs. That removes most of the compliance
+surface at no analytical cost.
+
+### 3. 🟠 A sandbox or developer account with realistic data
+
+Needed to write the connector at all. Building a field mapping against a guessed payload is the
+fabrication `DEVRULES.md` forbids, and it is the same rule that has kept the social adapters
+unwritten.
+
+### 4. 🟠 Who owns the connection, and which roles may read CS notes
+
+Flows from the access question above.
+
+### What is already done, waiting on the above
+
+- `crm_connections`, with tokens in Secrets Manager and an IAM grant scoped by name prefix rather
+  than `*`.
+- `accounts`, with `arr_band` as a band and never a figure.
+- `signals.voice` — the index is computed over `direct` only, so the CRM channel cannot drag it
+  down. Measured: 85.0 direct against 37.0 blended on test data.
+- A second scorer prompt for reported voice, because a CRM note scored as a review measures the
+  account manager's tone rather than the customer's view.
+- The **Voice of the customer** area, including the corroboration panel — subjects raised both
+  publicly and privately, which is the finding neither channel produces alone.
+
+---
+
 ## 6. 🟡 Decide the hostname for the shared URL
 
 **What:** whether the team-facing URL is the raw ALB DNS name, or a proper hostname under a TES
