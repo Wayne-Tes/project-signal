@@ -1077,6 +1077,25 @@ Remaining, in dependency order:
     extended with `--ink-accent`, `--ok` and a paper ramp for the two light surfaces. Awaits a
     browser pass on the 63 that sit behind `AuthGate`.
 13. **#12 (remainder)** — the users UI. Blocked on #16; the API half is done and tested.
+14. ~~**#16** — stand up a real environment.~~ ✅ **Deployed 2026-08-08**, in `290304998906` /
+    `eu-west-2`. Everything it gated has since been done and browser-verified: #12's UI, the
+    four wired views, and the #19 palette check.
+
+**Added and closed since this order was written**, in the same burn-down spirit — each found by
+using the product rather than by reading the register:
+
+15. ~~**#26** — the drill-down contradicted the number above it.~~ ✅
+16. ~~**#27** — Apify reported SUCCESS while collecting nothing.~~ ✅
+17. ~~**#28** — the "raw" S3 payload was neither raw nor immutable.~~ ✅ Both halves:
+    `sourceText` carried through at `schemaVersion: 2`, and bucket versioning with a 90-day
+    noncurrent expiry.
+18. ~~**#29** — the index and its own evidence counted different populations.~~ ✅ One
+    `attributedTo`, with `tenantId` a required argument so the predicate cannot be used unsafely.
+19. ~~**#30** — a signal scored into no dimension vanished from every surface.~~ ✅ `minItems: 1`,
+    a warning when it still happens, and the coverage funnel that makes the residue visible.
+
+**Original item 14, retained for the history:**
+
 14. **#16** — stand up a real environment. **Target changed to AWS on 2026-08-06**; GCP will not
     be provisioned. Still the gate on almost everything left: it unblocks #12's UI, browser
     verification of the four newly wired views, and any visual check of #19. Everything to date
