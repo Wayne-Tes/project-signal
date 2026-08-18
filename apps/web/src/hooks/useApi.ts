@@ -1,12 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/api';
 
 export interface ApiState<T> {
   data: T | null;
   loading: boolean;
   error: string | null;
+  /**
+   * Refetches the same path.
+   *
+   * Added because a view that WRITES then needs to re-read had no way to. Without it the Roadmap
+   * had to tell the user to reload the page after saving a target — leaving the old number on
+   * screen looking like the save had failed — and an accepted action would still render as
+   * unaccepted, inviting a second click that stamps a second baseline against the same subject.
+   */
+  reload: () => void;
 }
 
 /**
@@ -18,7 +27,14 @@ export interface ApiState<T> {
  * both differ from still-loading.
  */
 export function useApi<T>(path: string | null): ApiState<T> {
-  const [state, setState] = useState<ApiState<T>>({ data: null, loading: true, error: null });
+  const [state, setState] = useState<Omit<ApiState<T>, 'reload'>>({
+    data: null,
+    loading: true,
+    error: null,
+  });
+  /* Bumped to re-run the effect against the SAME path. A boolean would not work — it has to
+     change value every time, not toggle between two. */
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     if (!path) {
@@ -45,7 +61,9 @@ export function useApi<T>(path: string | null): ApiState<T> {
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, nonce]);
 
-  return state;
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
+
+  return { ...state, reload };
 }

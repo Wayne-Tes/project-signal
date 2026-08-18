@@ -8,10 +8,13 @@ import {
   achievableSummary,
   evidenceNote,
   formatHorizon,
+  outcomeSummary,
+  outcomeTone,
   roadmapHeadline,
   withTerritory,
   type ApiAction,
   type ApiRoadmap,
+  type ApiTrackedAction,
 } from '@/lib/brand-data';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -44,9 +47,36 @@ import type { NavActions } from '@/lib/types';
 export function RoadmapView({ nav }: { nav: NavActions }) {
   const { brandId, error: brandError, territory } = useBrand();
   const { role } = useAuth();
-  const { data, loading, error } = useApi<ApiRoadmap>(
+  const { data, loading, error, reload } = useApi<ApiRoadmap>(
     brandId ? withTerritory(`/brands/${brandId}/roadmap`, territory) : null,
   );
+  const tracked = useApi<ApiTrackedAction[]>(
+    brandId ? `/brands/${brandId}/roadmap/actions` : null,
+  );
+
+  /* Committed subjects, so an accepted action is not offered again as though nothing happened. */
+  const committed = new Set((tracked.data ?? []).map((a) => a.topic));
+  const [accepting, setAccepting] = useState<string | null>(null);
+  const [acceptError, setAcceptError] = useState('');
+
+  const accept = async (topic: string): Promise<void> => {
+    if (!brandId) return;
+    setAcceptError('');
+    setAccepting(topic);
+    try {
+      await apiFetch(`/brands/${brandId}/roadmap/actions`, {
+        method: 'POST',
+        body: JSON.stringify({ topic, territory: territory === 'all' ? undefined : territory }),
+      });
+      /* Refetch so the baseline that was just stamped appears, rather than leaving the card
+         looking unaccepted and inviting a second click that would stamp a second baseline. */
+      tracked.reload?.();
+    } catch (e) {
+      setAcceptError(e instanceof Error ? e.message : 'Could not commit to this action');
+    } finally {
+      setAccepting(null);
+    }
+  };
 
   const canSetTarget = role === 'admin' || role === 'owner';
   const [editing, setEditing] = useState(false);
@@ -63,9 +93,10 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
         body: JSON.stringify({ targetScore: value }),
       });
       setEditing(false);
-      /* The page does not refetch itself — `useApi` has no invalidation hook — so say the save
-         landed rather than leaving the old number on screen looking like a failure. */
       setSaved(true);
+      /* Refetch rather than telling the user to reload. The old number left on screen after a
+         successful save reads as a failure. */
+      reload();
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Could not save the target');
     }
@@ -178,11 +209,13 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
                       {data.target?.source === 'owner' ? 'Change target' : 'Set a target'}
                     </button>
                   )}
-                  {saved && <span className="rm-saved">Saved — reload to see it applied.</span>}
+                  {saved && <span className="rm-saved">Saved.</span>}
                   {saveError && <span className="rm-error">{saveError}</span>}
                 </div>
               )}
             </Card>
+
+            {acceptError && <p className="rm-error">{acceptError}</p>}
 
             {data.actions.length === 0 ? (
               <Card>
@@ -195,7 +228,18 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
             ) : (
               <Grid min="380px">
                 {data.actions.map((a, i) => (
-                  <ActionCard key={a.topic} action={a} rank={i + 1} onOpen={() => nav.openTopic(a.topic)} />
+                  <ActionCard
+                    key={a.topic}
+                    action={a}
+                    rank={i + 1}
+                    onOpen={() => nav.openTopic(a.topic)}
+                    tracked={(tracked.data ?? []).find((t) => t.topic === a.topic) ?? null}
+                    committed={committed.has(a.topic)}
+                    accepting={accepting === a.topic}
+                    onAccept={() => void accept(a.topic)}
+                    brandId={brandId}
+                    territory={territory}
+                  />
                 ))}
               </Grid>
             )}
@@ -206,16 +250,60 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
   );
 }
 
+interface Adaptation {
+  adaptedSteps: string[];
+  whatPeopleAreSaying: string;
+  adapted: boolean;
+}
+
 function ActionCard({
   action,
   rank,
   onOpen,
+  tracked,
+  committed,
+  accepting,
+  onAccept,
+  brandId,
+  territory,
 }: {
   action: ApiAction;
   rank: number;
   onOpen: () => void;
+  tracked: ApiTrackedAction | null;
+  committed: boolean;
+  accepting: boolean;
+  onAccept: () => void;
+  brandId: string | null;
+  territory: string;
 }) {
   const worth = action.ifResolved?.delta ?? 0;
+
+  /* Adaptation is per action and on demand. Running it for all eight on every render would put
+     eight model calls behind a dashboard people refresh, for a nicety that sits on top of a play
+     which already stands on its own. */
+  const [adaptation, setAdaptation] = useState<Adaptation | null>(null);
+  const [adapting, setAdapting] = useState(false);
+
+  const tailor = async (): Promise<void> => {
+    if (!brandId) return;
+    setAdapting(true);
+    try {
+      const result = await apiFetch<Adaptation>(`/brands/${brandId}/roadmap/adapt`, {
+        method: 'POST',
+        body: JSON.stringify({
+          topic: action.topic,
+          territory: territory === 'all' ? undefined : territory,
+        }),
+      });
+      setAdaptation(result);
+    } catch {
+      /* Silent by design: the curated steps are still on screen and still correct. An error
+         banner would imply the advice had failed when only the rewording did. */
+    } finally {
+      setAdapting(false);
+    }
+  };
 
   return (
     <Card accent={rank === 1 ? 'critical' : rank === 2 ? 'warn' : 'info'} onClick={onOpen}>
@@ -264,11 +352,31 @@ function ActionCard({
             </Badge>
           </div>
           <p className="rm-play-summary">{action.play.summary}</p>
+          {adaptation?.whatPeopleAreSaying && (
+            <p className="rm-saying">“{adaptation.whatPeopleAreSaying}”</p>
+          )}
+
           <ol className="rm-steps">
-            {action.play.steps.map((step) => (
+            {(adaptation?.adaptedSteps ?? action.play.steps).map((step) => (
               <li key={step}>{step}</li>
             ))}
           </ol>
+
+          <div className="rm-commit" onClick={(e) => e.stopPropagation()}>
+            {adaptation ? (
+              /* Says which version is on screen. Implying a tailoring that did not happen would
+                 be a small lie that undermines every other claim on the card. */
+              <span className="rm-caveat">
+                {adaptation.adapted
+                  ? 'Reworded for your signals — the action itself is unchanged.'
+                  : 'Showing the standard wording; it could not be tailored just now.'}
+              </span>
+            ) : (
+              <button type="button" className="ds-chip" disabled={adapting} onClick={() => void tailor()}>
+                {adapting ? 'Rewording…' : 'Reword for my signals'}
+              </button>
+            )}
+          </div>
           <p className="rm-measure">
             <strong>How you will know:</strong> {action.play.measure}
           </p>
@@ -290,6 +398,28 @@ function ActionCard({
             {d}
           </Badge>
         ))}
+      </div>
+
+      {/* COMMITTING IS WHAT MAKES THE ADVICE FALSIFIABLE. Until an action is accepted nothing
+          records what was tried or from what starting point, so "does this work?" can never be
+          answered. Accepting stamps an immutable baseline from the numbers on screen right now —
+          which is why it cannot be added retrospectively. */}
+      <div className="rm-commit" onClick={(e) => e.stopPropagation()}>
+        {committed && tracked ? (
+          <>
+            <span className="rm-outcome" style={{ color: outcomeTone(tracked.outcome.verdict) }}>
+              {outcomeSummary(tracked)}
+            </span>
+            <span className="rm-caveat">
+              Baseline {tracked.baselineIndex?.toFixed(1) ?? '—'} on{' '}
+              {tracked.baselineAt.slice(0, 10)}
+            </span>
+          </>
+        ) : (
+          <button type="button" className="ds-chip" disabled={accepting} onClick={onAccept}>
+            {accepting ? 'Recording…' : 'We are doing this'}
+          </button>
+        )}
       </div>
     </Card>
   );

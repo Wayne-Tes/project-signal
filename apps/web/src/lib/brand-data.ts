@@ -667,3 +667,68 @@ export function evidenceNote(play: ApiPlay | null | undefined): string | null {
   }
   return 'Standard practice, not yet backed by a published source or your own outcomes';
 }
+
+// --- Tracked actions ---------------------------------------------------------
+
+export interface ApiOutcome {
+  verdict: 'improved' | 'unchanged' | 'worsened' | 'unmeasurable';
+  indexDelta: number | null;
+  damageDelta: number | null;
+  capturedPercent: number | null;
+  elapsedDays: number | null;
+}
+
+export interface ApiTrackedAction {
+  id: string;
+  topic: string;
+  territory: string;
+  status: string;
+  note: string | null;
+  baselineAt: string;
+  baselineIndex: number | null;
+  ceilingDelta: number | null;
+  outcome: ApiOutcome;
+}
+
+/**
+ * What actually happened, in a sentence.
+ *
+ * `unmeasurable` is reported as its own thing rather than folded into "no change". An action
+ * accepted three days ago genuinely has no outcome yet, and saying "unchanged" would be a claim
+ * we cannot support — the difference between an experiment log and a comfort blanket.
+ */
+export function outcomeSummary(action: ApiTrackedAction): string {
+  const { verdict, indexDelta, capturedPercent, elapsedDays } = action.outcome;
+
+  if (verdict === 'unmeasurable') {
+    return elapsedDays !== null && elapsedDays < 7
+      ? `Accepted ${elapsedDays === 0 ? 'today' : `${elapsedDays}d ago`} — too soon to tell.`
+      : 'Not enough data to judge this yet.';
+  }
+
+  const moved =
+    indexDelta === null
+      ? ''
+      : ` Index ${indexDelta >= 0 ? 'up' : 'down'} ${Math.abs(indexDelta).toFixed(1)}.`;
+
+  /* The number that makes the log worth keeping: did we get what we said we would? Over enough
+     actions it says whether the ceiling predicts anything at all. */
+  const captured =
+    capturedPercent === null
+      ? ''
+      : ` ${Math.round(capturedPercent)}% of the ${action.ceilingDelta?.toFixed(1)} claimed.`;
+
+  const head =
+    verdict === 'improved' ? 'Improved' : verdict === 'worsened' ? 'Worsened' : 'No change';
+
+  return `${head} over ${elapsedDays}d.${moved}${captured}`;
+}
+
+/** Tone for a verdict. Tokens only — literal hex breaks the runtime palette switcher. */
+export function outcomeTone(verdict: ApiOutcome['verdict']): string {
+  if (verdict === 'improved') return 'var(--mint)';
+  if (verdict === 'worsened') return 'var(--coral)';
+  /* Unchanged and unmeasurable are both "nothing to celebrate or panic about" — colouring them
+     differently from each other would imply a judgement neither supports. */
+  return 'var(--t3)';
+}
