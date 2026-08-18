@@ -50,9 +50,13 @@ A task is NOT done when the code is written, when it compiles, or when a unit te
 - **Production-release standard for ALL work.** Every change is held to the bar of going live: correct, regression-safe (enumerate and re-verify all call sites/dependents), wired to real data and services, and verified against the running app — never "should work" or "the suite is green, so it's done."
 - **The full gate must pass, not just the tests you wrote.** Before any completion claim:
   ```bash
-  yarn lint && yarn typecheck && yarn test
+  yarn lint && yarn typecheck && yarn check:deps && yarn test
   ```
-  `yarn test` enforces an 80% coverage gate per project. For Terraform changes, additionally: `terraform fmt -check -recursive` and `terraform validate` in the affected tree.
+  `yarn test` runs the SAME command CI does — `--coverage --coverage.reporter=text` — so the 80%
+  per-project gate is actually enforced locally. It did not used to be: the thresholds lived in
+  each `vitest.config.ts` but coverage only runs when asked for, so `yarn test` passed while CI
+  failed on a project whose new functions had no tests. `yarn test:fast` skips coverage for a
+  quick inner loop, but is not the gate. For Terraform changes, additionally: `terraform fmt -check -recursive` and `terraform validate` in the affected tree.
 - **Front-end / UX / UI / user-facing work MUST be driven like a real user.** For any feature with a UI or an interactive flow, exercise it in a real browser. Start the stack with `yarn dev` (Docker services + all apps; the Next.js dashboard serves on `:3000`, the API on `:8080`), then drive it with the **Playwright MCP tools** or the **claude-in-chrome MCP tools** — confirm the MCP is actually connected before relying on it. PHYSICALLY interact with it — click, type, drag, navigate, submit, reload — and confirm it behaves exactly as a user would expect across the real flow. A green Vitest test does NOT substitute for actually using the feature; component tests are necessary, not sufficient.
   > **The harness now exists.** `apps/web/e2e` (added 2026-08-09) drives the real app with
   > Playwright and asserts on **computed styles**, which is the only way a whole class of defect

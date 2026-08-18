@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ARR_BANDS,
+  ARR_BAND_WEIGHT,
+  CRM_PROVIDERS,
+  CRM_PROVIDER_LABELS,
   COLLECTING_SOURCES,
+  isArrBand,
+  isCrmProvider,
+  isVoice,
+  VOICES,
   isCollectingSource,
   isTerritory,
   normaliseTerritory,
@@ -124,5 +132,47 @@ describe('isCollectingSource', () => {
     expect(isCollectingSource('')).toBe(false);
     expect(isCollectingSource('RSS')).toBe(false);
     expect(isCollectingSource('facebook')).toBe(false);
+  });
+});
+
+/**
+ * The CRM vocabulary.
+ *
+ * Same construction as `COLLECTING_SOURCES` and `TERRITORIES`: a closed list, validated on write,
+ * so a typo becomes a 400 rather than a stored value nobody notices. `voice` in particular is a
+ * correctness control — the index is computed over `direct` only — so an unrecognised value
+ * silently classifying a signal would be a defect that looks like data.
+ */
+describe('the CRM vocabulary', () => {
+  it('accepts the CRMs a connector can exist for, and nothing else', () => {
+    for (const p of CRM_PROVIDERS) expect(isCrmProvider(p)).toBe(true);
+    expect(isCrmProvider('pipedrive')).toBe(false);
+    expect(isCrmProvider('HubSpot')).toBe(false);
+    expect(isCrmProvider('')).toBe(false);
+  });
+
+  it('labels every provider it accepts', () => {
+    for (const p of CRM_PROVIDERS) expect(CRM_PROVIDER_LABELS[p]).toBeTruthy();
+  });
+
+  it('accepts only the two voices', () => {
+    for (const v of VOICES) expect(isVoice(v)).toBe(true);
+    expect(isVoice('internal')).toBe(false);
+    expect(isVoice('Direct')).toBe(false);
+  });
+
+  /* A band, never a figure: enough to rank a theme by commercial exposure, not enough to
+     constitute revenue data. */
+  it('accepts only the defined ARR bands', () => {
+    for (const b of ARR_BANDS) expect(isArrBand(b)).toBe(true);
+    expect(isArrBand('500k')).toBe(false);
+    expect(isArrBand('250000')).toBe(false);
+  });
+
+  it('weights every band, and orders them by size', () => {
+    const weights = ARR_BANDS.map((b) => ARR_BAND_WEIGHT[b]);
+    for (const w of weights) expect(w).toBeGreaterThan(0);
+    /* Monotonic, or a larger account could rank below a smaller one. */
+    expect([...weights].sort((a, b) => a - b)).toEqual(weights);
   });
 });
