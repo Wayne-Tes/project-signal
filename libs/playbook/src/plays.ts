@@ -215,6 +215,134 @@ export const PLAYS: Play[] = [
     evidence: [],
   },
   {
+    id: 'safeguarding-response',
+    title: 'Answer a safeguarding concern before anything else',
+    summary:
+      'Safeguarding is the one subject where a slow response is read as a position. It outranks every other item on this page regardless of volume.',
+    match: {
+      topicPatterns: [
+        'safeguarding',
+        'safety',
+        'child protection',
+        'welfare',
+        'abuse',
+        'bullying',
+        'disclosure',
+      ],
+      minVolume: 1,
+    },
+    steps: [
+      'Route this to whoever owns safeguarding today, before it is triaged as marketing.',
+      'Respond publicly the same day, even if the answer is only that it is being looked at.',
+      'Never dispute a safeguarding concern in public, whatever the merits — the dispute becomes the story and the original concern is repeated in every retelling.',
+      'Record what was done, because you will be asked later and "we responded" is not an answer.',
+    ],
+    measure:
+      'Trust dimension score, and whether this subject recurs. A safeguarding subject that recurs after a response is a different and more serious finding.',
+    owner: 'comms',
+    horizon: 'now',
+    evidenceStatus: 'none',
+    evidence: [],
+  },
+  {
+    id: 'recruitment-experience',
+    title: 'Fix the step candidates and hiring schools complain about',
+    summary:
+      'Recruitment complaints come from people mid-transaction. They are unusually specific, unusually recoverable, and they reach a professional audience.',
+    match: {
+      topicPatterns: [
+        'recruitment',
+        'job',
+        'vacancy',
+        'application',
+        'candidate',
+        'hiring',
+        'staffing',
+        'interview',
+      ],
+      minVolume: 2,
+    },
+    steps: [
+      'Separate candidate complaints from school complaints — they are different products with different fixes, and the topic tag does not distinguish them.',
+      'Take the single step named most often in these signals and time how long it actually takes.',
+      'Fix that one step before touching anything else in the funnel.',
+      'Tell the people who complained, naming the change — this audience talks to each other professionally.',
+    ],
+    measure: 'Experience and Service dimension scores, and this subject’s volume next period.',
+    owner: 'product',
+    horizon: 'this quarter',
+    evidenceStatus: 'none',
+    evidence: [],
+  },
+  {
+    id: 'resource-quality',
+    title: 'Deal with the specific resources being criticised',
+    summary:
+      'Complaints about content quality name particular items. Reviewing the whole catalogue is a project; fixing the named items is a week.',
+    match: {
+      topicPatterns: [
+        'resource',
+        'content',
+        'material',
+        'lesson',
+        'quality',
+        'accuracy',
+        'outdated',
+        'curriculum',
+      ],
+      minVolume: 2,
+    },
+    steps: [
+      'List the specific resources named in these signals. If none are named, this is a general perception problem and a different play applies.',
+      'Withdraw or correct the named items rather than defending them.',
+      'Publish what changed on the item itself, where the next person looking at it will see it.',
+      'Only then ask whether the review process that let them through needs changing.',
+    ],
+    measure: 'Quality dimension score, and whether the named items reappear in new signals.',
+    owner: 'content',
+    horizon: 'this quarter',
+    evidenceStatus: 'none',
+    evidence: [],
+  },
+  {
+    id: 'answer-the-comparison',
+    title: 'Answer the competitor comparison being made',
+    summary:
+      'When customers name a rival in a complaint, they have already done the comparison. Ignoring it concedes it.',
+    match: { maxSentiment: -0.2, minVolume: 2 },
+    steps: [
+      'Read these signals for a named alternative — the topic tag will not tell you, the text will.',
+      'Establish whether the comparison is accurate before responding. Disputing a true claim is far more expensive than conceding it.',
+      'Where it is accurate and fixable, fix it and say so. Where it is accurate and not fixable, say what you offer instead.',
+      'Never name the competitor in your own public reply — it puts them in your search results.',
+    ],
+    measure:
+      'Value and Quality dimension scores, and the share of this subject’s signals naming an alternative.',
+    owner: 'comms',
+    horizon: 'this quarter',
+    evidenceStatus: 'none',
+    evidence: [],
+  },
+  {
+    id: 'stop-the-bleeding',
+    title: 'Pause the campaign that is generating this',
+    summary:
+      'Some negative subjects are self-inflicted and still running. The cheapest fix is to stop doing the thing.',
+    match: { maxSentiment: -0.5, minVolume: 4 },
+    steps: [
+      'Check whether these signals cluster around a date — a launch, a price change, a campaign, a policy update.',
+      'If they do, pause whatever started it before designing a response. A response that runs alongside the cause does not work.',
+      'Say publicly that it is paused and why, in the same channel it was announced.',
+      'Resume only with the specific objection in these signals addressed.',
+    ],
+    measure:
+      'Whether this subject’s volume falls within one period. A self-inflicted subject usually stops as abruptly as it started.',
+    owner: 'comms',
+    horizon: 'now',
+    evidenceStatus: 'none',
+    evidence: [],
+  },
+  {
     id: 'watch-only',
     title: 'Watch this one — do not act yet',
     summary:
