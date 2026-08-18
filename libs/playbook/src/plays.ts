@@ -79,7 +79,12 @@ export const PLAYS: Play[] = [
     title: 'Copy what your strongest territory is doing',
     summary:
       'A gap between two of your own markets is a real difference with a real cause, and somebody in the building already knows what it is.',
-    match: { minVolume: 1 },
+    /* THREE, not one. Verified against live data: every subject on the deployed brand had volume
+       1, so this play — the least constrained one — won every match on an alphabetical tie-break
+       and proposed a cross-market comparison project off a single complaint. That is the
+       over-reaction `watch-only` exists to prevent, and it costs credibility for the next real
+       finding. A territory gap is only a gap when there is a pattern on both sides. */
+    match: { minVolume: 3 },
     steps: [
       'Compare this subject in your strongest territory against this one — the roadmap header names which is strongest.',
       'Ask that market’s team what they do differently on this subject specifically.',

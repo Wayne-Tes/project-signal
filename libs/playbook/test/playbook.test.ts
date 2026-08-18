@@ -115,3 +115,42 @@ describe('matching', () => {
     expect(playById('does-not-exist')).toBeNull();
   });
 });
+
+/**
+ * Found by reading live output, not by reasoning.
+ *
+ * Every subject on the deployed brand had volume 1. `fix-then-announce` correctly declined
+ * (it needs a pattern), which left the least-constrained play winning every match on an
+ * alphabetical tie-break — so the roadmap proposed a cross-market comparison project off a
+ * single complaint, eight times over.
+ */
+describe('thin subjects', () => {
+  const oneOff = (over: Partial<MatchableCluster> = {}): MatchableCluster => ({
+    topic: 'product not working',
+    volume: 1,
+    sentiment: -0.9,
+    dimensions: ['quality', 'service'],
+    ...over,
+  });
+
+  it('does not propose a cross-market project off a single complaint', () => {
+    expect(bestPlayFor(oneOff())?.id).not.toBe('close-the-territory-gap');
+  });
+
+  /* "Not enough of a pattern to act on yet" is the honest answer, and acting on noise costs
+     credibility for the next real finding. */
+  it('says to watch rather than act', () => {
+    expect(bestPlayFor(oneOff())?.id).toBe('watch-only');
+  });
+
+  it('still prescribes a real fix once there is a pattern', () => {
+    expect(bestPlayFor(oneOff({ volume: 4 }))?.id).toBe('fix-then-announce');
+  });
+
+  it('offers the territory comparison only when the subject has real volume', () => {
+    expect(playsFor(oneOff()).map((p) => p.id)).not.toContain('close-the-territory-gap');
+    expect(playsFor(oneOff({ volume: 5, topic: 'general' })).map((p) => p.id)).toContain(
+      'close-the-territory-gap',
+    );
+  });
+});
