@@ -22,7 +22,34 @@
 > | **Territory** | On the FEED, copied onto signals; per-territory rollups; a picker in the shell |
 > | **Raw payload** | `sourceText`/`sourceTitle` at `schemaVersion: 2`, plus S3 versioning (KNOWN-GAPS #28 closed) |
 > | **Action roadmap** | Targets with stated provenance, counterfactual ceilings, outcome tracking, a curated playbook, LLM rewording |
-> | **CRM plumbing** | `crm_connections`, `accounts`, `signals.voice`; connector deliberately not written |
+> | **CRM plumbing** | `crm_connections`, `accounts`, `signals.voice`; connector deliberately not written. **Schema and API are deployed; the endpoints are NOT reachable yet** — see the deploy record below |
+>
+> ### Deploy record
+>
+> **Live tag: `ef93031`, applied 2026-08-18, ECS revision 46 on all four services.** The previous
+> tag was `c5ed6d5`. The apply was 4 added / 5 changed / 4 destroyed — four task-definition
+> revisions (they are immutable, so a change is always a replacement), four services repointed,
+> and one IAM policy gaining Secrets Manager access scoped to `psignal-dev-crm/*`. Nothing touched
+> RDS, the VPC, Cognito, S3, SQS or the ALB itself. Migration `0017` applied on API startup; it is
+> purely additive, and the rollout could not have reported `COMPLETED` had it failed, because the
+> API migrates before it listens and the deployment circuit breaker rolls back an unhealthy task.
+>
+> **`/crm/*` returns 404 through the load balancer.** The ALB forwards only `/admin*`,
+> `/assistant*`, `/brands*` and `/docs*` to the API; everything else falls through to the web
+> target group. Verified against the deployed ALB: `/brands`, `/brands/:id/roadmap`,
+> `/brands/:id/whats-new`, `/brands/:id/voice-of-customer` and `/admin/users` all return 401 —
+> reaching the API, auth required — while `/crm/connections` alone returns 404 and never appears
+> in the API log at all. **This is the second occurrence of this defect** (`/assistant*` was the
+> first, 2026-08-09) and `alb.tf` already carried a comment predicting it.
+>
+> The fix and a CI check that makes it unshippable are in **PR #32, open and not yet applied**
+> — `infra-aws/stack` deliberately still matches `main`, because applying from a branch would
+> leave state describing a rule `main` does not, and the next plan from `main` would then propose
+> removing it and silently re-break CRM. Apply after merge with `-var="image_tag=ef93031"`.
+>
+> The build-and-push step is now a script rather than a recollection — `20-build-push.sh`, **PR
+> #31, also awaiting merge.** Until both land, `main` does not contain the procedure that produced
+> the running system.
 >
 > ### The three things most likely to mislead you
 >
@@ -42,6 +69,11 @@
 >   Collection currently runs on the former contractor's personal free tier.
 > - **CRM: which one, a sandbox, and the DPO conversation.** See `OWNER-ACTIONS.md` §5d. The DPO
 >   item is the long pole and is calendar time rather than engineering time.
+> - **E2E credentials.** `apps/web/e2e/run-docker.sh` requires `E2E_EMAIL` and `E2E_PASSWORD` for a
+>   real Cognito sign-in, and no such values exist on the machine. Four specs added with this work
+>   — `roadmap`, `whats-changed`, `voice-of-customer`, `users`, **34 tests** — have therefore never
+>   been executed. They are committed, they lint and typecheck, and that is precisely the state
+>   DEVRULES calls "not done". Supply a dedicated test user and they can run against the dev ALB.
 > - **Feed territories** — 336 of 337 signals sit in `unknown` until someone classifies the feeds
 >   (`OWNER-ACTIONS.md` §5c).
 
