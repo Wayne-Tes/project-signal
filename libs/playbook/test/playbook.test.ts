@@ -154,3 +154,97 @@ describe('thin subjects', () => {
     );
   });
 });
+
+/**
+ * The subjects TES's live signals actually contain.
+ *
+ * These plays were added from real topic tags on the deployed brand — safeguarding, staffing,
+ * resources — rather than from invented categories. A playbook full of plausible-sounding plays
+ * that never match anything is decoration.
+ */
+describe('the observed subjects', () => {
+  const c = (topic: string, over: Partial<MatchableCluster> = {}): MatchableCluster => ({
+    topic,
+    volume: 3,
+    sentiment: -0.6,
+    dimensions: ['trust', 'service'],
+    ...over,
+  });
+
+  /**
+   * Safeguarding outranks everything, deliberately, at volume 1. It is the one subject where a
+   * slow response is read as a position rather than as a delay — so it must not wait for a
+   * pattern the way an engineering fix does.
+   */
+  it('answers a safeguarding concern even on a single signal', () => {
+    expect(bestPlayFor(c('safeguarding concerns', { volume: 1 }))?.id).toBe(
+      'safeguarding-response',
+    );
+    expect(bestPlayFor(c('safety concerns', { volume: 1 }))?.id).toBe('safeguarding-response');
+  });
+
+  it('does not tell you to argue with a safeguarding concern in public', () => {
+    const play = playById('safeguarding-response')!;
+    expect(play.steps.join(' ')).toMatch(/never dispute/i);
+  });
+
+  it('matches the recruitment subjects this tenant actually collects', () => {
+    expect(bestPlayFor(c('school staffing'))?.id).toBe('recruitment-experience');
+    expect(bestPlayFor(c('recruitment'))?.id).toBe('recruitment-experience');
+  });
+
+  it('matches content-quality complaints', () => {
+    expect(bestPlayFor(c('educational content', { dimensions: ['quality'] }))?.id).toBe(
+      'resource-quality',
+    );
+  });
+
+  /* Self-inflicted subjects need the cause stopped before a response is designed — a response
+     running alongside its own cause does not work. */
+  it('reaches for pausing the cause only on a loud, clearly negative subject', () => {
+    const ids = playsFor(c('policy change', { volume: 6, sentiment: -0.8 })).map((p) => p.id);
+    expect(ids).toContain('stop-the-bleeding');
+    expect(playsFor(c('policy change', { volume: 2, sentiment: -0.2 })).map((p) => p.id)).not.toContain(
+      'stop-the-bleeding',
+    );
+  });
+
+  it('keeps the library free of steps that merely restate the goal', () => {
+    /* Re-asserted over the enlarged set, because the temptation grows with the library. */
+    const vague = /^(improve|increase|enhance|optimi[sz]e|boost) /i;
+    for (const play of PLAYS) {
+      for (const step of play.steps) {
+        expect(vague.test(step.trim()), `${play.id}: "${step}"`).toBe(false);
+      }
+    }
+  });
+
+  it('has grown to a usable library rather than a token one', () => {
+    expect(PLAYS.length).toBeGreaterThanOrEqual(15);
+  });
+});
+
+/**
+ * Pinning the weighting that decides which play wins.
+ *
+ * A topic pattern is a direct textual hit on what the complaint is about. A dimension is broad —
+ * five exist and most clusters touch two. Weighting them comparably treats a coincidence as
+ * evidence, and it did: a safeguarding concern was answered with "contact the publication about a
+ * factual error", on the one subject where wrong advice is least affordable.
+ */
+describe('specificity weighting', () => {
+  it('lets a topic match beat a dimension match, whatever the alphabet says', () => {
+    /* `correct-the-record` sorts first alphabetically and matches on trust + sentiment + volume.
+       `safeguarding-response` matches on the words themselves and must win. */
+    const cluster: MatchableCluster = {
+      topic: 'safeguarding concerns',
+      volume: 1,
+      sentiment: -0.7,
+      dimensions: ['trust', 'service'],
+    };
+    const ordered = playsFor(cluster).map((p) => p.id);
+    expect(ordered.indexOf('safeguarding-response')).toBeLessThan(
+      ordered.indexOf('correct-the-record'),
+    );
+  });
+});

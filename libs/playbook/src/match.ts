@@ -21,7 +21,21 @@ export interface MatchableCluster {
 function specificity(play: Play): number {
   const m = play.match;
   return (
-    (m.topicPatterns?.length ? 3 : 0) +
+    /**
+     * A topic-pattern hit is worth more than every other criterion COMBINED, and that is a
+     * correction rather than a preference.
+     *
+     * It was originally 3, against 2 for dimensions — which let `correct-the-record`
+     * (dimensions + sentiment + volume = 4) tie with `safeguarding-response`
+     * (patterns + volume = 4) and win on the alphabetical tie-break. A safeguarding concern was
+     * answered with "contact the publication about a factual error", which is the wrong advice
+     * on the one subject where wrong advice is least affordable.
+     *
+     * The asymmetry is real: a pattern is a direct textual hit on what the complaint is ABOUT,
+     * while a dimension is broad — there are five, and most clusters touch two of them. Weighting
+     * them comparably treats a coincidence as evidence.
+     */
+    (m.topicPatterns?.length ? 5 : 0) +
     (m.dimensions?.length ? 2 : 0) +
     (m.maxSentiment !== undefined ? 1 : 0) +
     (m.minVolume !== undefined ? 1 : 0)
