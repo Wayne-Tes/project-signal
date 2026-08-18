@@ -478,6 +478,22 @@ Supporting work:
 `lib/data.ts` therefore survives, and Epic 6's exit criterion is not yet met. `App.tsx`,
 `DrillDown.tsx` and `primitives.tsx` still import from it too.
 
+> **Both statements above are now out of date, and `lib/data.ts` is deleted. Epic 6's exit
+> criterion is met.**
+>
+> **Roadmap** is live and was never as unspecified as this entry claimed — `Project-Signal-
+> Product-Spec.md` §7.3 and §5.6 describe it in full, including its producer. This register said
+> otherwise because it was never cross-referenced against the spec. It now carries a target with
+> stated provenance, a computed counterfactual per action, a matched play from `libs/playbook`,
+> and outcome tracking against an immutable baseline. It still refuses to state effort or
+> confidence, because the product has no model for either and the fabricated versions are exactly
+> what was deleted.
+>
+> **Report** is live too, reading `/score`, `/dimension-scores`, `/brand-impact` and `/stats`,
+> all territory-aware. What Epic 12 still owes is the **PDF render and the email delivery** — not
+> the page. The distinction matters: someone reading "Report — Epic 12" would rebuild a view that
+> already works.
+
 ---
 
 ## 14. ✅ Hardcoded contractor fallbacks in the web client — **resolved**
@@ -1084,9 +1100,12 @@ Remaining, in dependency order:
 9. ~~**#10** — `dimension_scores` never written.~~ ✅ Epic 11 rollup + read endpoints.
 10. ~~**#13** — Dashboard, Trends, Brand impact and Competitors.~~ ✅ Four of six views on live
     data; the volume and alert panels were dropped by decision rather than built on nothing.
-11. **#13 (remainder)** — Roadmap needs prioritised recommendations to be **specified** before
-    anything can generate them, and nothing in Epics 11–13 produces them; Report is Epic 12.
-    `lib/data.ts` survives until both land.
+11. ~~**#13 (remainder)** — Roadmap and Report on mock data.~~ ✅ **Both live; `lib/data.ts` is
+    deleted and Epic 6's exit criterion is met.** The premise was also wrong: the roadmap was
+    never unspecified — `Project-Signal-Product-Spec.md` §7.3 and §5.6 describe it in full,
+    including its producer. This register said otherwise because it was never cross-referenced
+    against the spec, and that mistake deferred the feature for weeks. Report's view is live too;
+    Epic 12 owes the PDF render and email delivery, not the page.
 12. ~~**#19** — convert the literal hex values.~~ ✅ 2026-08-07. 79 real occurrences, not 119:
     `App.tsx`'s 40 were palette definitions and had to stay literal. Needed the design system
     extended with `--ink-accent`, `--ok` and a paper ramp for the two light surfaces. Awaits a
