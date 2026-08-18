@@ -237,6 +237,8 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
                     committed={committed.has(a.topic)}
                     accepting={accepting === a.topic}
                     onAccept={() => void accept(a.topic)}
+                    brandId={brandId}
+                    territory={territory}
                   />
                 ))}
               </Grid>
@@ -248,6 +250,12 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
   );
 }
 
+interface Adaptation {
+  adaptedSteps: string[];
+  whatPeopleAreSaying: string;
+  adapted: boolean;
+}
+
 function ActionCard({
   action,
   rank,
@@ -256,6 +264,8 @@ function ActionCard({
   committed,
   accepting,
   onAccept,
+  brandId,
+  territory,
 }: {
   action: ApiAction;
   rank: number;
@@ -264,8 +274,36 @@ function ActionCard({
   committed: boolean;
   accepting: boolean;
   onAccept: () => void;
+  brandId: string | null;
+  territory: string;
 }) {
   const worth = action.ifResolved?.delta ?? 0;
+
+  /* Adaptation is per action and on demand. Running it for all eight on every render would put
+     eight model calls behind a dashboard people refresh, for a nicety that sits on top of a play
+     which already stands on its own. */
+  const [adaptation, setAdaptation] = useState<Adaptation | null>(null);
+  const [adapting, setAdapting] = useState(false);
+
+  const tailor = async (): Promise<void> => {
+    if (!brandId) return;
+    setAdapting(true);
+    try {
+      const result = await apiFetch<Adaptation>(`/brands/${brandId}/roadmap/adapt`, {
+        method: 'POST',
+        body: JSON.stringify({
+          topic: action.topic,
+          territory: territory === 'all' ? undefined : territory,
+        }),
+      });
+      setAdaptation(result);
+    } catch {
+      /* Silent by design: the curated steps are still on screen and still correct. An error
+         banner would imply the advice had failed when only the rewording did. */
+    } finally {
+      setAdapting(false);
+    }
+  };
 
   return (
     <Card accent={rank === 1 ? 'critical' : rank === 2 ? 'warn' : 'info'} onClick={onOpen}>
@@ -314,11 +352,31 @@ function ActionCard({
             </Badge>
           </div>
           <p className="rm-play-summary">{action.play.summary}</p>
+          {adaptation?.whatPeopleAreSaying && (
+            <p className="rm-saying">“{adaptation.whatPeopleAreSaying}”</p>
+          )}
+
           <ol className="rm-steps">
-            {action.play.steps.map((step) => (
+            {(adaptation?.adaptedSteps ?? action.play.steps).map((step) => (
               <li key={step}>{step}</li>
             ))}
           </ol>
+
+          <div className="rm-commit" onClick={(e) => e.stopPropagation()}>
+            {adaptation ? (
+              /* Says which version is on screen. Implying a tailoring that did not happen would
+                 be a small lie that undermines every other claim on the card. */
+              <span className="rm-caveat">
+                {adaptation.adapted
+                  ? 'Reworded for your signals — the action itself is unchanged.'
+                  : 'Showing the standard wording; it could not be tailored just now.'}
+              </span>
+            ) : (
+              <button type="button" className="ds-chip" disabled={adapting} onClick={() => void tailor()}>
+                {adapting ? 'Rewording…' : 'Reword for my signals'}
+              </button>
+            )}
+          </div>
           <p className="rm-measure">
             <strong>How you will know:</strong> {action.play.measure}
           </p>

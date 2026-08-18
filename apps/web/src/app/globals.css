@@ -639,3 +639,8 @@ svg.sparkline { display: block; overflow: visible; }
   margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
 }
 .rm-outcome { font-size: 13px; font-weight: 500; }
+
+.rm-saying {
+  color: var(--t2); font-size: 13px; line-height: 1.6; font-style: italic;
+  margin: 10px 0 0; padding-left: 10px; border-left: 2px solid var(--line);
+}
