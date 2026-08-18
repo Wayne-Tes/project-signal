@@ -7,12 +7,13 @@
     "build": "nx run-many -t build",
     "lint": "nx run-many -t lint",
     "typecheck": "nx run-many -t typecheck",
-    "test": "nx run-many -t test",
+    "test": "nx run-many -t test -- --coverage --coverage.reporter=text",
     "db:up": "docker compose up postgres -d",
     "db:generate": "nx run api:generate",
     "db:seed": "nx run api:seed",
     "prepare": "husky",
-    "check:deps": "node scripts/check-workspace-deps.mjs"
+    "check:deps": "node scripts/check-workspace-deps.mjs",
+    "test:fast": "nx run-many -t test"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.0.0",

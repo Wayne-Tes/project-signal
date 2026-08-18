@@ -67,6 +67,10 @@ locals {
     # token's issuer and audience against the pool's JWKS.
     { name = "COGNITO_USER_POOL_ID", value = aws_cognito_user_pool.main.id },
     { name = "COGNITO_CLIENT_ID", value = aws_cognito_user_pool_client.web.id },
+    # Name prefix for per-tenant CRM token secrets. An identifier, not a secret — and it must
+    # match the IAM prefix grant in iam.tf exactly, or every connect attempt fails with
+    # AccessDenied at the point a customer is watching.
+    { name = "CRM_SECRET_PREFIX", value = "${local.name_prefix}-crm" },
   ]
 }
 

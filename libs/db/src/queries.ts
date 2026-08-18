@@ -53,9 +53,36 @@ import { signalMentions } from './schema/signalMentions.js';
  * every page of a keyset-paginated list. EXISTS makes one-row-per-signal a property of the query
  * rather than something each call site has to remember to deduplicate.
  */
-export function attributedTo(brandEntityId: string, tenantId: string): SQL {
+/**
+ * Which voice a query counts.
+ *
+ * `direct` is the default everywhere, and that default is load-bearing — see the note on the
+ * parameter below.
+ */
+export type VoiceScope = 'direct' | 'reported' | 'all';
+
+export function attributedTo(
+  brandEntityId: string,
+  tenantId: string,
+  /**
+   * **DEFAULTS TO `direct`, AND THAT IS A CORRECTNESS CONTROL.**
+   *
+   * A Customer Success manager writes a note because something needs attention, so the CRM
+   * channel is a work queue rather than a sample: structurally negative-biased by design.
+   * Averaging it into the Brand Perception Index would move the index for reasons unrelated to
+   * brand perception, and nobody could see why, because the number would still look plausible.
+   *
+   * Defaulting here rather than adding a filter each call site must remember is deliberate. This
+   * product has no row-level security, and KNOWN-GAPS #29 was precisely a filter that six read
+   * paths forgot while the rollup applied it — the index and its own evidence were computed from
+   * different populations for months, with nothing failing. Making the safe answer the default
+   * means including reported voice has to be an explicit act.
+   */
+  voice: VoiceScope = 'direct',
+): SQL {
   const predicate = and(
     eq(signals.tenantId, tenantId),
+    voice === 'all' ? undefined : eq(signals.voice, voice),
     or(
       eq(signals.brandEntityId, brandEntityId),
       sql`EXISTS (

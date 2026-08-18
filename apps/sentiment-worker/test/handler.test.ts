@@ -85,7 +85,10 @@ describe('handlePubSubMessage', () => {
     expect(mockGet).toHaveBeenCalledWith('tenant-1/brand-1/rss/ext-1.json');
     /* Second argument is the mention candidates — the tenant's other entities, loaded per
        signal so a product added in Admin is detected on the very next one. */
-    expect(mockScoreSignal).toHaveBeenCalledWith('The app keeps crashing.', expect.any(Array));
+    /* Third argument is the signal's VOICE. A CRM note scored with the review prompt measures the
+       account manager's tone rather than the customer's view, so the prompt is chosen per signal
+       and public sources default to 'direct'. */
+    expect(mockScoreSignal).toHaveBeenCalledWith('The app keeps crashing.', expect.any(Array), 'direct');
     expect(mockScoreSignal).not.toHaveBeenCalledWith(mockSignal.sourceUrl);
   });
 
@@ -182,5 +185,42 @@ describe('failure classification', () => {
     mockGet.mockResolvedValueOnce(JSON.stringify({ url: 'https://example.com' }));
 
     await expect(handlePubSubMessage('signal-1')).rejects.toBeInstanceOf(PermanentScoringError);
+  });
+});
+
+/**
+ * The voice decides which prompt the scorer uses.
+ *
+ * A public review is the customer speaking; a CRM note is an employee's account of what a customer
+ * said. Scoring the second with the first's prompt measures the wrong person, and produces a
+ * number indistinguishable from a real one.
+ */
+describe('voice', () => {
+  it('passes the signal’s voice through to the scorer', async () => {
+    _dbRows = [{ ...mockSignal, voice: 'reported' }];
+    mockScoreSignal.mockResolvedValueOnce(mockScore);
+
+    await handlePubSubMessage('signal-1');
+
+    expect(mockScoreSignal).toHaveBeenCalledWith(
+      'The app keeps crashing.',
+      expect.any(Array),
+      'reported',
+    );
+  });
+
+  /* Every public source is direct, and a column added for the CRM must not silently reclassify
+     four hundred existing signals. */
+  it('defaults to direct when a signal predates the column', async () => {
+    _dbRows = [{ ...mockSignal, voice: undefined }];
+    mockScoreSignal.mockResolvedValueOnce(mockScore);
+
+    await handlePubSubMessage('signal-1');
+
+    expect(mockScoreSignal).toHaveBeenCalledWith(
+      'The app keeps crashing.',
+      expect.any(Array),
+      'direct',
+    );
   });
 });

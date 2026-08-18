@@ -132,6 +132,32 @@ resource "aws_iam_role_policy" "task_api" {
         Resource = "${aws_s3_bucket.raw.arn}/*"
       },
       {
+        # CRM connection tokens, one secret per tenant per provider.
+        #
+        # SCOPED BY NAME PREFIX, not `*`. These secrets grant standing access to a customer's
+        # commercial records, which makes them categorically more sensitive than the Apify or
+        # YouTube keys — a wildcard here would let the API read the database password and every
+        # other secret in the account, including any a co-tenant project puts there.
+        #
+        # The API creates them at connect time rather than Terraform, because they are per tenant
+        # and the value comes from an OAuth exchange. Terraform cannot pre-create a secret whose
+        # name depends on a tenant that does not exist yet — which is why this is a prefix grant
+        # rather than an enumerated list like the one above it.
+        #
+        # `DeleteSecret` is included for disconnect. It schedules deletion with a recovery window;
+        # the policy deliberately does NOT include `secretsmanager:DeleteSecret` with force, and
+        # nothing in the API passes `ForceDeleteWithoutRecovery`.
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:CreateSecret",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DeleteSecret",
+          "secretsmanager:DescribeSecret",
+        ]
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}-crm/*"
+      },
+      {
         # On-demand scans. The API publishes a request and ingestion consumes it — it cannot call
         # ingestion directly, which has no ingress at all. Send only: the API never reads or
         # deletes from this queue.

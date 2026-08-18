@@ -8,6 +8,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { accounts } from './accounts';
 import { brandEntities } from './brands';
 import { sourceConfigs } from './sourceConfigs';
 import { tenants } from './tenants';
@@ -64,6 +65,36 @@ export const signals = pgTable(
      * changed.
      */
     territory: varchar('territory', { length: 16 }).notNull().default('unknown'),
+    /**
+     * WHO WROTE THE WORDS: `direct` (the customer) or `reported` (an employee's account of what a
+     * customer said).
+     *
+     * **THIS IS A CORRECTNESS CONTROL, NOT A LABEL.** A Customer Success manager writes a note
+     * BECAUSE something needs attention, which makes CRM sentiment a work queue rather than a
+     * sample. It is structurally negative-biased, and that bias is not a flaw to correct — it is
+     * what the channel is for.
+     *
+     * Averaging it into the Brand Perception Index would drag the index down for reasons that have
+     * nothing to do with brand perception changing, and **nobody would be able to see why**,
+     * because the number would still look entirely plausible. That is the most expensive class of
+     * defect this project produces: a number that is wrong and looks right.
+     *
+     * So the index is computed over `direct` only, by default. `reported` is collected, scored,
+     * trended and drillable on its own terms, and can be included explicitly with a visible toggle
+     * that says what it changes.
+     *
+     * Every public source is `direct`, which is why that is the default — a column added for the
+     * CRM must not silently reclassify four hundred existing signals.
+     */
+    voice: varchar('voice', { length: 16 }).notNull().default('direct'),
+    /**
+     * The customer account this signal is about. Null for every public signal.
+     *
+     * `set null` on delete rather than cascade: removing an account from the CRM must not delete
+     * the evidence of what they said, for the same reason deleting a feed does not delete its
+     * signals. That history belongs to the brand.
+     */
+    accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'set null' }),
     sourceUrl: text('source_url').notNull(),
     rawStorageRef: text('raw_storage_ref').notNull(),
     /**

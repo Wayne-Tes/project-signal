@@ -7,6 +7,7 @@ import { BrandManager } from '@/components/BrandManager';
 import { ProductManager } from '@/components/ProductManager';
 import { ScanPanel } from '@/components/ScanPanel';
 import { UserManager } from '@/components/UserManager';
+import { CrmManager } from '@/components/CrmManager';
 
 type CreatedTenant = {
   status: string;
@@ -127,6 +128,7 @@ export function AdminView() {
       <ScanPanel />
       <ProductManager />
       <BrandManager />
+      <CrmManager />
       <UserManager />
     </div>
   );
