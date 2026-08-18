@@ -1181,7 +1181,7 @@ and passed as a Docker build arg by the deploy workflows — see
 | `WhatsChanged` | live    | **What moved**, over a 7/30/90-day window → `/whats-new`. Five panels: getting worse and getting better (sentiment), new subjects, more and less discussed (volume), plus a by-source table that keeps feeds which went silent. A `Newly collected` / `Newly published` toggle chooses the `basis`. Subjects open the drill-down via `nav.openTopic`, which — unlike `openCluster` — inserts no dimension level, because there isn't one to name. |
 | `Roadmap`     | live     | **What to fix, what it is worth, what you are aiming at.** Target with stated provenance, gap, measured benchmarks, and per action a matched play with concrete steps plus the `ifResolved` ceiling → `/roadmap`. Admins can set or clear the target inline. |
 | `VoiceOfCustomer` | live | What Sales and CS hear directly → `/voice-of-customer`. Ranked by accounts × band, with the corroboration panel. Empty until a CRM connector exists, and it says which kind of empty. |
-| `Report`      | **mock** | Print-styled weekly report. Epic 12.                                                                                                             |
+| `Report`      | live     | Print-styled weekly report → `/score`, `/dimension-scores`, `/brand-impact`, `/stats`, all territory-aware. **The view is real; what Epic 12 still owes is the PDF render and the email delivery**, not the page. |
 | `Admin`       | live     | Tenant creation, `BrandManager`, `UserManager`                                                                                                   |
 
 ### The territory lens
