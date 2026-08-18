@@ -100,6 +100,13 @@ jobs:
       - name: Guard unit tests
         run: bash infra-aws/scripts/test/guard.test.sh
 
+      # A route the ALB does not forward is served by the web app and 404s, and every other
+      # signal — build, plan, rollout, health check, API log — stays green while it does. This
+      # has shipped twice (/assistant*, /crm*), so it is checked here rather than discovered in
+      # a browser. Pure text comparison: no AWS call, no credentials.
+      - name: Every API route prefix must be reachable through the ALB
+        run: bash infra-aws/scripts/test/alb-routes.test.sh
+
       - name: Every AWS-calling script must source the account guard
         run: |
           fail=0

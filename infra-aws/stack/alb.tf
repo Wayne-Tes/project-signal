@@ -138,6 +138,35 @@ resource "aws_lb_listener_rule" "api_app" {
   }
 }
 
+# The growth rule. `/crm*` was added 2026-08-18 with the CRM connection manager, and it went in
+# HERE rather than alongside `/admin*` because that rule was already carrying four of its five
+# permitted values — the note above exists precisely so that the fifth route is an edit rather
+# than a refactor, and packing it to the cap would have spent that headroom on the first route to
+# need it.
+#
+# This is the third time this class of defect has shipped: `/assistant*` in August, and now
+# `/crm*`, which deployed green — task definitions replaced, rollout COMPLETED, four services
+# healthy — while every CRM endpoint returned 404 from the WEB target group. Nothing in ECS,
+# Terraform or the API logs reports it, because from their side nothing is wrong. The only thing
+# that catches it is asking the load balancer for the route.
+#
+# ADD NEW TOP-LEVEL API PREFIXES HERE until this rule holds four, then start another.
+resource "aws_lb_listener_rule" "api_crm" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 105
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app["api"].arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/crm*"]
+    }
+  }
+}
+
 # Health and readiness kept in their own rule: they are the endpoints most likely to be probed
 # by something other than the dashboard, and separating them keeps the app-route rule free to
 # grow.
