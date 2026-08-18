@@ -34,22 +34,32 @@
 > purely additive, and the rollout could not have reported `COMPLETED` had it failed, because the
 > API migrates before it listens and the deployment circuit breaker rolls back an unhealthy task.
 >
-> **`/crm/*` returns 404 through the load balancer.** The ALB forwards only `/admin*`,
-> `/assistant*`, `/brands*` and `/docs*` to the API; everything else falls through to the web
-> target group. Verified against the deployed ALB: `/brands`, `/brands/:id/roadmap`,
-> `/brands/:id/whats-new`, `/brands/:id/voice-of-customer` and `/admin/users` all return 401 —
-> reaching the API, auth required — while `/crm/connections` alone returns 404 and never appears
-> in the API log at all. **This is the second occurrence of this defect** (`/assistant*` was the
+> **`/crm/*` returned 404 through the load balancer, and was fixed the same day.** The ALB
+> forwarded only `/admin*`, `/assistant*`, `/brands*` and `/docs*` to the API; everything else
+> fell through to the web target group. Verified against the deployed ALB at the time: `/brands`,
+> `/brands/:id/roadmap`, `/brands/:id/whats-new`, `/brands/:id/voice-of-customer` and
+> `/admin/users` all returned 401 — reaching the API, auth required — while `/crm/connections`
+> alone returned 404. **It was the second occurrence of this defect** (`/assistant*` was the
 > first, 2026-08-09) and `alb.tf` already carried a comment predicting it.
 >
-> The fix and a CI check that makes it unshippable are in **PR #32, open and not yet applied**
-> — `infra-aws/stack` deliberately still matches `main`, because applying from a branch would
-> leave state describing a rule `main` does not, and the next plan from `main` would then propose
-> removing it and silently re-break CRM. Apply after merge with `-var="image_tag=ef93031"`.
+> `aws_lb_listener_rule.api_crm` (priority 105, `/crm*`) was applied 2026-08-18 — 1 added, 0
+> changed, 0 destroyed. `/crm/connections` and `/crm/connections/:id` now return 401 like every
+> other authenticated route, and a follow-up plan reports **no changes**, so state and `main`
+> agree. The rule went in at 105 rather than into `api_app`, which was already holding four of
+> the five values AWS permits per rule.
 >
-> The build-and-push step is now a script rather than a recollection — `20-build-push.sh`, **PR
-> #31, also awaiting merge.** Until both land, `main` does not contain the procedure that produced
-> the running system.
+> **A rule takes a few seconds to propagate.** The first probe after the apply still returned 404,
+> which reads exactly like the fix having failed. It had not — the request was already reaching
+> the API by then, which the log confirmed. Re-probe before concluding anything.
+>
+> **`infra-aws/scripts/test/alb-routes.test.sh` now makes this class of defect unshippable.** It
+> compares every top-level prefix the API registers against every `path_pattern` in `alb.tf` and
+> fails if one is uncovered — no AWS call, no credentials. CI runs it beside the guard tests. It
+> was confirmed to fail on the pre-fix file, naming `/crm` exactly.
+>
+> The build-and-push step is a script rather than a recollection — `infra-aws/scripts/20-build-push.sh`.
+> It refuses a dirty tree, refuses a tag already in ECR, and reads the three `NEXT_PUBLIC_*` values
+> from `terraform output` so the web bundle cannot be built against the wrong stack.
 >
 > ### The three things most likely to mislead you
 >
