@@ -398,6 +398,21 @@ The panel sits behind `AuthGate`, and signing in needs a real Identity Platform 
 is gated on **#16**, not on the build. DEVRULES requires UI work to be exercised as a real user
 before it is complete.
 
+> **Update 2026-08-18.** #16 is closed — the environment exists — so this is no longer blocked on
+> anything but a browser pass. `apps/web/e2e/users.spec.ts` now exists and *is* that pass. It
+> asserts the **role model** rather than layout, because that is where being wrong costs: chiefly
+> that `owner` is never offered as an assignable role, on the new-user form or on any existing
+> row. The API rejects that escalation, but a UI that *offers* it turns a 403 into a support
+> ticket — and teaches whoever clicked it that the product is unreliable rather than that the
+> action is forbidden.
+>
+> It also pins that the brand pin defaults to no pin. Defaulting to a brand would quietly confine
+> every new user to whichever sorted first, visible only when they report that half the product is
+> missing.
+>
+> **Run `bash apps/web/e2e/run-docker.sh` against the deployed environment to close this.** It
+> could not be run in the session that wrote it — the AWS SSO token expired.
+
 ---
 
 ## 13. ✅ Dashboard views on mock data — **resolved (2026-08-09), `lib/data.ts` deleted**
