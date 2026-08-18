@@ -1,5 +1,6 @@
 import {
   Activity,
+  Handshake,
   BarChart3,
   BookOpen,
   FileText,
@@ -29,6 +30,7 @@ export type ViewId =
   | 'trends'
   | 'brand-impact'
   | 'whats-changed'
+  | 'voice-of-customer'
   | 'roadmap'
   | 'competitors'
   | 'report'
@@ -67,6 +69,15 @@ const NAV: NavDef[] = [
     label: "What's changed",
     group: 'Intelligence',
     icon: <Activity {...ICON} />,
+  },
+  /* Its own item, not a filter on another view: this channel is measured differently and kept
+     out of the index entirely. Burying it inside Brand impact would invite exactly the
+     comparison it must not support. */
+  {
+    id: 'voice-of-customer',
+    label: 'Voice of the customer',
+    group: 'Intelligence',
+    icon: <Handshake {...ICON} />,
   },
   {
     id: 'roadmap',

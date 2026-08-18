@@ -53,3 +53,11 @@ export {
   type Target,
   type TargetSource,
 } from './target.js';
+
+export {
+  corroborate,
+  rankByExposure,
+  type Corroborated,
+  type ExposureItem,
+  type ExposureRank,
+} from './exposure.js';

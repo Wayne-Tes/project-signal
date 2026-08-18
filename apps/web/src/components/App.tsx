@@ -17,6 +17,7 @@ import { TrendsView } from '@/views/Trends';
 import { BrandImpactView } from '@/views/BrandImpact';
 import { RoadmapView } from '@/views/Roadmap';
 import { WhatsChangedView } from '@/views/WhatsChanged';
+import { VoiceOfCustomerView } from '@/views/VoiceOfCustomer';
 import { CompetitorsView } from '@/views/Competitors';
 import { ReportView } from '@/views/Report';
 import { AdminView } from '@/views/Admin';
@@ -265,6 +266,7 @@ export function App() {
         {activeView === 'trends' && <TrendsView nav={drill} />}
         {activeView === 'brand-impact' && <BrandImpactView nav={drill} />}
         {activeView === 'whats-changed' && <WhatsChangedView nav={drill} />}
+        {activeView === 'voice-of-customer' && <VoiceOfCustomerView nav={drill} />}
         {activeView === 'roadmap' && <RoadmapView nav={drill} />}
         {activeView === 'competitors' && <CompetitorsView />}
         {activeView === 'report' && <ReportView />}
