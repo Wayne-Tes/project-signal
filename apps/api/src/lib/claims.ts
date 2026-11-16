@@ -48,7 +48,7 @@ function client(): CognitoIdentityProviderClient {
  * lifetime, or immediately on re-authentication. This matches the Firebase behaviour it
  * replaces and is why the `users` table exists as a mirror at all.
  *
- * @param sub The Cognito subject id — the `sub` claim, stored as `users.firebase_uid`. The
+ * @param sub The Cognito subject id — the `sub` claim, stored as `users.cognito_sub`. The
  *            column keeps its historical name until a migration renames it; the value is the
  *            provider's stable subject either way.
  */

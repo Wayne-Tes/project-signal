@@ -24,6 +24,23 @@ export const ID_PARAMS = {
 export const DATE = { type: 'string', format: 'date' } as const;
 
 /**
+ * The one error shape every route returns: `@fastify/sensible`'s `{ statusCode, error, message }`,
+ * where `message` is the sentence a person reads and `error` is the HTTP reason phrase.
+ *
+ * Declare it on any route that lists error statuses in its `response` schema:
+ * fast-json-stringify strips undeclared properties, so an error schema missing `message`
+ * silently delivers a bare "Bad Request" with the explanation removed.
+ */
+export const ERROR_RESPONSE = {
+  type: 'object',
+  properties: {
+    statusCode: { type: 'integer' },
+    error: { type: 'string' },
+    message: { type: 'string' },
+  },
+} as const;
+
+/**
  * Postgres SQLSTATEs that are the CLIENT's fault, and the status they deserve.
  *
  * Schema validation catches nearly all of these before a query runs. This is the second line:

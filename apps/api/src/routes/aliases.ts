@@ -53,7 +53,7 @@ export async function aliasesRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: BrandParams }>(
     '/brands/:id/aliases',
     { preHandler: GUARDS, schema: { params: ID_PARAMS } },
-    async (request, reply) => {
+    async (request) => {
       const tenantId = request.user.tenantId;
       const { id: brandEntityId } = request.params;
 
@@ -65,7 +65,7 @@ export async function aliasesRoutes(fastify: FastifyInstance): Promise<void> {
           and(eq(brandAliases.tenantId, tenantId), eq(brandAliases.brandEntityId, brandEntityId)),
         );
 
-      return reply.status(200).send({ status: 'ok', data: rows });
+      return rows;
     },
   );
 
@@ -81,7 +81,7 @@ export async function aliasesRoutes(fastify: FastifyInstance): Promise<void> {
          this an admin could attach an alias to another tenant's brand by pasting its id — and
          aliases drive mention matching, so it would quietly change how that brand is read. */
       if (!(await brandInTenant(tenantId, brandEntityId))) {
-        return reply.status(404).send({ status: 'error', error: 'brand not found' });
+        return reply.notFound('Brand not found');
       }
 
       const [row] = await db
@@ -92,10 +92,10 @@ export async function aliasesRoutes(fastify: FastifyInstance): Promise<void> {
         .returning();
 
       if (!row) {
-        return reply.status(409).send({ status: 'error', error: 'alias already exists' });
+        return reply.conflict('That alias already exists for this brand.');
       }
 
-      return reply.status(201).send({ status: 'ok', data: row });
+      return reply.status(201).send(row);
     },
   );
 
@@ -119,10 +119,10 @@ export async function aliasesRoutes(fastify: FastifyInstance): Promise<void> {
         .returning();
 
       if (!row) {
-        return reply.status(404).send({ status: 'error', error: 'alias not found' });
+        return reply.notFound('Alias not found');
       }
 
-      return reply.status(200).send({ status: 'ok', data: row });
+      return row;
     },
   );
 }

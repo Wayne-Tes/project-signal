@@ -101,8 +101,9 @@ export const scanRoutes: FastifyPluginAsync = async (fastify) => {
           409: {
             type: 'object',
             properties: {
-              status: { type: 'string' },
+              statusCode: { type: 'number' },
               error: { type: 'string' },
+              message: { type: 'string' },
               run: {
                 type: 'object',
                 properties: {
@@ -152,8 +153,9 @@ export const scanRoutes: FastifyPluginAsync = async (fastify) => {
         /* 409, not 429: this is not rate limiting, it is "that already exists and is running".
            The existing run is returned so the UI can show its progress rather than an error. */
         return reply.code(409).send({
-          status: 'error',
-          error: 'A scan is already in progress for this brand.',
+          statusCode: 409,
+          error: 'Conflict',
+          message: 'A scan is already in progress for this brand.',
           run: recent,
         });
       }

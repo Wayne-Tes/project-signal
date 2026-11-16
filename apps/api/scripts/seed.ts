@@ -6,7 +6,7 @@
  * and three LOCAL USERS — one per role — for AUTH_MODE=local sign-in.
  *
  * **Idempotent.** Tenants, aliases and users are `onConflictDoNothing` on their unique
- * constraints (tenants.slug, brand_aliases (brand,alias), users.firebase_uid). Brands and source
+ * constraints (tenants.slug, brand_aliases (brand,alias), users.cognito_sub). Brands and source
  * configs have no unique constraint — source_configs deliberately, since a brand may carry many
  * feeds of one type — so both are looked up before insert. Re-running it never duplicates a row.
  *
@@ -25,7 +25,7 @@ import {
 } from '@project-signal/db';
 
 /**
- * Local sign-in identities (AUTH_MODE=local). The username is the `users.firebase_uid` value,
+ * Local sign-in identities (AUTH_MODE=local). The username is the `users.cognito_sub` value,
  * which in a deployed environment holds a Cognito `sub`; here it is a readable name. All three
  * sign in with LOCAL_AUTH_PASSWORD from the repo-root .env.
  */
@@ -154,7 +154,7 @@ async function main(): Promise<void> {
     .insert(users)
     .values(
       LOCAL_USERS.map((u) => ({
-        firebaseUid: u.username,
+        cognitoSub: u.username,
         tenantId: tenant.id,
         role: u.role,
         brandEntityId: u.pinned ? brand.id : null,

@@ -18,7 +18,7 @@ vi.mock('@project-signal/db', () => {
   return {
     db: { get: vi.fn(() => chain) },
     users: {
-      firebaseUid: 'firebase_uid',
+      cognitoSub: 'cognito_sub',
       role: 'role',
       tenantId: 'tenant_id',
       brandEntityId: 'brand_entity_id',
@@ -63,7 +63,7 @@ describe('POST /auth/local/sign-in', () => {
   });
 
   it("issues a token carrying the user row's role, tenant and pin", async () => {
-    _rows = [{ firebaseUid: 'local-user', role: 'user', tenantId: TENANT, brandEntityId: BRAND }];
+    _rows = [{ cognitoSub: 'local-user', role: 'user', tenantId: TENANT, brandEntityId: BRAND }];
     const app = await build();
     const res = await signIn(app, { username: 'local-user', password: PASSWORD });
 
@@ -86,7 +86,7 @@ describe('POST /auth/local/sign-in', () => {
   });
 
   it('issues an unpinned token for an unpinned user', async () => {
-    _rows = [{ firebaseUid: 'local-owner', role: 'owner', tenantId: TENANT, brandEntityId: null }];
+    _rows = [{ cognitoSub: 'local-owner', role: 'owner', tenantId: TENANT, brandEntityId: null }];
     const app = await build();
     const body = JSON.parse(
       (await signIn(app, { username: 'local-owner', password: PASSWORD })).body,
@@ -97,15 +97,15 @@ describe('POST /auth/local/sign-in', () => {
     });
   });
 
-  it('looks the user up by username (users.firebase_uid)', async () => {
-    _rows = [{ firebaseUid: 'local-admin', role: 'admin', tenantId: TENANT, brandEntityId: null }];
+  it('looks the user up by username (users.cognito_sub)', async () => {
+    _rows = [{ cognitoSub: 'local-admin', role: 'admin', tenantId: TENANT, brandEntityId: null }];
     const app = await build();
     await signIn(app, { username: 'local-admin', password: PASSWORD });
     expect(JSON.stringify(_where)).toContain('local-admin');
   });
 
   it('refuses a wrong password with a generic 401', async () => {
-    _rows = [{ firebaseUid: 'local-owner', role: 'owner', tenantId: TENANT, brandEntityId: null }];
+    _rows = [{ cognitoSub: 'local-owner', role: 'owner', tenantId: TENANT, brandEntityId: null }];
     const app = await build();
     const res = await signIn(app, { username: 'local-owner', password: 'wrong-password' });
     expect(res.statusCode).toBe(401);
@@ -117,7 +117,7 @@ describe('POST /auth/local/sign-in', () => {
     _rows = [];
     const app = await build();
     const unknown = await signIn(app, { username: 'nobody', password: PASSWORD });
-    _rows = [{ firebaseUid: 'local-owner', role: 'owner', tenantId: TENANT, brandEntityId: null }];
+    _rows = [{ cognitoSub: 'local-owner', role: 'owner', tenantId: TENANT, brandEntityId: null }];
     const wrong = await signIn(app, { username: 'local-owner', password: 'nope-nope-nope' });
 
     expect(unknown.statusCode).toBe(401);
@@ -126,7 +126,7 @@ describe('POST /auth/local/sign-in', () => {
   });
 
   it('refuses a row whose role is not one the system knows', async () => {
-    _rows = [{ firebaseUid: 'odd', role: 'superuser', tenantId: TENANT, brandEntityId: null }];
+    _rows = [{ cognitoSub: 'odd', role: 'superuser', tenantId: TENANT, brandEntityId: null }];
     const app = await build();
     expect((await signIn(app, { username: 'odd', password: PASSWORD })).statusCode).toBe(401);
   });
@@ -136,7 +136,7 @@ describe('POST /auth/local/sign-in', () => {
     ['a missing password', { username: 'local-owner' }],
     ['an extra field', { username: 'local-owner', password: PASSWORD, role: 'owner' }],
   ])('validates the body: %s', async (_label, payload) => {
-    _rows = [{ firebaseUid: 'local-owner', role: 'owner', tenantId: TENANT, brandEntityId: null }];
+    _rows = [{ cognitoSub: 'local-owner', role: 'owner', tenantId: TENANT, brandEntityId: null }];
     const app = await build();
     const res = await signIn(app, payload);
     // The extra field is stripped (not a 400) — what matters is it cannot choose the role.

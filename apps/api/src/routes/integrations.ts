@@ -115,7 +115,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
       preHandler: GUARDS,
       schema: { params: ID_PARAMS },
     },
-    async (request, reply) => {
+    async (request) => {
       const tenantId = request.user.tenantId;
       const { id: brandEntityId } = request.params;
 
@@ -126,7 +126,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
           and(eq(sourceConfigs.tenantId, tenantId), eq(sourceConfigs.brandEntityId, brandEntityId)),
         );
 
-      return reply.status(200).send({ status: 'ok', data: rows });
+      return rows;
     },
   );
 
@@ -151,10 +151,9 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
          the person who configured it, so the only symptom was a source that silently produced
          no signals, which is indistinguishable from nobody talking about the brand. */
       if (!isCollectingSource(source)) {
-        return reply.status(400).send({
-          status: 'error',
-          error: `No collector exists for source '${source}'. Available: ${COLLECTING_SOURCES.join(', ')}.`,
-        });
+        return reply.badRequest(
+          `No collector exists for source '${source}'. Available: ${COLLECTING_SOURCES.join(', ')}.`,
+        );
       }
       /* Refused rather than stored, for the same reason a source with no collector is refused
          (KNOWN-GAPS #24): a feed filed under the wrong territory produces reporting that is
@@ -165,10 +164,9 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
          what must not happen. */
       const resolvedTerritory = territory === undefined ? 'unknown' : normaliseTerritory(territory);
       if (resolvedTerritory === null) {
-        return reply.status(400).send({
-          status: 'error',
-          error: `Unrecognised territory '${territory}'. Use an ISO 3166-1 alpha-2 code, GLOBAL, or unknown. Valid: ${TERRITORIES.join(', ')}.`,
-        });
+        return reply.badRequest(
+          `Unrecognised territory '${territory}'. Use an ISO 3166-1 alpha-2 code, GLOBAL, or unknown. Valid: ${TERRITORIES.join(', ')}.`,
+        );
       }
 
       /* The brand must be the caller's. The insert stamps the CALLER's tenant with the URL's
@@ -176,7 +174,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
          pasting its id, and collection would then write signals against it. After input
          validation, so a malformed request is a 400 without touching the database. */
       if (!(await brandInTenant(tenantId, brandEntityId))) {
-        return reply.status(404).send({ status: 'error', error: 'brand not found' });
+        return reply.notFound('Brand not found');
       }
 
       /* An EXACT duplicate is refused, a different one of the same type is not.
@@ -198,11 +196,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
 
       const duplicate = existing.find((row) => sameConfig(row.config, config));
       if (duplicate) {
-        return reply.status(409).send({
-          status: 'error',
-          error: 'This exact feed is already configured for this brand.',
-          data: { id: duplicate.id },
-        });
+        return reply.conflict('This exact feed is already configured for this brand.');
       }
 
       const [row] = await database
@@ -220,7 +214,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
 
       /* 201, not 200. This creates a feed every time now — there is no upsert path left, and a
          200 would go on implying that repeating the call is idempotent when it is not. */
-      return reply.status(201).send({ status: 'ok', data: row });
+      return reply.status(201).send(row);
     },
   );
 
@@ -248,10 +242,9 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
       if (territory !== undefined) {
         const resolved = normaliseTerritory(territory);
         if (resolved === null) {
-          return reply.status(400).send({
-            status: 'error',
-            error: `Unrecognised territory '${territory}'. Use an ISO 3166-1 alpha-2 code, GLOBAL, or unknown. Valid: ${TERRITORIES.join(', ')}.`,
-          });
+          return reply.badRequest(
+            `Unrecognised territory '${territory}'. Use an ISO 3166-1 alpha-2 code, GLOBAL, or unknown. Valid: ${TERRITORIES.join(', ')}.`,
+          );
         }
         updates.territory = resolved;
       }
@@ -276,10 +269,10 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
         .returning();
 
       if (!row) {
-        return reply.status(404).send({ status: 'error', error: 'integration not found' });
+        return reply.notFound('Integration not found');
       }
 
-      return reply.status(200).send({ status: 'ok', data: row });
+      return row;
     },
   );
 
@@ -318,10 +311,10 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
         .returning();
 
       if (!row) {
-        return reply.status(404).send({ status: 'error', error: 'integration not found' });
+        return reply.notFound('Integration not found');
       }
 
-      return reply.status(200).send({ status: 'ok', data: row });
+      return row;
     },
   );
 
@@ -344,7 +337,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
   fastify.get<{ Params: BrandParams }>(
     '/brands/:id/integrations/stats',
     { preHandler: GUARDS, schema: { params: ID_PARAMS } },
-    async (request, reply) => {
+    async (request) => {
       const tenantId = request.user.tenantId;
       const { id: brandEntityId } = request.params;
 
@@ -372,7 +365,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
           sourceConfigs.lastFetchedAt,
         );
 
-      return reply.status(200).send({ status: 'ok', data: rows });
+      return rows;
     },
   );
 }

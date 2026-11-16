@@ -103,7 +103,7 @@ describe('POST /crm/connections', () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toContain('hubspot');
+    expect(JSON.parse(res.body).message).toContain('hubspot');
     expect(mockWrite).not.toHaveBeenCalled();
   });
 
@@ -121,7 +121,7 @@ describe('POST /crm/connections', () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toMatch(/instanceUrl/);
+    expect(JSON.parse(res.body).message).toMatch(/instanceUrl/);
     expect(mockWrite).not.toHaveBeenCalled();
   });
 

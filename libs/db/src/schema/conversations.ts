@@ -16,9 +16,8 @@ import { tenants } from './tenants';
  * therefore filtered on every query, and the composite index below exists to make that the
  * cheap path rather than the diligent one.
  *
- * `userId` is the identity-provider subject (Cognito `sub`), matching `users.firebase_uid` —
- * the column name is a leftover from Firebase and is KNOWN-GAPS #25, not a claim about the
- * provider.
+ * `userId` is the identity-provider subject (Cognito `sub`), matching `users.cognito_sub`
+ * (or a local username in AUTH_MODE=local).
  */
 export const conversations = pgTable(
   'conversations',

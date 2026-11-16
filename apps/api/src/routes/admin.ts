@@ -13,7 +13,7 @@ import { setUserClaims } from '../lib/claims.js';
 interface CreateTenantBody {
   tenantName: string;
   brandName: string;
-  adminFirebaseUid: string;
+  adminCognitoSub: string;
 }
 
 function toSlug(name: string): string {
@@ -32,25 +32,24 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         security: [{ BearerAuth: [] }],
         body: {
           type: 'object',
-          required: ['tenantName', 'brandName', 'adminFirebaseUid'],
+          required: ['tenantName', 'brandName', 'adminCognitoSub'],
           additionalProperties: false,
           properties: {
             tenantName: { type: 'string', minLength: 1, maxLength: 200 },
             brandName: { type: 'string', minLength: 1, maxLength: 200 },
-            /* The Cognito `sub` of the tenant's first admin. Named for the column it lands in
-               (`users.firebase_uid`, KNOWN-GAPS #25) rather than for the provider. */
-            adminFirebaseUid: { type: 'string', minLength: 1, maxLength: 128 },
+            /* The Cognito `sub` of the tenant's first admin (`users.cognito_sub`). */
+            adminCognitoSub: { type: 'string', minLength: 1, maxLength: 128 },
           },
         },
       },
     },
     async (request, reply) => {
-      const { tenantName, brandName, adminFirebaseUid } = request.body;
+      const { tenantName, brandName, adminCognitoSub } = request.body;
 
       /* An owner naming THEMSELVES as the new tenant's admin would have their claims rewritten
          to `role: admin` in the new tenant by the claims call below — silently demoting the only
          identity able to create tenants at all. Refused; an owner provisions someone else. */
-      if (adminFirebaseUid === request.user.uid) {
+      if (adminCognitoSub === request.user.uid) {
         return reply.badRequest(
           'You cannot make yourself the new tenant’s admin: that would replace your owner access. Name another user.',
         );
@@ -77,19 +76,19 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
 
         const [user] = await tx
           .insert(users)
-          .values({ firebaseUid: adminFirebaseUid, tenantId: tenant!.id, role: 'admin' })
+          .values({ cognitoSub: adminCognitoSub, tenantId: tenant!.id, role: 'admin' })
           .returning();
 
         // This flow created the row but never set claims, so the new tenant admin could not
         // authorise a single request — authz reads claims, not this table (KNOWN-GAPS #18).
         // Inside the transaction, so a Cognito failure rolls back the whole tenant rather
         // than leaving a tenant whose only admin cannot sign in to it.
-        await setUserClaims(adminFirebaseUid, { role: 'admin', tenantId: tenant!.id });
+        await setUserClaims(adminCognitoSub, { role: 'admin', tenantId: tenant!.id });
 
         return { tenant, brand, user };
       });
 
-      return reply.status(201).send({ status: 'ok', data: result });
+      return reply.status(201).send(result);
     },
   );
 }

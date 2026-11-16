@@ -4,7 +4,7 @@ import { CRM_PROVIDERS, isCrmProvider } from '@project-signal/shared-types';
 import { and, eq } from 'drizzle-orm';
 import { requireRole } from '../plugins/auth.js';
 import { deleteTokens, writeTokens, type CrmTokens } from '../lib/crm-secrets.js';
-import { ID_PARAMS } from '../lib/http.js';
+import { ERROR_RESPONSE, ID_PARAMS } from '../lib/http.js';
 
 /**
  * CRM connections — the plumbing, deliberately stopping short of a connector.
@@ -128,10 +128,7 @@ const crmRoutes: FastifyPluginAsync = async (fastify) => {
           201: CONNECTION_SCHEMA,
           /* Declared, or Fastify's typed reply refuses the 400 branch — and an undeclared error
              shape is also stripped by fast-json-stringify, so the message never reaches the UI. */
-          400: {
-            type: 'object',
-            properties: { status: { type: 'string' }, error: { type: 'string' } },
-          },
+          400: ERROR_RESPONSE,
         },
       },
     },
@@ -147,20 +144,16 @@ const crmRoutes: FastifyPluginAsync = async (fastify) => {
       const tenantId = request.user.tenantId;
 
       if (!isCrmProvider(body.provider)) {
-        return reply.status(400).send({
-          status: 'error',
-          error: `Unknown CRM '${body.provider}'. Supported: ${CRM_PROVIDERS.join(', ')}.`,
-        });
+        return reply.badRequest(
+          `Unknown CRM '${body.provider}'. Supported: ${CRM_PROVIDERS.join(', ')}.`,
+        );
       }
 
       /* Salesforce is per-instance and HubSpot is not. A missing instance URL for Salesforce would
          send every request to the wrong org — which looks like it worked, returns data, and
          attributes another company's records to this tenant. Refused rather than defaulted. */
       if (body.provider === 'salesforce' && !body.instanceUrl?.trim()) {
-        return reply.status(400).send({
-          status: 'error',
-          error: 'Salesforce requires an instanceUrl — the org-specific API host.',
-        });
+        return reply.badRequest('Salesforce requires an instanceUrl — the org-specific API host.');
       }
 
       const tokens: CrmTokens = {

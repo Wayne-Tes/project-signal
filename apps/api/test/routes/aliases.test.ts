@@ -69,9 +69,8 @@ describe('GET /brands/:id/aliases', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.status).toBe('ok');
-    expect(body.data).toHaveLength(1);
-    expect(body.data[0].alias).toBe('CDN');
+    expect(body).toHaveLength(1);
+    expect(body[0].alias).toBe('CDN');
   });
 
   it('returns 403 for user role', async () => {
@@ -98,7 +97,7 @@ describe('POST /brands/:id/aliases', () => {
       payload: { alias: 'CDN' },
     });
     expect(res.statusCode).toBe(201);
-    expect(JSON.parse(res.body).data.alias).toBe('CDN');
+    expect(JSON.parse(res.body).alias).toBe('CDN');
   });
 
   it('returns 400 when alias is missing or blank', async () => {

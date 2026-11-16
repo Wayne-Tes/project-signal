@@ -67,7 +67,7 @@ const CLAIM_BRAND = 'custom:brandEntityId';
  * row — which is the intended behaviour: a tenant-less owner can see nothing until they create
  * a tenant.
  */
-const NO_TENANT = '00000000-0000-0000-0000-000000000000';
+export const NO_TENANT = '00000000-0000-0000-0000-000000000000';
 
 /**
  * Builds a local-mode token: `dev:<role>:<tenantId>[:<brandEntityId>][:<uid>]`.

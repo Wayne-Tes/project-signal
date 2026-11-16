@@ -60,7 +60,7 @@ import usersRoutes from '../../src/routes/users.js';
 const now = new Date();
 const user1 = {
   id: 'a1111111-1111-4111-8111-111111111111',
-  firebaseUid: 'fb-1',
+  cognitoSub: 'fb-1',
   tenantId: '11111111-1111-4111-8111-111111111111',
   role: 'user',
   brandEntityId: 'b1111111-1111-4111-8111-111111111111',
@@ -82,15 +82,14 @@ beforeEach(() => {
 });
 
 describe('POST /admin/users', () => {
-  it('creates a user and sets Firebase custom claims', async () => {
+  it('creates a user and sets its identity-provider claims', async () => {
     _dbRows = [user1];
     const app = await buildTestApp(usersRoutes, DEFAULT_OWNER);
     const res = await app.inject({
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb-1',
-        email: 'user@example.com',
+        cognitoSub: 'fb-1',
         role: 'user',
         tenantId: '11111111-1111-4111-8111-111111111111',
         brandEntityId: 'b1111111-1111-4111-8111-111111111111',
@@ -111,8 +110,7 @@ describe('POST /admin/users', () => {
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb',
-        email: 'x@y.com',
+        cognitoSub: 'fb',
         role: 'user',
         tenantId: '11111111-1111-4111-8111-111111111111',
       },
@@ -126,8 +124,7 @@ describe('POST /admin/users', () => {
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb',
-        email: 'x@y.com',
+        cognitoSub: 'fb',
         role: 'user',
         tenantId: '22222222-2222-4222-8222-222222222222',
       },
@@ -141,8 +138,7 @@ describe('POST /admin/users', () => {
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb',
-        email: 'x@y.com',
+        cognitoSub: 'fb',
         role: 'owner',
         tenantId: '11111111-1111-4111-8111-111111111111',
       },
@@ -157,11 +153,72 @@ describe('POST /admin/users', () => {
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb',
-        email: 'x@y.com',
+        cognitoSub: 'fb',
         role: 'owner',
         tenantId: '99999999-9999-4999-8999-999999999999',
       },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+
+  /* The tenant comes from the CALLER. The UI used to send `users[0]?.tenantId`, which was the
+     empty string for a tenant with no users yet, so the first user could never be provisioned
+     from the panel. */
+  it('places an admin’s new user in the admin’s own tenant when none is named', async () => {
+    _dbRows = [user1];
+    const app = await buildTestApp(usersRoutes, ADMIN_T1);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/users',
+      payload: { cognitoSub: 'fb-new', role: 'user' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(mockSetCustomUserClaims).toHaveBeenCalledWith('fb-new', {
+      role: 'user',
+      tenantId: ADMIN_T1.tenantId,
+      brandEntityId: undefined,
+    });
+  });
+
+  it('defaults an owner to their own tenant when none is named', async () => {
+    _dbRows = [user1];
+    const app = await buildTestApp(usersRoutes, DEFAULT_OWNER);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/users',
+      payload: { cognitoSub: 'fb-new', role: 'admin' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(mockSetCustomUserClaims).toHaveBeenCalledWith('fb-new', {
+      role: 'admin',
+      tenantId: DEFAULT_OWNER.tenantId,
+      brandEntityId: undefined,
+    });
+  });
+
+  it('makes a tenant-less owner name the tenant, rather than writing the nil uuid', async () => {
+    const app = await buildTestApp(usersRoutes, {
+      uid: 'platform-owner',
+      role: 'owner',
+      tenantId: '00000000-0000-0000-0000-000000000000',
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/users',
+      payload: { cognitoSub: 'fb-new', role: 'user' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).message).toMatch(/tenantId/);
+    expect(mockSetCustomUserClaims).not.toHaveBeenCalled();
+  });
+
+  it('requires no email, and ignores one if sent (nothing stores it)', async () => {
+    _dbRows = [user1];
+    const app = await buildTestApp(usersRoutes, ADMIN_T1);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/users',
+      payload: { cognitoSub: 'fb-new', role: 'user', email: 'x@y.com' },
     });
     expect(res.statusCode).toBe(201);
   });
@@ -176,8 +233,7 @@ describe('POST /admin/users', () => {
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb',
-        email: 'x@y.com',
+        cognitoSub: 'fb',
         role: 'user',
         tenantId: '11111111-1111-4111-8111-111111111111',
       },
@@ -225,7 +281,7 @@ describe('PATCH /admin/users/:id', () => {
 
   it('forbids an admin from escalating themselves to owner', async () => {
     _dbRowQueue.push([
-      { ...user1, id: '5e1f0000-0000-4000-8000-00000000005e', firebaseUid: 'admin-uid' },
+      { ...user1, id: '5e1f0000-0000-4000-8000-00000000005e', cognitoSub: 'admin-uid' },
     ]);
     const app = await buildTestApp(usersRoutes, ADMIN_T1);
     const res = await app.inject({
@@ -287,15 +343,15 @@ describe('PATCH /admin/users/:id', () => {
 /**
  * THE MASS-ASSIGNMENT DEFECT. The handler spread the request body into the UPDATE, and the body
  * schema did not forbid extra keys — so an admin could PATCH their own row with another tenant's
- * id and be handed admin claims there, or point `firebaseUid` at someone else's identity and
+ * id and be handed admin claims there, or point `cognitoSub` at someone else's identity and
  * overwrite that person's claims.
  */
 describe('PATCH /admin/users/:id — only role and brand pin are writable', () => {
   const OTHER_TENANT = '22222222-2222-4222-8222-222222222222';
 
-  it('never writes tenantId, firebaseUid, id or timestamps from the body', async () => {
-    _dbRowQueue.push([{ ...user1, firebaseUid: 'admin-uid' }]);
-    _dbRowQueue.push([{ ...user1, firebaseUid: 'admin-uid', role: 'admin' }]);
+  it('never writes tenantId, cognitoSub, id or timestamps from the body', async () => {
+    _dbRowQueue.push([{ ...user1, cognitoSub: 'admin-uid' }]);
+    _dbRowQueue.push([{ ...user1, cognitoSub: 'admin-uid', role: 'admin' }]);
     const app = await buildTestApp(usersRoutes, ADMIN_T1);
     const res = await app.inject({
       method: 'PATCH',
@@ -303,7 +359,7 @@ describe('PATCH /admin/users/:id — only role and brand pin are writable', () =
       payload: {
         role: 'admin',
         tenantId: OTHER_TENANT,
-        firebaseUid: 'victim-sub',
+        cognitoSub: 'victim-sub',
         id: 'a9999999-9999-4999-8999-999999999999',
         createdAt: '2000-01-01T00:00:00Z',
       },
@@ -387,8 +443,7 @@ describe('POST /admin/users — brand pin must be in the target tenant', () => {
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb-x',
-        email: 'x@y.com',
+        cognitoSub: 'fb-x',
         role: 'user',
         tenantId: '11111111-1111-4111-8111-111111111111',
         brandEntityId: 'f0000000-0000-4000-8000-00000000f0e2',
@@ -405,8 +460,7 @@ describe('POST /admin/users — brand pin must be in the target tenant', () => {
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb-1',
-        email: 'u@e.com',
+        cognitoSub: 'fb-1',
         role: 'user',
         tenantId: '11111111-1111-4111-8111-111111111111',
         id: 'a9999999-9999-4999-8999-999999999999',
@@ -418,10 +472,7 @@ describe('POST /admin/users — brand pin must be in the target tenant', () => {
 
 describe('GET /admin/users', () => {
   it('returns all users in the tenant', async () => {
-    _dbRows = [
-      user1,
-      { ...user1, id: 'a2222222-2222-4222-8222-222222222222', firebaseUid: 'fb-2' },
-    ];
+    _dbRows = [user1, { ...user1, id: 'a2222222-2222-4222-8222-222222222222', cognitoSub: 'fb-2' }];
     const app = await buildTestApp(usersRoutes, DEFAULT_OWNER);
     const res = await app.inject({ method: 'GET', url: '/admin/users' });
     expect(res.statusCode).toBe(200);
@@ -442,8 +493,8 @@ describe('GET /admin/users', () => {
 
 // KNOWN-GAPS #18 — the row was written and THEN claims were set. A claims failure left the
 // table ahead of the token, and authorisation reads the token. Both writes now happen inside
-// one transaction, so a Firebase failure rolls the row back.
-describe('user row and Firebase claims are written together', () => {
+// one transaction, so a claims failure rolls the row back.
+describe('user row and identity-provider claims are written together', () => {
   it('sets claims with the shape plugins/auth.ts reads', async () => {
     _dbRows = [user1];
     const app = await buildTestApp(usersRoutes, DEFAULT_OWNER);
@@ -451,8 +502,7 @@ describe('user row and Firebase claims are written together', () => {
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb-1',
-        email: 'user@example.com',
+        cognitoSub: 'fb-1',
         role: 'user',
         tenantId: '11111111-1111-4111-8111-111111111111',
         brandEntityId: 'b1111111-1111-4111-8111-111111111111',
@@ -476,8 +526,7 @@ describe('user row and Firebase claims are written together', () => {
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb-1',
-        email: 'u@e.com',
+        cognitoSub: 'fb-1',
         role: 'user',
         tenantId: '11111111-1111-4111-8111-111111111111',
       },
@@ -513,8 +562,7 @@ describe('user row and Firebase claims are written together', () => {
       method: 'POST',
       url: '/admin/users',
       payload: {
-        firebaseUid: 'fb-1',
-        email: 'u@e.com',
+        cognitoSub: 'fb-1',
         role: 'admin',
         tenantId: '11111111-1111-4111-8111-111111111111',
       },

@@ -30,7 +30,7 @@ const envSchema = z
     //   local            — for a developer machine with no identity provider. Unsigned
     //                      `dev:<role>:<tenantId>[:<brandEntityId>]` tokens are accepted, and
     //                      POST /auth/local/sign-in issues one for a `users` row whose
-    //                      firebase_uid matches the username, given LOCAL_AUTH_PASSWORD.
+    //                      cognito_sub matches the username, given LOCAL_AUTH_PASSWORD.
     //
     // Local mode is an explicit opt-in. It used to be implied by NODE_ENV=development, which is
     // also the schema's DEFAULT — so any process started without NODE_ENV accepted unsigned

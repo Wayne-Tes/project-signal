@@ -118,7 +118,7 @@ describe('GET /brands/:id/integrations', () => {
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.data).toHaveLength(2);
+    expect(body).toHaveLength(2);
   });
 
   it('is refused to a plain user', async () => {
@@ -158,7 +158,7 @@ describe('POST /brands/:id/integrations', () => {
     });
 
     expect(res.statusCode).toBe(201);
-    expect(JSON.parse(res.body).data.id).toBe('c2222222-2222-4222-8222-222222222222');
+    expect(JSON.parse(res.body).id).toBe('c2222222-2222-4222-8222-222222222222');
   });
 
   it('returns 201, not 200 — this is no longer an upsert', async () => {
@@ -184,7 +184,7 @@ describe('POST /brands/:id/integrations', () => {
         config: { feedUrl: 'https://a.example/feed.xml' },
       },
     });
-    expect(JSON.parse(res.body).data.label).toBe('Google News — MyConcern');
+    expect(JSON.parse(res.body).label).toBe('Google News — MyConcern');
   });
 
   it('refuses an EXACT duplicate, and says so', async () => {
@@ -207,7 +207,7 @@ describe('POST /brands/:id/integrations', () => {
     });
 
     expect(res.statusCode).toBe(409);
-    expect(JSON.parse(res.body).error).toMatch(/already configured/i);
+    expect(JSON.parse(res.body).message).toMatch(/already configured/i);
   });
 
   it('treats key order as irrelevant when detecting a duplicate', async () => {
@@ -253,7 +253,7 @@ describe('POST /brands/:id/integrations', () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toMatch(/no collector/i);
+    expect(JSON.parse(res.body).message).toMatch(/no collector/i);
   });
 
   it('requires a config object', async () => {
@@ -369,7 +369,7 @@ describe('territory on a feed', () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toMatch(/Unrecognised territory/);
+    expect(JSON.parse(res.body).message).toMatch(/Unrecognised territory/);
   });
 
   /* The sheet has six of these. The question mark is its author saying they are unsure, and
@@ -402,7 +402,7 @@ describe('PATCH /brands/:id/integrations/:configId', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body).data.isEnabled).toBe(false);
+    expect(JSON.parse(res.body).isEnabled).toBe(false);
   });
 
   it('renames a feed', async () => {
@@ -413,7 +413,7 @@ describe('PATCH /brands/:id/integrations/:configId', () => {
       url: '/brands/b1111111-1111-4111-8111-111111111111/integrations/c1111111-1111-4111-8111-111111111111',
       payload: { label: 'Renamed' },
     });
-    expect(JSON.parse(res.body).data.label).toBe('Renamed');
+    expect(JSON.parse(res.body).label).toBe('Renamed');
   });
 
   it('404s for a feed that is not there', async () => {
@@ -497,7 +497,7 @@ describe('GET /brands/:id/integrations/stats', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    const rows = JSON.parse(res.body).data;
+    const rows = JSON.parse(res.body);
     /* The zero row is the important one. A feed that has collected nothing is the whole reason
        this endpoint exists — a dead feed and a quiet market look identical without it — and an
        inner join would have dropped it. */
@@ -527,6 +527,6 @@ describe('GET /brands/:id/integrations/stats', () => {
       url: '/brands/b1111111-1111-4111-8111-111111111111/integrations/stats',
     });
 
-    expect(JSON.parse(res.body).data[0]).toHaveProperty('signalCount');
+    expect(JSON.parse(res.body)[0]).toHaveProperty('signalCount');
   });
 });

@@ -42,7 +42,7 @@ if (!userPoolId) {
 
 const client = new CognitoIdentityProviderClient({});
 
-/** Cognito's `sub`, which is what `users.firebase_uid` stores and what tokens carry. */
+/** Cognito's `sub`, which is what `users.cognito_sub` stores and what tokens carry. */
 async function findOrCreate(): Promise<string> {
   try {
     const existing = await client.send(

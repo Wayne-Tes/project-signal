@@ -14,7 +14,7 @@ import { devToken, isUserRole, LOCAL_SIGN_IN_PATH } from '../plugins/auth.js';
  * ## What it does
  *
  * Given a username and the shared LOCAL_AUTH_PASSWORD, it finds the `users` row whose
- * `firebase_uid` is that username and returns a `dev:` token carrying that row's role, tenant and
+ * `cognito_sub` is that username and returns a `dev:` token carrying that row's role, tenant and
  * brand pin — the same three claims a Cognito ID token carries, so `requireRole` and
  * `requireBrandAccess` behave exactly as they do in a deployed environment. The `users` row is the
  * claim source here because there is no identity provider to hold the claims; in Cognito mode the
@@ -88,13 +88,13 @@ export const localAuthRoutes: FastifyPluginAsync = async (fastify) => {
       const [row] = await db
         .get()
         .select({
-          firebaseUid: users.firebaseUid,
+          cognitoSub: users.cognitoSub,
           role: users.role,
           tenantId: users.tenantId,
           brandEntityId: users.brandEntityId,
         })
         .from(users)
-        .where(eq(users.firebaseUid, username))
+        .where(eq(users.cognitoSub, username))
         .limit(1);
 
       if (!passwordOk || !row || !isUserRole(row.role)) {
@@ -106,10 +106,10 @@ export const localAuthRoutes: FastifyPluginAsync = async (fastify) => {
           role: row.role,
           tenantId: row.tenantId,
           brandEntityId: row.brandEntityId,
-          uid: row.firebaseUid,
+          uid: row.cognitoSub,
         }),
         user: {
-          username: row.firebaseUid,
+          username: row.cognitoSub,
           role: row.role,
           tenantId: row.tenantId,
           brandEntityId: row.brandEntityId,

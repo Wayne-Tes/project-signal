@@ -69,7 +69,7 @@ const mockBrand = {
 };
 const mockUser = {
   id: 'a1111111-1111-4111-8111-111111111111',
-  firebaseUid: 'fb-123',
+  cognitoSub: 'fb-123',
   tenantId: '11111111-1111-4111-8111-111111111111',
   role: 'admin',
   brandEntityId: null,
@@ -94,14 +94,13 @@ describe('POST /admin/tenants', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/admin/tenants',
-      payload: { tenantName: 'Acme', brandName: 'Acme Brand', adminFirebaseUid: 'fb-123' },
+      payload: { tenantName: 'Acme', brandName: 'Acme Brand', adminCognitoSub: 'fb-123' },
     });
     expect(res.statusCode).toBe(201);
     const body = JSON.parse(res.body);
-    expect(body.status).toBe('ok');
-    expect(body.data.tenant.id).toBe('11111111-1111-4111-8111-111111111111');
-    expect(body.data.brand.id).toBe('b1111111-1111-4111-8111-111111111111');
-    expect(body.data.user.id).toBe('a1111111-1111-4111-8111-111111111111');
+    expect(body.tenant.id).toBe('11111111-1111-4111-8111-111111111111');
+    expect(body.brand.id).toBe('b1111111-1111-4111-8111-111111111111');
+    expect(body.user.id).toBe('a1111111-1111-4111-8111-111111111111');
   });
 
   it('returns 403 when user is not owner', async () => {
@@ -113,7 +112,7 @@ describe('POST /admin/tenants', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/admin/tenants',
-      payload: { tenantName: 'X', brandName: 'Y', adminFirebaseUid: 'z' },
+      payload: { tenantName: 'X', brandName: 'Y', adminCognitoSub: 'z' },
     });
     expect(res.statusCode).toBe(403);
   });
@@ -133,11 +132,11 @@ describe('toSlug (via tenant name)', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/admin/tenants',
-      payload: { tenantName: 'Acme Corp', brandName: 'Brand', adminFirebaseUid: 'fb' },
+      payload: { tenantName: 'Acme Corp', brandName: 'Brand', adminCognitoSub: 'fb' },
     });
     expect(res.statusCode).toBe(201);
     const body = JSON.parse(res.body);
-    expect(body.data.tenant.slug).toBe('acme-corp');
+    expect(body.tenant.slug).toBe('acme-corp');
   });
 });
 
@@ -151,7 +150,7 @@ describe('tenant provisioning sets the admin custom claims', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/admin/tenants',
-      payload: { tenantName: 'Acme', brandName: 'Acme Brand', adminFirebaseUid: 'fb-123' },
+      payload: { tenantName: 'Acme', brandName: 'Acme Brand', adminCognitoSub: 'fb-123' },
     });
 
     expect(res.statusCode).toBe(201);
@@ -169,7 +168,7 @@ describe('tenant provisioning sets the admin custom claims', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/admin/tenants',
-      payload: { tenantName: 'Acme', brandName: 'Acme Brand', adminFirebaseUid: 'fb-123' },
+      payload: { tenantName: 'Acme', brandName: 'Acme Brand', adminCognitoSub: 'fb-123' },
     });
 
     // A tenant whose only admin cannot sign in is worse than no tenant at all.
@@ -181,13 +180,13 @@ describe('tenant provisioning sets the admin custom claims', () => {
 
 describe('POST /admin/tenants — guards', () => {
   it('refuses an owner naming themselves as the new admin, which would demote them', async () => {
-    /* The claims call writes role=admin for adminFirebaseUid. Pointed at the calling owner, it
+    /* The claims call writes role=admin for adminCognitoSub. Pointed at the calling owner, it
        silently replaced the only identity able to create tenants with an admin of one tenant. */
     const app = await buildTestApp(adminRoutes, DEFAULT_OWNER);
     const res = await app.inject({
       method: 'POST',
       url: '/admin/tenants',
-      payload: { tenantName: 'Acme', brandName: 'B', adminFirebaseUid: DEFAULT_OWNER.uid },
+      payload: { tenantName: 'Acme', brandName: 'B', adminCognitoSub: DEFAULT_OWNER.uid },
     });
     expect(res.statusCode).toBe(400);
     expect(mockSetCustomUserClaims).not.toHaveBeenCalled();
@@ -199,7 +198,7 @@ describe('POST /admin/tenants — guards', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/admin/tenants',
-      payload: { tenantName: 'Acme!', brandName: 'B', adminFirebaseUid: 'fb-9' },
+      payload: { tenantName: 'Acme!', brandName: 'B', adminCognitoSub: 'fb-9' },
     });
     expect(res.statusCode).toBe(409);
     expect(JSON.parse(res.body).message).toContain("'acme'");
@@ -211,7 +210,7 @@ describe('POST /admin/tenants — guards', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/admin/tenants',
-      payload: { tenantName: '', brandName: 'B', adminFirebaseUid: 'fb-9' },
+      payload: { tenantName: '', brandName: 'B', adminCognitoSub: 'fb-9' },
     });
     expect(res.statusCode).toBe(400);
   });
