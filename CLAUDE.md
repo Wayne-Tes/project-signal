@@ -150,8 +150,8 @@ change as the code it describes.
 > `290304998906` / `eu-west-2` since 2026-08-08** (ECS Fargate, RDS, SQS, S3, Cognito, ALB —
 > `docs/HANDOVER.md` §0a has the deploy record). `libs/storage`, `libs/messaging` and `libs/llm`
 > run on **S3, SQS and Bedrock**, and auth is **Amazon Cognito**: no Google SDK remains in the
-> code. What survives of Firebase is naming only — the `users.firebase_uid` column and the
-> `firebaseUid` API field (KNOWN-GAPS #25).
+> code. The last Firebase naming (`users.firebase_uid`, the `firebaseUid` API field) was renamed
+> to `cognito_sub` / `cognitoSub` by migration `0018` (KNOWN-GAPS #25, closed 2026-11-16).
 >
 > **`infra/`, `docs/SETUP.md` and parts of `docs/PLAN.md` describe a GCP deployment that will
 > never be built.** They are kept because the GCP stack is the clearest available specification

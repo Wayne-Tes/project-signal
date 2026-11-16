@@ -533,6 +533,12 @@ pre-plan checks (including one read-only command whose output decides
 [`AWS-SETUP.md`](AWS-SETUP.md) § "Pending apply". Ship the images from the same commit — two of
 the changes depend on new application code.
 
+**Deploy the API as stop-then-start, not a rolling update.** Migration `0018` renames
+`users.firebase_uid` to `cognito_sub`. The new API applies it on startup, and an old API task still
+running alongside would then fail every user and sign-in query until it is replaced. The rename
+itself preserves rows (proven on a scratch database, 2026-11-16). Scale the `api` service to 0,
+deploy, then scale back to 1 — a minute of API downtime in a dev environment.
+
 ## 8. 🟡 Confirm the alarm email subscription
 
 After that apply, SNS emails each address in `budget_notification_emails` an

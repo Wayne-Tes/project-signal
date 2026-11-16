@@ -167,7 +167,8 @@ All ids are `uuid` with `defaultRandom()`. All timestamps are `timestamptz`.
 `tenant_id` → tenants, `name`, `slug`, `is_owned` (default `true`), timestamps.
 
 **`users`** — mirrors Identity Platform users so the admin UI can list/manage them.
-`firebase_uid` (**unique**), `tenant_id` → tenants, `role` varchar(20), `brand_entity_id`
+`cognito_sub` (**unique**; renamed from `firebase_uid` by migration `0018`; holds the Cognito
+`sub`, or the local username in `AUTH_MODE=local`), `tenant_id` → tenants, `role` varchar(20), `brand_entity_id`
 (nullable) → brand*entities, timestamps.
 Role is \_also* stored as a Firebase custom claim — the claim is what authorises requests; this
 table exists for management UI and audit.
@@ -830,8 +831,8 @@ difference.
 
 | Method & path                       | Role         | Response shape       | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------------- | ------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /admin/tenants`               | owner        | `{status,data}`      | **Transactional**: creates tenant + owned brand + admin user row in one `db.transaction`. Slugs are derived from names; a slug collision is **409**. Refuses an owner naming themselves as the new admin, which would have demoted their own claims.                                                                                                                                                                                        |
-| `POST /admin/users`                 | owner, admin | bare row             | Row **and** claims written in one transaction. An `admin` is confined to their own tenant and to the roles admin/user.                                                                                                                                                                                                                                                                                                                      |
+| `POST /admin/tenants`               | owner        | bare                 | **Transactional**: creates tenant + owned brand + admin user row in one `db.transaction`. Slugs are derived from names; a slug collision is **409**. Refuses an owner naming themselves as the new admin, which would have demoted their own claims.                                                                                                                                                                                        |
+| `POST /admin/users`                 | owner, admin | bare row             | `{cognitoSub, role, brandEntityId?, tenantId?}`: the tenant comes from the CALLER (an owner may name one); no `email`. Row **and** claims written in one transaction. An `admin` is confined to their own tenant and to the roles admin/user.                                                                                                                                                                                               |
 | `PATCH /admin/users/:id`            | owner, admin | bare row             | Reads the target first, then updates **only** `role` and `brandEntityId` (named explicitly — never a spread of the body) and re-syncs claims in one transaction. `brandEntityId: null` clears the pin; a pin must belong to the user's tenant. 404 for a foreign tenant.                                                                                                                                                                    |
 | `GET /admin/users`                  | owner, admin | bare array           | Users in the caller's tenant.                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `GET /brands`                       | any          | bare array           | Tenant-scoped. A `user` with a `brandEntityId` sees **only** that brand.                                                                                                                                                                                                                                                                                                                                                                    |
@@ -844,6 +845,8 @@ difference.
 | `GET /brands/:id/sentiment-summary` | any          | object               | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results.                                                                                                                                                                                                                                                                                                                        |
 | `GET /brands/:id/dimension-scores`  | any          | bare array           | Dimension history from `dimension_scores`, `from`/`to` optional, default last 90 days. Lives in `routes/scores.ts`.                                                                                                                                                                                                                                                                                                                         |
 | `GET /brands/:id/score`             | any          | object               | Brand Perception Index for the latest rollup, its per-dimension breakdown, and the comparison point ≥7 days earlier.                                                                                                                                                                                                                                                                                                                        |
+| `GET /brands/:id/score-history`     | any          | array                | The index per day (`compositeScore` with the brand's weights, territory-aware): the Dashboard sparkline.                                                                                                                                                                                                                                                                                                                                    |
+| `GET /brands/:id/territories`       | any          | array                | Territories of the brand's feeds and attributed signals, tenant-filtered, `all` excluded: feeds the territory picker for every role.                                                                                                                                                                                                                                                                                                        |
 | `GET /brands/:id/brand-impact`      | any          | bare array           | Top topic clusters by damage, computed on read from `sentiment_results`. `limit` defaults to 3.                                                                                                                                                                                                                                                                                                                                             |
 
 > **Every brand-scoped read counts the same population.** `/signals`, `/sentiment-summary`,
@@ -870,14 +873,14 @@ difference.
 > | `GET /assistant/conversations/:id` | any | object | One conversation and its turns. 404 whether it is missing or someone else's. |
 > | `PATCH /assistant/conversations/:id` | any | object | Rename. |
 > | `DELETE /assistant/conversations/:id` | any | 204 | Delete; messages cascade. |
-> | `GET /brands/:id/integrations` | admin, owner | `{status,data}` | Every configured feed for the brand. **Many rows per source type are expected.** |
-> | `GET /brands/:id/integrations/stats` | admin, owner | `{status,data}` | Per feed: signals collected, newest signal, last run. LEFT JOIN, so a feed that has collected nothing is still returned — that row is the point. |
-> | `POST /brands/:id/integrations` | admin, owner | `{status,data}` | **Creates** a feed; returns **201**. No longer an upsert. **409** for an exact duplicate config (key-order-independent). |
-> | `PATCH /brands/:id/integrations/:configId` | admin, owner | `{status,data}` | Update `label`, `isEnabled` and/or `config`. `label: ""` clears it. 404 if absent. |
-> | `DELETE /brands/:id/integrations/:configId`| admin, owner | `{status,data}` | **Hard delete.** Signals survive — `signals.source_config_id` is `ON DELETE SET NULL`. Pausing a feed is `PATCH isEnabled:false`. |
-> | `GET /brands/:id/aliases` | admin, owner | `{status,data}` | List aliases. |
-> | `POST /brands/:id/aliases` | admin, owner | `{status,data}` | `onConflictDoNothing` → **409** when the alias already exists. |
-> | `DELETE /brands/:id/aliases/:aliasId` | admin, owner | `{status,data}` | Hard delete, tenant + brand scoped. |
+> | `GET /brands/:id/integrations` | admin, owner | bare | Every configured feed for the brand. **Many rows per source type are expected.** |
+> | `GET /brands/:id/integrations/stats` | admin, owner | bare | Per feed: signals collected, newest signal, last run. LEFT JOIN, so a feed that has collected nothing is still returned — that row is the point. |
+> | `POST /brands/:id/integrations` | admin, owner | bare | **Creates** a feed; returns **201**. No longer an upsert. **409** for an exact duplicate config (key-order-independent). |
+> | `PATCH /brands/:id/integrations/:configId` | admin, owner | bare | Update `label`, `isEnabled` and/or `config`. `label: ""` clears it. 404 if absent. |
+> | `DELETE /brands/:id/integrations/:configId`| admin, owner | bare | **Hard delete.** Signals survive — `signals.source_config_id` is `ON DELETE SET NULL`. Pausing a feed is `PATCH isEnabled:false`. |
+> | `GET /brands/:id/aliases` | admin, owner | bare | List aliases. |
+> | `POST /brands/:id/aliases` | admin, owner | bare | `onConflictDoNothing` → **409** when the alias already exists. |
+> | `DELETE /brands/:id/aliases/:aliasId` | admin, owner | bare | Hard delete, tenant + brand scoped. |
 
 Every route declares JSON Schema (`body` / `params` / `querystring` / `response`) so Swagger
 output stays accurate and Fastify serialises responses fast.
@@ -1871,8 +1874,9 @@ yarn db:generate            # drizzle-kit generate → apps/api/migrations/
 9. **`apps/web` is client-side by necessity.** Don't convert views to Server Components while
    they depend on the Cognito SDK and browser session storage.
 10. **Style with CSS custom properties.** Literal hex values break the Tweaks palette switcher.
-11. **Two API response conventions exist** (`{status,data}` vs bare rows). Match the file you're
-    editing and check the frontend caller before changing one.
+11. **One API response convention** (since 2026-11-16): bare objects/arrays on success, Fastify's
+    `{statusCode,error,message}` on error. Routes that declare error statuses use `ERROR_RESPONSE`
+    from `lib/http.ts`, because fast-json-stringify strips undeclared fields.
 12. **`commitlint` enforces a closed scope list.** New scope → update `commitlint.config.js`.
 13. **Terraform requires `image_tag`.** `terraform apply` without it fails; that is intentional
     so local applies can't accidentally roll images back.
