@@ -8,8 +8,9 @@
 >
 > Findings come from a full read of the repo on **2026-08-05**, re-verified against the code on
 > **2026-08-07** (which added #5b) and on **2026-08-09** (which added #20-#24, four of them found
-> by driving the deployed system rather than by reading it). Items struck through and marked ✅
-> have since been fixed; everything else is still open.
+> by driving the deployed system rather than by reading it). A further full-repo assessment on
+> **2026-11-16** added #31–#39, all fixed on branch `fix/assessment-findings`. Items struck
+> through and marked ✅ have since been fixed; everything else is still open.
 >
 > **#20, #23 and the ALB defect inside #23 share a shape worth naming: every local signal was
 > green and the deploy reported success, while the feature was absent or wrong in the browser.**
@@ -26,7 +27,7 @@
 | --- | ------------------------------------------------------------------ | ----------- | --------------------- |
 | 1   | ~~Pub/Sub pushed to `/events`; workers serve `/pubsub/item`~~      | ✅ resolved | infra ↔ worker        |
 | 2   | ~~Scheduler called `/reconcile`, which did not exist~~             | ✅ resolved | infra ↔ ingestion     |
-| 3   | Cloud Tasks queue provisioned but never used                       | ⏸ dissolved | ingestion             |
+| 3   | ~~Cloud Tasks unused; in-process fan-out in one HTTP request~~     | ✅ resolved | ingestion             |
 | 4   | ~~Raw payloads never written to Cloud Storage~~                    | ✅ resolved | ingestion + sentiment |
 | 5   | ~~Brand-scoped reads don't enforce `brandEntityId`~~               | ✅ resolved | API authz             |
 | 5b  | ~~`GET /brands/:id` missed the same guard~~ (found 2026-08-07)     | ✅ resolved | API authz             |
@@ -55,6 +56,15 @@
 | 28  | ~~The "raw" S3 payload is neither raw nor immutable~~              | ✅ resolved | ingestion ↔ storage   |
 | 29  | ~~Index and its own evidence counted different populations~~       | ✅ resolved | API ↔ ingestion       |
 | 30  | ~~A signal scored into no dimension vanished from every surface~~  | ✅ resolved | sentiment ↔ API ↔ web |
+| 31  | ~~Mass assignment on `PATCH /admin/users/:id`~~                    | ✅ resolved | API authz             |
+| 32  | ~~Unsigned dev tokens accepted whenever `NODE_ENV` was unset~~     | ✅ resolved | API auth              |
+| 33  | ~~5xx responses carried SQL; readiness and migrations hid faults~~ | ✅ resolved | API                   |
+| 34  | ~~Tenant-ownership gaps on writes, tree leak, brand delete~~       | ✅ resolved | API authz             |
+| 35  | ~~Portfolio, benchmark, voice and score reads miscounted~~         | ✅ resolved | API ↔ scoring         |
+| 36  | ~~Signals stranded unpublished; sweep unwired; YouTube missed~~    | ✅ resolved | ingestion ↔ messaging |
+| 37  | ~~Untrusted input: model output, prompt, feed URL, Apify token~~   | ✅ resolved | sentiment ↔ adapters  |
+| 38  | ~~Web: unchecked hrefs, session expiry, role gating, panels~~      | ✅ resolved | web                   |
+| 39  | ~~Node 20 EOL, teardown, guard, alarms, web DB access, CI gaps~~   | ✅ resolved | infra ↔ CI ↔ tooling  |
 
 ---
 
@@ -94,7 +104,15 @@ sweep is bounded at 500 rows so a large backlog cannot exceed the Cloud Run requ
 
 ---
 
-## 3. ⏸ Cloud Tasks queue is provisioned but never used — **dissolved, not fixed**
+## 3. ✅ Cloud Tasks queue is provisioned but never used — **resolved (2026-11-16)**
+
+> **Closed by `cd16058` and `d657760`.** `POST /ingest/dispatch` — the in-process
+> `Promise.allSettled` fan-out inside one HTTP request — is removed. Scheduled sweeps arrive as
+> `{"job":"scan-all"}` on the scan queue; the consumer takes one message per receive and keeps it
+> claimed with a visibility heartbeat (scan queue visibility 1800 s), so a long sweep is not handed
+> to a second consumer; a failing feed records `source_configs.last_error` and is retried by the
+> next hourly sweep. Feeds within a brand still run concurrently and brands sequentially, inside
+> that one message. The original entry follows.
 
 **Where:** `infra/modules/cloud_tasks/` and the `TASKS_QUEUE` env var in
 `infra/stack/main.tf` vs `apps/ingestion/src/main.ts`.
@@ -889,6 +907,11 @@ and the field name is recorded here so the next person does not conclude one of 
 **To close:** rename the column via `yarn db:generate`, update `shared-types`, the two routes
 and the two components together, in one change.
 
+> **Status 2026-11-16 — narrowed, rename in progress.** No user-facing web text names Firebase
+> any more (`cc9bafe`, `c5ab30f`). The coordinated column and wire-field rename above is being
+> made on `fix/assessment-findings`; mark this entry resolved, with its commit, when it lands. In
+> local auth mode the same column holds the local username (`local-owner`, …).
+
 ---
 
 ## 26. ✅ The drill-down contradicted the number it was drilling into — **resolved (2026-08-10)**
@@ -1080,6 +1103,81 @@ does not.**"` on the short factual text that most of a news feed consists of.
 
 The general lesson is (3): the defect was not that signals were dropped, it was that dropping them
 was invisible. `coverageFooter` / `coverageTone` in `apps/web/src/lib/brand-data.ts`.
+
+---
+
+## 31–39. ✅ Full-repo assessment, 2026-11-16 — **resolved on `fix/assessment-findings`**
+
+Found by a read of every app, lib, the infra and CI on 2026-11-16 and fixed on one branch. The
+infrastructure changes are written and validated (`fmt -check`, `validate`) but **not applied** —
+see `AWS-SETUP.md` § "Pending apply". Each commit message carries the full reasoning.
+
+### 31. 🔴 Mass assignment on `PATCH /admin/users/:id` — `76ea96c`
+
+The handler spread the request body into the UPDATE, and its schema lacked
+`additionalProperties: false` (Fastify only strips undeclared keys when that is set). An admin
+could move their own row into another tenant and have admin claims minted there, or repoint the
+identity-provider id at someone else. The update now names its columns; every request body in
+the API is strict; a real-Postgres integration test goes red if the spread returns.
+
+### 32. 🔴 Unsigned dev tokens accepted whenever `NODE_ENV` was unset — `657d506`
+
+`NODE_ENV` defaults to `development`, and `dev:` tokens were trusted in development, so any API
+process launched without `NODE_ENV` accepted tokens naming any tenant and role. Now only
+`AUTH_MODE=local`, which config refuses under `NODE_ENV=production`; tokens are parsed strictly
+and Cognito role claims validated; public routes matched exactly.
+
+### 33. 🟠 5xx responses carried SQL; readiness and migrations hid faults — `c62a5fe`
+
+No error handler, so a non-uuid id returned drizzle's `Failed query: <sql> params: …`. A central
+boundary now returns a generic message with the request id and maps Postgres client errors to
+400/409. `/ready` checks the database; migrations set `lock_timeout`, keep the original error and
+fail when the folder is missing. Per-user rate limiting added (assistant 10/min, adapt 20/min).
+
+### 34. 🟠 Tenant-ownership gaps on writes; tree leak; brand delete — `76ea96c`
+
+Aliases, integrations, scan and the user brand pin accepted another tenant's brand id (the
+foreign key proves existence, not ownership); `GET /brands/tree` showed a pinned user the whole
+tenant; `DELETE /brands/:id` ignored `tracked_actions` and deleted feeds before failing on the
+foreign key. Also: an owner could demote themselves via tenant creation; CRM secrets were
+untagged (invisible to teardown) and orphaned on a failed insert; the assistant broke when the
+model asked for more than five tools, and its `days` argument did nothing.
+
+### 35. 🟠 Portfolio, benchmark, voice and score reads miscounted — `00c5427`
+
+Portfolio read `'all'` and per-territory `dimension_scores` together (double-counting) and
+averaged unweighted; benchmarks' `LIMIT 5` could mix dates; `voice-of-customer?territory=all`
+matched nothing; `/score` read all history.
+
+### 36. 🟠 Signals stranded unpublished; sweep unwired; YouTube missed comments — `cd16058`, `d657760`, `f39ef06`
+
+A mid-batch failure left inserted signals unpublished forever, and the `/reconcile` safety net
+had no trigger on AWS; it is now a scheduled `reconcile` job with a bounded window. A scan sweep
+could outlive its visibility timeout and be processed twice (heartbeat added). YouTube used the
+newest comment date as the video search's `publishedAfter`, so new comments on existing videos
+were never collected, and treated every 403 as "comments disabled".
+
+### 37. 🟠 Untrusted input: model output, prompt, feed URL, Apify token — `36b13b5`, `393f97a`, `f39ef06`, `a00bc5c`
+
+Model output reached `sentiment_results` unchecked (now validated and clamped; truncated output
+refused); scraped text went into the prompt as instructions (now a delimited block under a system
+prompt); a tenant's RSS URL could reach inside the VPC (SSRF guard); the Apify token travelled in
+query strings; scoring now clamps per item and sums damage per item.
+
+### 38. 🟠 Web: unchecked hrefs, session expiry, role gating, misleading panels — `d764746`, `cc9bafe`, `43bb0db`, `12a8e24`, `c5ab30f`
+
+A scraped `sourceUrl` became a clickable `href` unchecked (`javascript:` would run); `//host`
+passed the markdown check; an expired session failed every view instead of returning to sign-in;
+Create tenant was offered to admins; the Dashboard sparkline plotted one dimension, Brand impact
+hard-coded an "up" arrow, errors were dropped; there was no brand switcher and no error boundary.
+
+### 39. 🟠 Toolchain, infra and CI — `2e2d442`, `1b023e2`, `510e2ad`, `95b7525`, `0c79038`, `879be45`, `4f55ebb`, `aaf85ea`, `b0b98a6`, `ee376a0`
+
+Node 20 (EOL April 2026) → Node 26 LTS. Teardown could not complete and missed runtime-created
+secrets; the account guard trusted any override and empty output; the account pin was only a
+variable. The web task held `DATABASE_URL` and a path to RDS; no CloudWatch alarms; no container
+health checks; the ALB route check ran only on infra PRs. Coverage gates now cover report-worker
+and all of `apps/web/src`; the e2e suite runs locally in local auth mode.
 
 ---
 

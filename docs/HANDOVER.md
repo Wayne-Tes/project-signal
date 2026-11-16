@@ -79,13 +79,34 @@
 >   Collection currently runs on the former contractor's personal free tier.
 > - **CRM: which one, a sandbox, and the DPO conversation.** See `OWNER-ACTIONS.md` §5d. The DPO
 >   item is the long pole and is calendar time rather than engineering time.
-> - **E2E credentials.** `apps/web/e2e/run-docker.sh` requires `E2E_EMAIL` and `E2E_PASSWORD` for a
->   real Cognito sign-in, and no such values exist on the machine. Four specs added with this work
->   — `roadmap`, `whats-changed`, `voice-of-customer`, `users`, **34 tests** — have therefore never
->   been executed. They are committed, they lint and typecheck, and that is precisely the state
->   DEVRULES calls "not done". Supply a dedicated test user and they can run against the dev ALB.
+> - **E2E against the deployed ALB.** That still needs a dedicated Cognito test user
+>   (`E2E_EMAIL`, `E2E_PASSWORD`). **Locally it no longer does:** since 2026-11-16 the suite signs
+>   in through local auth mode (`E2E_AUTH_MODE=local`, `E2E_USERNAME=local-owner`,
+>   `E2E_PASSWORD` = the local `LOCAL_AUTH_PASSWORD`), so it runs against `localhost:3100` with no
+>   cloud identity at all.
 > - **Feed territories** — 336 of 337 signals sit in `unknown` until someone classifies the feeds
 >   (`OWNER-ACTIONS.md` §5c).
+>
+> ### 2026-11-16 — assessment fixes on `fix/assessment-findings` (NOT yet deployed)
+>
+> A full-repo assessment's findings were fixed on one branch; KNOWN-GAPS #31–#39 record them with
+> commit hashes. The ones that change how you work:
+>
+> - **Local-first development.** `AUTH_MODE=local` (API) + `NEXT_PUBLIC_AUTH_MODE=local` (web) give
+>   a local sign-in; `yarn db:seed` creates `local-owner`, `local-admin`, `local-user`, all with
+>   `LOCAL_AUTH_PASSWORD`. Unsigned `dev:` tokens are accepted **only** in that mode, never because
+>   `NODE_ENV` is `development`, and the API refuses local mode under `NODE_ENV=production`.
+> - **Bedrock from a laptop** via `BEDROCK_AWS_PROFILE=psignal-dev` (plus `aws sso login`); the LLM
+>   client alone uses it and ignores `AWS_ENDPOINT_URL`. Everything else stays on LocalStack.
+> - **Real-Postgres integration suite:** `yarn nx run api:test:integration` (database
+>   `project_signal_test`).
+> - **Pipeline:** `/ingest/dispatch` and the sentiment worker's `/pubsub/item` are gone; all
+>   scheduled work is `scan-all` / `rollup` / `reconcile` on the scan queue. KNOWN-GAPS #3 is
+>   closed.
+> - **Infrastructure is written and validated, not applied.** The blast radius is in
+>   `AWS-SETUP.md` § "Pending apply"; this branch's code expects it (the CRM `Project`-tag
+>   condition, `RESOURCE_TAGS`, the reconcile schedule), so deploy the image and the Terraform
+>   together.
 
 This document tells you what exists, what is proven, what is assumed, and what to do next. Read
 it in full before writing code.
@@ -336,7 +357,10 @@ submitted for this account`. It was the deployed `SCORER_MODEL`, so the sentimen
 > evening**, so account-level access is being tightened while work is in progress, and this is a
 > shared sandbox: a co-tenant project sees the same change at the same moment.
 >
-> All three model settings now default to `eu.anthropic.claude-sonnet-5`.
+> All three model settings were moved to `eu.anthropic.claude-sonnet-5` that night. **Superseded
+> 2026-08-09:** once the Anthropic use-case form was submitted (`OWNER-ACTIONS.md` #1) Haiku 4.5
+> invoked again, and all three defaults in `libs/config` are
+> `eu.anthropic.claude-haiku-4-5-20251001-v1:0` today. Re-verify by invoking before relying on it.
 >
 > **The listing below is not evidence of access.** Every blocked profile is still `ACTIVE` in
 > `list-inference-profiles`. Listing tells you a profile exists; only an **invoke** tells you this
@@ -510,22 +534,32 @@ which is documentation of it and is allowed to drift. Notable current state:
 - `GOOGLE_CLOUD_PROJECT` is now **optional**. It was required, which meant _every app in the
   monorepo refused to boot without it_, including the four that never touched GCP. That would
   have been the first thing to stop an AWS container, with an error naming the variable but not
-  the reason. It is still read by `firebase-admin` in `apps/api`; delete the line in the same
-  change that removes the last firebase import.
-- `ITEM_QUEUE_URL` / `REPORT_QUEUE_URL` have **no defaults and throw when unset**. An SQS URL
-  embeds the account id and region, so no constant could stand in for one. This is the AWS form
-  of the fix for gap #7, where publishing to a hardcoded topic that existed in no environment
-  failed silently.
-- `SCORER_MODEL` / `REPORTER_MODEL` / `ASSISTANT_MODEL` all default to `eu.anthropic.claude-sonnet-5`, verified by INVOKING it (§3.4). The previous Haiku 4.5 default no longer works.
+  the reason. It has since been **removed from the schema entirely** — Cognito replaced Firebase
+  and nothing reads it (`libs/config/test/index.test.ts` pins its absence).
+- `ITEM_QUEUE_URL` / `REPORT_QUEUE_URL` / `SCAN_QUEUE_URL` have **no defaults and throw when
+  unset** at the point of use. An SQS URL embeds the account id and region, so no constant could
+  stand in for one. This is the AWS form of the fix for gap #7, where publishing to a hardcoded
+  topic that existed in no environment failed silently.
+- `SCORER_MODEL` / `REPORTER_MODEL` / `ASSISTANT_MODEL` all default to
+  `eu.anthropic.claude-haiku-4-5-20251001-v1:0` (`libs/config/src/index.ts`), which invokes again
+  since the use-case form was submitted (§3.4, `OWNER-ACTIONS.md` #1). Verify by invoking.
+- `AUTH_MODE` (`cognito` default | `local`), `LOCAL_AUTH_PASSWORD` (≥ 12 chars, local only),
+  `RESOURCE_TAGS` (JSON tags for runtime-created CRM secrets, injected by Terraform),
+  `BEDROCK_AWS_PROFILE` / `BEDROCK_REGION` (local only) — added 2026-11-16. `AUTH_MODE=local` is
+  **rejected under `NODE_ENV=production`**.
 - `DB_SOCKET_PATH` still exists and is Cloud-SQL-proxy-only. **It simplifies away on RDS** —
   delete it when the database lands.
 
-### 4.4 Auth is still Firebase — the only remaining Google dependency
+### 4.4 Auth is Cognito (Phase 5 done), with a local mode for development
 
-Five files: `apps/api/src/plugins/auth.ts`, `apps/api/src/lib/claims.ts`,
-`apps/api/scripts/bootstrap-owner.ts`, `apps/web/src/lib/firebase.ts`, `apps/web/src/lib/auth.tsx`.
+The API verifies Cognito ID tokens with `aws-jwt-verify` (`apps/api/src/plugins/auth.ts`); the
+web app signs in with `amazon-cognito-identity-js` (`apps/web/src/lib/cognito.ts`, `auth.tsx`);
+`apps/api/scripts/bootstrap-owner.ts` creates the first Cognito owner. In `AUTH_MODE=local` the
+API instead issues `dev:` tokens from `POST /auth/local/sign-in` against the seeded `users` rows,
+and `setUserClaims` is a no-op because the row is the claim. Firebase-era naming of the `users`
+identity column and its wire field is KNOWN-GAPS #25.
 
-This is Phase 5 and it is the deepest change in the plan. **The invariant that must survive:**
+**The invariant that must survive:**
 `setUserClaims()` is called **inside the database transaction** that writes the `users` row, so
 a claims failure rolls the row back. That atomicity was a fixed defect (gap #18). A Cognito port
 that writes the row, commits, then calls the identity provider **silently reintroduces it, and
@@ -560,6 +594,11 @@ met a mock and gap #4 was closed on faith. The reconcile sweep had never run aga
 queue. Both work.
 
 ### NOT proven — do not claim otherwise
+
+> **Historical (2026-08-07).** Most of this list was closed by the 2026-08-08 deployment (§0a):
+> the stack runs in the sandbox, scoring runs against Bedrock, the SQS consumers exist (the
+> `/pubsub/item` route was removed 2026-11-16), and Terraform for AWS is the deployed stack. Kept
+> for the record of what was assumed at the time.
 
 - **Nothing has run in any cloud.** Not one line.
 - **Scoring has never executed against a real model.** Local LocalStack does not emulate
@@ -624,11 +663,11 @@ plan put the first true end-to-end run at Phase 5 of 7. That is indefensible whe
 ever executed in a cloud: the first real run is the highest-information moment in the whole
 project, and everything built before it rests on assumptions.
 
-**Fix gap #3 during Phase 4.** `/ingest/dispatch` fans out in-process via `Promise.allSettled`.
-SQS was supposed to dissolve that gap — it only does if the dispatcher actually enqueues per
-`(brand × source)`. Two properties outlive the choice of queue: a dispatch across many brands
-runs inside one HTTP request and can exceed the platform timeout, and a failed source is counted
-in `failed` and dropped rather than retried.
+**Gap #3 is closed (2026-11-16).** `/ingest/dispatch`, which fanned out in-process via
+`Promise.allSettled` inside one HTTP request, was removed. Scheduled sweeps arrive as
+`{"job":"scan-all"}` on the scan queue, are kept claimed by the consumer's visibility heartbeat
+(scan queue visibility 1800 s), and a failing feed records `last_error` and is retried by the
+next hourly sweep.
 
 **Cost reality:** Fargate does not scale to zero. The GCP costing (~$13–15/mo) rested entirely
 on Cloud Run doing so. Five idle services bill continuously, in an account whose spend is
@@ -675,9 +714,8 @@ Two traps that are not defects but have each cost real time:
   the Terraform module breakdowns and the Cognito task; do not execute the phase order.
 - **`docs/SETUP.md`** — GCP setup, superseded, banner at the top. Kept for the same reason as
   `infra/`.
-- **`apps/web/src/lib/data.ts`** — 588 lines of mock data for a fictional bank, still rendering
-  in the Roadmap and Report views. Deferred by owner decision until AWS is running. **No new
-  code may depend on it.**
+- **`apps/web/src/lib/data.ts`** — deleted 2026-08-09 (KNOWN-GAPS #13). Every view reads the
+  API; do not reintroduce mock data.
 
 ---
 
@@ -686,13 +724,14 @@ Two traps that are not defects but have each cost real time:
 **The gate, required before any completion claim:**
 
 ```bash
-corepack yarn lint && corepack yarn typecheck && corepack yarn test
+yarn lint && yarn typecheck && yarn check:deps && yarn test
+yarn nx run api:test:integration     # real Postgres; needs the Docker Postgres up
 ```
 
-**Baseline, verified 2026-08-07:** lint green across **13 projects**, typecheck across **12**,
-**309 tests across 11 projects** — api 105, source-adapters 52, scoring 43, web 23, ingestion 22,
-sentiment-worker 15, storage 13, messaging 12, config 11, llm 10, report-worker 3.
-(`@project-signal/db` has only a `build` target, hence 13/12/11.)
+`yarn` resolves through corepack (see the environment traps below). `yarn test` runs every
+project with coverage, exactly as CI does. The 2026-08-07 baseline that stood here (309 tests
+across 11 projects) is long superseded — take the current counts from a fresh run, not from this
+file.
 
 > ### ⚠️ A green gate can be a hollow one — check the task count, not the exit code
 >
@@ -713,7 +752,7 @@ sentiment-worker 15, storage 13, messaging 12, config 11, llm 10, report-worker 
 > in well under a minute total, is driving vitest per project and skipping Nx orchestration:
 >
 > ```bash
-> cd apps/api && corepack yarn vitest run --coverage    # 105 tests, ~12s
+> cd apps/api && yarn vitest run --coverage
 > ```
 >
 > The tests are fast; the orchestration is the problem. Do not "fix" this by weakening the gate.
@@ -722,17 +761,22 @@ sentiment-worker 15, storage 13, messaging 12, config 11, llm 10, report-worker 
 
 ```bash
 docker compose up -d                 # Postgres 16 (:5432) + LocalStack (:4566, s3+sqs)
-cp .env.example .env
-PORT=9080 corepack yarn nx run api:dev  # api binds 9080 on this machine — 8080/8090 occupied (README "Local ports"). MIGRATIONS APPLY ON API STARTUP — boot this before seeding
-corepack yarn db:seed
-corepack yarn nx run ingestion:dev
+cp .env.example .env                 # then set AUTH_MODE=local and a LOCAL_AUTH_PASSWORD
+PORT=9080 yarn nx run api:dev        # api binds 9080 on this machine — 8080/8090 occupied (README "Local ports"). MIGRATIONS APPLY ON API STARTUP — boot this before seeding
+yarn db:seed                         # demo tenant + local-owner / local-admin / local-user
+yarn nx run ingestion:dev
 curl -X POST localhost:8081/ingest -H 'Content-Type: application/json' \
      -d '{"sourceConfigId":"<the rss one>"}'
 ```
 
-`scripts/localstack-init.sh` creates the bucket, both queues and both DLQs on boot, with
-`maxReceiveCount: 5` matching the intended deployed redrive policy — so the local stack fails
-the same way the real one will.
+Sign in to the web app (`yarn nx run @project-signal/web:dev`, `http://localhost:3100`, with
+`NEXT_PUBLIC_AUTH_MODE=local` in `apps/web/.env.local`) as any seeded user with
+`LOCAL_AUTH_PASSWORD`. Scoring needs Bedrock: set `BEDROCK_AWS_PROFILE=psignal-dev` and run
+`aws sso login --profile psignal-dev`.
+
+`scripts/localstack-init.sh` creates the bucket and the item, report and scan queues with their
+DLQs on boot, with `maxReceiveCount: 5` and the deployed visibility timeouts — so the local stack
+fails the same way the real one will.
 
 **Three environment traps that have each burned time here:**
 
@@ -745,8 +789,8 @@ the same way the real one will.
   machine. Always assert on the **body shape** of a health check, not the status code — an
   "API is up" check once hit a different app entirely and was only caught because a 403 body
   turned out to be an HTML SPA.
-- **`corepack yarn install` fails under `CI=1`** after any `package.json` change, because that
-  implies `--immutable`.
+- **`yarn install` fails under `CI=1`** after any `package.json` change, because that implies
+  `--immutable`.
 
 ---
 
@@ -824,7 +868,7 @@ Summarised from [`DEVRULES.md`](../DEVRULES.md) — read the original; this is a
 - **Zero technical debt.** A defect found is a defect fixed, not appended to a register.
 - **Work autonomously** once underway; ask everything you need upfront.
 - **Migrations are generated, never hand-written.** Edit `libs/db/src/schema/*.ts`, run
-  `corepack yarn db:generate`; the `.sql`, the `meta/` snapshot and the `_journal.json` entry all
+  `yarn db:generate`; the `.sql`, the `meta/` snapshot and the `_journal.json` entry all
   commit together. Never edit an applied migration.
 - **`commitlint` enforces a closed scope list** in `commitlint.config.js`. It currently includes
   `llm` and `storage`; a new lib needs its scope added in the same change or the commit is

@@ -62,9 +62,9 @@ unrelated applications, so local dev runs **web on 3100** and **API on 9080**; t
 `.env` — that file is shared by all four backends, and the workers read `process.env.PORT` too,
 so a single `PORT` there makes them all fight for one socket (see the comment in `.env.example`).
 `corepack yarn dev` (one shared environment, api 8080) still works on a machine where 8080 is
-free. The web app reads `apps/web/.env.local`, not the root `.env`; copy `apps/web/.env.example`
-and fill the two `NEXT_PUBLIC_COGNITO_*` values from `terraform -chdir=infra-aws/stack output` —
-they have no fallback by design.
+free. The web app reads `apps/web/.env.local`, not the root `.env`; copy `apps/web/.env.example`.
+In local auth mode the `NEXT_PUBLIC_COGNITO_*` values can stay empty; for Cognito sign-in, fill
+them from `terraform -chdir=infra-aws/stack output` — they have no fallback by design.
 
 **Migrations are applied by the API on startup** — there is no migrate step. Boot the API before
 seeding, or `yarn db:seed` fails with `relation "tenants" does not exist`.
@@ -80,12 +80,12 @@ seeding, or `yarn db:seed` fails with `relation "tenants" does not exist`.
 | LocalStack (S3 + SQS) | http://localhost:4566                                                            |
 
 `scripts/localstack-init.sh` runs inside the container on first boot and creates the
-`psignal-local-raw` bucket, the item/report queues and their DLQs, with `maxReceiveCount: 5`
-matching the intended deployed redrive policy — so the local stack fails the way the real one
-will.
+`psignal-local-raw` bucket, the item/report/scan queues and their DLQs, with `maxReceiveCount: 5`
+and the deployed visibility timeouts — so the local stack fails the way the real one will.
 
-**LocalStack does not emulate Bedrock.** The local stack proves ingest → S3 → SQS; scoring
-against a real model needs real AWS credentials.
+**LocalStack does not emulate Bedrock.** Scoring, the assistant and roadmap rewording need the
+real service: set `BEDROCK_AWS_PROFILE=psignal-dev` in `.env` and `aws sso login --profile
+psignal-dev`. Only the LLM client uses that profile; S3 and SQS stay on LocalStack.
 
 ### Running the pipeline locally
 
@@ -98,17 +98,22 @@ curl -X POST localhost:8081/ingest -H 'Content-Type: application/json' \
      -d "{\"sourceConfigId\":\"$SRC\"}"
 ```
 
-Use the **RSS** source: it is the only adapter that needs no API key. The others require
-`APIFY_API_KEY` or `YOUTUBE_API_KEY`.
+Use the **RSS** source (or App Store): they need no API key. The others require
+`APIFY_API_KEY` or `YOUTUBE_API_KEY`. `POST /ingest` exists for local use only; deployed,
+collection runs from the scan queue.
 
 ### Calling the API locally
 
-With `NODE_ENV=development` the API accepts a dev token instead of a real ID token, so you can
-curl it without an identity provider:
+**Only with `AUTH_MODE=local`** (never implied by `NODE_ENV`) the API accepts an unsigned dev
+token instead of a Cognito ID token, so you can curl it without an identity provider:
 
 ```bash
 # format: dev:<role>:<tenantId>[:<brandEntityId>] — colon-delimited, since UUIDs contain hyphens
 curl -H "Authorization: Bearer dev:owner:$TENANT_ID:$BRAND_ID" http://localhost:9080/brands
+
+# or sign in as a seeded user and use the token it returns
+curl -s -X POST http://localhost:9080/auth/local/sign-in -H 'Content-Type: application/json' \
+     -d "{\"username\":\"local-owner\",\"password\":\"$LOCAL_AUTH_PASSWORD\"}"
 ```
 
 ### Changing the database schema
@@ -128,7 +133,12 @@ Migrations are **generated, never hand-written**. The `.sql`, its `meta/` snapsh
 corepack yarn lint         # 15 projects
 corepack yarn typecheck    # 14 projects
 corepack yarn test         # 14 projects, 80% coverage gate
+corepack yarn nx run api:test:integration   # API against a real Postgres (project_signal_test)
 ```
+
+The integration suite drops and recreates `project_signal_test` on the Docker Postgres (it refuses
+any database whose name does not end in `_test`; override with `INTEGRATION_DATABASE_URL`) and
+never touches the `project_signal` dev database.
 
 > **Check the project count, not just the exit code.** If Nx computed its graph while
 > `node_modules` was incomplete, it caches a graph with zero lint/test targets and `yarn lint`
@@ -189,8 +199,10 @@ backed by the API's `POST /auth/local/sign-in`. `yarn db:seed` creates three use
 `NODE_ENV=production`, and the deployed stack never sets it.
 
 LLM calls are the one thing that still needs AWS locally (LocalStack has no Bedrock): set
-`BEDROCK_AWS_PROFILE=psignal-dev` and run `aws sso login --profile psignal-dev`. The `users` table mirrors roles for the management UI; it is
-**not** what authorises a request.
+`BEDROCK_AWS_PROFILE=psignal-dev` and run `aws sso login --profile psignal-dev`.
+
+The `users` table mirrors roles for the management UI; in Cognito mode it is **not** what
+authorises a request (in local mode the row is the claim).
 
 Tenant isolation is enforced at the query layer (**no RLS**), so every query must filter on
 `tenant_id`, and every `/brands/:id...` route must add the `requireBrandAccess` preHandler. That

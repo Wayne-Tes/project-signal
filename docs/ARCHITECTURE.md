@@ -355,8 +355,23 @@ host parsing, so it must be passed as `path`, not embedded in a URL.
 
 Other keys: `CORS_ORIGINS` (comma-separated; unset = reflect any origin, which is safe here
 because auth is Bearer-only with no cookies or ambient credentials), `ITEM_QUEUE_URL`,
-`REPORT_QUEUE_URL`, `RAW_BUCKET`, `SCORER_MODEL`, `REPORTER_MODEL`, `APIFY_API_KEY`,
-`YOUTUBE_API_KEY`, and the optional `GOOGLE_CLOUD_PROJECT` (still read by `firebase-admin`).
+`REPORT_QUEUE_URL`, `SCAN_QUEUE_URL`, `RAW_BUCKET`, `SCORER_MODEL`, `REPORTER_MODEL`,
+`ASSISTANT_MODEL` (all three default to `eu.anthropic.claude-haiku-4-5-20251001-v1:0`),
+`APIFY_API_KEY`, `YOUTUBE_API_KEY` and `COGNITO_USER_POOL_ID` / `COGNITO_CLIENT_ID`.
+`GOOGLE_CLOUD_PROJECT` is no longer in the schema.
+
+**Auth mode.** `AUTH_MODE` is `cognito` (default) or `local`. `local` requires
+`LOCAL_AUTH_PASSWORD` (≥ 12 characters) and a `.refine()` **rejects `AUTH_MODE=local` under
+`NODE_ENV=production`** — local mode accepts unsigned tokens, so it can never be implied. Before
+2026-11-16 unsigned dev tokens were accepted whenever `NODE_ENV` was `development`, which is the
+schema default, so any process launched without `NODE_ENV` trusted them.
+
+**Runtime resource tags.** `RESOURCE_TAGS` is an optional JSON object of strings; Terraform
+injects the stack's mandatory tags into the API task, and the API stamps them on the CRM secrets
+it creates at runtime (which `default_tags` cannot reach). Unset locally.
+
+**Bedrock from a laptop.** `BEDROCK_AWS_PROFILE` / `BEDROCK_REGION` are optional and local-only
+— see `libs/llm` below. Deployed tasks leave them unset.
 
 Models are named by **use case** (`SCORER_MODEL` / `REPORTER_MODEL`), not by provider, so the
 underlying model can be swapped without touching code. That property is what let the move from
@@ -366,14 +381,9 @@ Vertex to Bedrock leave every call site alone.
 SDK's default provider chain — the ECS task role in a deployed environment, `AWS_PROFILE` or a
 LocalStack endpoint locally. No code holds a key.
 
-Two subtleties worth knowing before you edit it:
-
-- **The queue URLs have no defaults and throw when unset.** An SQS URL embeds the account id and
-  region, so no constant could stand in for one, and a wrong guess publishes into nowhere. This
-  is the AWS form of the fix for KNOWN-GAPS #7.
-- **`GOOGLE_CLOUD_PROJECT` is `.optional()`, and that matters.** It used to be required, which
-  meant every app in the monorepo refused to boot without it — including the four that never
-  touched GCP. Delete the line in the same change that removes the last firebase import.
+One subtlety worth knowing before you edit it: **the queue URLs have no defaults and throw when
+unset.** An SQS URL embeds the account id and region, so no constant could stand in for one, and
+a wrong guess publishes into nowhere. This is the AWS form of the fix for KNOWN-GAPS #7.
 
 ### `libs/db`
 
@@ -449,6 +459,18 @@ whose schema _is_ the shape wanted, and is what the scoring pipeline uses — it
 not in this library**: running a tool is an authorisation decision, and the provider adapter must
 not be what makes it. See `apps/api/src/assistant/agent.ts`.
 
+`structured()` takes an optional `system` prompt and a `maxTokens` (default 1024), and **throws
+on `stopReason = max_tokens`** rather than returning a truncated tool call. Its type parameter is
+**unchecked** — the provider guarantees a tool call, not that its fields are in range — so every
+caller validates (the scorer's `validateScore`, for instance).
+
+**Endpoint and credentials.** The Bedrock client **ignores `AWS_ENDPOINT_URL`**: LocalStack has
+no Bedrock, and honouring the override sent every local LLM call to LocalStack. When
+`BEDROCK_AWS_PROFILE` is set (local only, e.g. `psignal-dev`), it is passed as the client's
+`profile`, which makes the SDK skip the LocalStack `test` keys in the environment
+(`@aws-sdk/credential-provider-node`, `defaultProvider`). `BEDROCK_REGION` overrides
+`AWS_REGION`. Deployed tasks set neither and use the task role.
+
 > **Model ids on Bedrock are inference profiles**, and availability is per account and changes.
 > The bare `anthropic.claude-…` id is rejected with _"on-demand throughput isn't supported"_; the
 > `eu.` prefix scopes routing to EU regions and `global.` variants exist that do not.
@@ -499,9 +521,12 @@ failed silently (KNOWN-GAPS #7).
 `publish()` also throws when SQS returns no `MessageId`, rather than reporting a publish that
 may not have happened.
 
-> **The consume side does not exist yet.** `apps/sentiment-worker` still serves an HTTP route
-> shaped like a Pub/Sub push envelope. Push→pull is a real model change, not a driver swap, and
-> it is Phase 4 — see `HANDOVER.md` §6.
+**The consume side is `SqsConsumer`** (`src/consumer.ts`): long polling, delete only after the
+handler succeeds, back-off on receive errors, graceful stop. **While a handler runs it extends
+the batch's visibility** (`ChangeMessageVisibilityBatch`) every third of the visibility timeout
+(default 300 s), covering every message of the batch, whose clocks started together. Without
+that, a scan sweep longer than the timeout became visible again mid-run and could be processed
+twice. Heartbeat and delete failures go to `onError` and never fail the handler.
 
 ### `libs/storage`
 
@@ -536,9 +561,17 @@ I/O, so the whole engine is unit-testable without a database:
 recencyWeight(publishedAt, asOf); // 2^(-age/90d) — spec's 90-day half-life
 scoreDimension(items, dimension, asOf); // weighted by recency × confidence → 0–100
 compositeScore(rollups, weights); // the BPI; per-brand weights, renormalised
-clusterTopics(items, asOf); // damage = volume × negativity × recency
+clusterTopics(items, asOf); // damage = Σ negativityᵢ × recencyᵢ (strength: Σ positivityᵢ × recencyᵢ)
 brandImpact(clusters); // top 3 by damage, zero-damage excluded
 ```
+
+**Damage is summed per item** (since 2026-11-16). It was volume × mean negativity × mean recency,
+so an old negative item plus a new positive one still read as recent damage; taking both factors
+from the same item keeps the spec's "volume × negative sentiment × recency". Item `score` and
+`confidence` are **clamped** (and non-finite values zeroed) before weighting, so one out-of-range
+model output cannot skew a dimension or produce a negative weight. Topics are **de-duplicated
+within a signal**, as `change.ts` already did, so cluster volumes agree across views.
+`normaliseTopic`, `MS_PER_DAY` and `LOOKBACK_DAYS` are single-sourced here.
 
 `src/change.ts` adds **period-over-period movement** — what the index _did_, as opposed to what it
 _is_:
@@ -641,14 +674,26 @@ reads `config.credentials['placeId']` even though a place ID is not a secret.
 
 **Implementations:**
 
-| Adapter                | Mechanism                                         | Key config                        | Notes                                                                                                                                        |
-| ---------------------- | ------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GoogleReviewsAdapter` | Apify actor `compass~google-maps-reviews-scraper` | `placeId`                         | `maxReviews: 100`; `since` → `cutoffDate`                                                                                                    |
-| `AppStoreAdapter`      | Apify `nikita-shakula~app-store-scraper`          | `appId`, `country` (default `us`) | Joins title + body as text; drops empty                                                                                                      |
-| `PlayStoreAdapter`     | Apify `emastra~google-play-scraper`               | `appId`                           | Sorted newest; drops empty content                                                                                                           |
-| `RssAdapter`           | Direct `fetch` + `fast-xml-parser`                | `feedUrl`                         | Handles **both RSS and Atom**; filters by `since` client-side; no API key needed                                                             |
-| `RedditAdapter`        | Apify `trudax~reddit-scraper-lite`                | `query`, `subreddit` (optional)   | Posts only (`searchComments: false`); `searchCommunityName` scopes to a subreddit; title + body joined as text; `since` filtered client-side |
-| `YoutubeAdapter`       | YouTube Data API v3                               | `channelId`                       | Last 10 videos → up to 50 top-level comments each; **HTTP 403 = comments disabled → skipped, not an error**                                  |
+| Adapter                | Mechanism                                         | Key config                        | Notes                                                                                                                                                                          |
+| ---------------------- | ------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GoogleReviewsAdapter` | Apify actor `compass~google-maps-reviews-scraper` | `placeId`                         | `maxReviews: 100`; `since` → `cutoffDate` and re-applied locally; empty-text reviews dropped                                                                                   |
+| `AppStoreAdapter`      | Apple's public iTunes customer-reviews RSS        | `appId`, `country` (default `us`) | No key, no quota; joins title + body as text; drops empty                                                                                                                      |
+| `PlayStoreAdapter`     | Apify `neatrat~google-play-store-reviews-scraper` | `appId`                           | Newest first; `since` filtered locally; drops empty content                                                                                                                    |
+| `RssAdapter`           | `fetchPublic` + `fast-xml-parser`                 | `feedUrl`                         | Handles **both RSS and Atom**; filters by `since` client-side; no API key needed; **SSRF-guarded** (below)                                                                     |
+| `RedditAdapter`        | Apify `trudax~reddit-scraper-lite`                | `query`, `subreddit` (optional)   | Posts only (`searchComments: false`); `searchCommunityName` scopes to a subreddit; title + body joined as text; `since` filtered client-side                                   |
+| `YoutubeAdapter`       | YouTube Data API v3                               | `channelId`                       | Last 10 videos → up to 50 top-level comments each; `since` filters **comments**, never the video search; only a `commentsDisabled` 403 is skipped — quota and other 403s throw |
+
+Every item with empty text or no external id is dropped; `toSignal`, `toArray` and the watermark
+filter live once in `src/common.ts`.
+
+**Outbound HTTP (`src/http.ts`).** `fetchWithTimeout` gives every direct call a 30 s timeout
+(`fetch` has none by default, so one silent source held a whole scan open). `fetchPublic`, used
+for the tenant-configured RSS URL, allows only http(s), resolves the host and **rejects private,
+loopback, link-local (including the instance-metadata address), CGNAT, multicast and IPv4-mapped
+addresses across all DNS answers**, following at most 5 redirects and re-checking every hop —
+before this, a tenant could point a feed at anything inside the VPC. The residual DNS-rebinding
+window between the check and the connection is documented in the file; closing it needs a
+pinned-lookup agent.
 
 > **Reddit goes through the existing Apify account, not Reddit's own API.** The key and the
 > billing already exist and are already wired through `getSystemCredentials`, so there is no second
@@ -668,7 +713,9 @@ scrapedAt, dataType`. `libs/source-adapters/test/reddit.test.ts` uses that shape
 
 `apifyClient.ts` is the shared Apify runner used by the four Apify-backed adapters:
 `startApifyRun` → `waitForApifyRun` (poll every 5s, 5-minute deadline, throws on
-FAILED/TIMED-OUT/ABORTED) → `fetchApifyDataset`.
+FAILED/TIMED-OUT/ABORTED and on the free-plan refusal signatures; **aborts the run when the
+deadline passes**) → `fetchApifyDataset`. The token travels in an `Authorization: Bearer` header,
+not the query string.
 
 **To add a source:** implement `SourceAdapter`, export it from `libs/source-adapters/src/index.ts`,
 register it in the `ADAPTERS` map in `apps/ingestion/src/handler.ts`, add its credential
@@ -681,27 +728,56 @@ mapping to `getSystemCredentials()` if it needs a key, and add its form fields t
 
 Fastify 5, port **8080**, ESM. Target: a public ECS Fargate service behind an ALB.
 
-### Boot sequence (`src/main.ts`)
+### Boot sequence (`src/main.ts` → `src/app.ts`)
 
-1. `@fastify/sensible` (gives `reply.unauthorized()`, `reply.notFound()`, …)
+`main.ts` calls **`buildApp()`** (`src/app.ts`), runs **`runMigrations()`**, then
+`listen(PORT, '0.0.0.0')`. `buildApp()` is separate so the integration suite exercises the
+production wiring, in this order:
+
+1. `httpBasics` (`src/lib/http.ts`): `@fastify/sensible` plus the **error boundary** (below)
 2. `@fastify/cors` — allowlist from `CORS_ORIGINS`, else reflect any origin
 3. `@fastify/swagger` + `@fastify/swagger-ui` → OpenAPI docs at **`/docs`**, with a
    `BearerAuth` security scheme
-4. `/health` and `/ready` (both public, both return `{ status, service }`)
-5. Auth plugin, then the six route plugins
-6. **`runMigrations()`**
-7. `listen(PORT, '0.0.0.0')`
+4. Auth plugin, then **rate limiting** (after auth, so it can key on the user)
+5. `routes/health.ts`, `routes/local-auth.ts` (registers nothing unless `AUTH_MODE=local`), then
+   every other route plugin
+
+**Error boundary.** An unhandled 5xx is logged in full and answered with a generic message and
+the request id. Before 2026-11-16 there was no handler, Fastify returned `error.message`, and
+drizzle's message is `Failed query: <sql> params: <params>` — reachable with a non-uuid id.
+Postgres client errors map to 4xx: `22P02`, `22007`, `22008` → 400; `23505`, `23503` → 409.
+5xx messages written deliberately (`reply.serviceUnavailable('…')`) pass through.
+
+**Rate limiting** (`src/lib/rate-limit.ts`, `@fastify/rate-limit`) is keyed **per user**, not per
+IP — the assistant's tool calls re-enter the API via `inject` from 127.0.0.1, and many users share
+an egress address. Default 300/min; `POST /assistant/messages` 10/min; `POST
+/brands/:id/roadmap/adapt` 20/min; `POST /auth/local/sign-in` 10/min.
+
+**Health.** `/health` is liveness. `/ready` runs `select 1` and returns **503** when the database
+is unreachable.
+
+**Validation.** Every request body declares `additionalProperties: false`, every id
+`format: 'uuid'`, strings carry length limits, and date query parameters are validated. Fastify
+only strips undeclared keys when `additionalProperties: false` is set — its absence is how
+`PATCH /admin/users/:id` became a mass-assignment hole (KNOWN-GAPS #31).
+
+**Tenant ownership on writes.** `brandInTenant()` (`src/lib/tenancy.ts`) is the check that a
+brand id named in a body or path belongs to the caller's tenant. A foreign key only proves the
+brand exists _somewhere_; aliases, integrations, scan and the user brand pin all go through it.
 
 ### Migrations on startup (`src/migrate.ts`)
 
 The API is the **single schema owner**. On boot it:
 
-1. No-ops if the `migrations/` directory is absent.
-2. Opens a **dedicated single connection** (`createSql(1)`).
+1. **Throws** if the `migrations/` directory is absent (it used to skip silently, so an image
+   built without the folder booted against a stale schema).
+2. Opens a **dedicated single connection** (`createSql(1)`) and sets `lock_timeout` (5 min), so
+   a hung lock holder fails the boot instead of blocking it forever.
 3. Takes Postgres advisory lock `4815162342` so concurrent instances serialise
    rather than racing.
 4. Runs Drizzle's migrator.
-5. Releases the lock and ends the connection in a `finally`.
+5. Releases the lock **only if it was taken**, preserving the original error, and ends the
+   connection in a `finally`.
 
 No manual migrate step, no separate migrator job or container. Workers never migrate.
 
@@ -709,10 +785,13 @@ No manual migrate step, no separate migrator job or container. Workers never mig
 
 A `fastify-plugin`-wrapped global `onRequest` hook:
 
-- **Public prefixes:** `/health`, `/ready`, `/docs` — everything else requires
-  `Authorization: Bearer <Identity Platform ID token>`.
-- Token is verified with `firebase-admin` (`admin.auth().verifyIdToken`); the decoded claims
-  populate `request.user`:
+- **Public paths, matched exactly:** `/health`, `/ready`, `/docs` and `/docs/…`, plus
+  `/auth/local/sign-in` in local mode. (This was `startsWith`, which would have made any future
+  `/healthcheck-…` route public.) Everything else requires `Authorization: Bearer <token>`.
+- In `AUTH_MODE=cognito` (the default), the **Cognito ID token** is verified with
+  `aws-jwt-verify` (`CognitoJwtVerifier`, `tokenUse: 'id'`), and its `custom:role`,
+  `custom:tenantId`, `custom:brandEntityId` attributes populate `request.user`. The role claim is
+  validated against the enum, because `requireBrandAccess` constrains only the literal `'user'`:
 
   ```ts
   type UserClaims = {
@@ -725,10 +804,17 @@ A `fastify-plugin`-wrapped global `onRequest` hook:
 
 - `request.user` is installed via `decorateRequest` with a symbol-keyed getter/setter (Fastify
   5 forbids sharing a mutable object across requests).
-- **Dev shortcut:** when `NODE_ENV === 'development'` _only_, a token of the form
-  `dev:<role>:<tenantId>[:<brandEntityId>]` is parsed directly, bypassing Firebase. Colon-delimited
-  because tenant/brand ids are UUIDs, which contain hyphens. Useful for
-  curl against a local API; inert in staging/production.
+- **Local mode (`AUTH_MODE=local` only — never implied by `NODE_ENV`, refused in production):**
+  a token of the form `dev:<role>:<tenantId>[:<brandEntityId>][:<uid>]` is parsed directly,
+  strictly (role from the enum, uuids for tenant and brand). Colon-delimited because the ids are
+  UUIDs. `POST /auth/local/sign-in` (`src/routes/local-auth.ts`) issues one: it takes
+  `{username, password}`, compares the password with `LOCAL_AUTH_PASSWORD` in constant time,
+  looks the user up by the `users` row's identity-provider id (= the username), returns an
+  identical 401 for an unknown
+  user or a wrong password, and responds `{token, user: {username, role, tenantId,
+brandEntityId}}` built from the `users` row. In local mode `setUserClaims` is a no-op — the row
+  _is_ the claim. `yarn db:seed` creates `local-owner`, `local-admin` and `local-user` (pinned to
+  the owned brand).
 
 `requireRole(...roles)` is a preHandler factory returning `reply.forbidden()` on mismatch:
 
@@ -744,16 +830,16 @@ difference.
 
 | Method & path                       | Role         | Response shape       | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------------- | ------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /admin/tenants`               | owner        | `{status,data}`      | **Transactional**: creates tenant + owned brand + admin user row in one `db.transaction`. Slugs are derived from names.                                                                                                                                                                                                                                                                                                                     |
+| `POST /admin/tenants`               | owner        | `{status,data}`      | **Transactional**: creates tenant + owned brand + admin user row in one `db.transaction`. Slugs are derived from names; a slug collision is **409**. Refuses an owner naming themselves as the new admin, which would have demoted their own claims.                                                                                                                                                                                        |
 | `POST /admin/users`                 | owner, admin | bare row             | Row **and** claims written in one transaction. An `admin` is confined to their own tenant and to the roles admin/user.                                                                                                                                                                                                                                                                                                                      |
-| `PATCH /admin/users/:id`            | owner, admin | bare row             | Reads the target first, then updates role/brand and re-syncs claims in one transaction. 404 for a foreign tenant.                                                                                                                                                                                                                                                                                                                           |
+| `PATCH /admin/users/:id`            | owner, admin | bare row             | Reads the target first, then updates **only** `role` and `brandEntityId` (named explicitly — never a spread of the body) and re-syncs claims in one transaction. `brandEntityId: null` clears the pin; a pin must belong to the user's tenant. 404 for a foreign tenant.                                                                                                                                                                    |
 | `GET /admin/users`                  | owner, admin | bare array           | Users in the caller's tenant.                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `GET /brands`                       | any          | bare array           | Tenant-scoped. A `user` with a `brandEntityId` sees **only** that brand.                                                                                                                                                                                                                                                                                                                                                                    |
 | `GET /brands/:id`                   | any          | bare row             | Tenant-scoped + `requireBrandAccess`; 404 otherwise.                                                                                                                                                                                                                                                                                                                                                                                        |
-| `GET /brands/tree`                  | any          | bare array           | The whole hierarchy as nested `children`. Built from one flat select in a map, not N queries. Orphans surface as roots rather than vanishing.                                                                                                                                                                                                                                                                                               |
+| `GET /brands/tree`                  | any          | bare array           | The hierarchy as nested `children`. Built from one flat select in a map, not N queries. Orphans surface as roots rather than vanishing. A pinned `user` gets only their brand, as with `GET /brands`.                                                                                                                                                                                                                                       |
 | `POST /brands`                      | admin, owner | bare row             | Create a brand or a product. `parentId` optional; the parent is checked inside the caller's tenant.                                                                                                                                                                                                                                                                                                                                         |
 | `PATCH /brands/:id`                 | admin, owner | bare row             | Rename, re-type, re-own or re-parent. `parentId: null` promotes to a root — distinct from omitting it. Refuses cycles via `wouldCreateCycle`.                                                                                                                                                                                                                                                                                               |
-| `DELETE /brands/:id`                | admin, owner | 204                  | **Only when nothing is attached.** 409 naming the blocker if it has children, signals, dimension scores, mentions or an assigned user. Aliases, source configs and scan runs are removed with it. See below.                                                                                                                                                                                                                                |
+| `DELETE /brands/:id`                | admin, owner | 204                  | **Only when nothing is attached.** 409 naming the blocker if it has children, signals, dimension scores, mentions, tracked actions or an assigned user. Aliases, source configs and scan runs are removed with it, **in one transaction**. See below.                                                                                                                                                                                       |
 | `GET /brands/:id/signals`           | any          | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`, `?sourceConfigId=`, `?topic=`, `?dimension=`; `limit` max 100, default 50. Returns `content`/`title`/`author`/`rating` and a nested `sentiment` (LEFT join; null = unscored). `topic` and `dimension` are EXISTS sub-selects against `sentiment_results`, never joins — a join multiplies the signal row by its array members and breaks both the page size and the cursor. |
 | `GET /brands/:id/sentiment-summary` | any          | object               | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results.                                                                                                                                                                                                                                                                                                                        |
 | `GET /brands/:id/dimension-scores`  | any          | bare array           | Dimension history from `dimension_scores`, `from`/`to` optional, default last 90 days. Lives in `routes/scores.ts`.                                                                                                                                                                                                                                                                                                                         |
@@ -772,14 +858,14 @@ difference.
 > | `PATCH /brands/:id/target` | admin, owner | object | Set or clear the brand's target index. `null` clears it back to a competitor-derived default — there has to be a way back from a target set in error. |
 > | `POST /brands/:id/roadmap/actions` | any | object | Commit to an action; stamps the immutable baseline. |
 > | `GET /brands/:id/roadmap/actions` | any | bare array | The log, with each outcome computed on read. |
-> | `POST /brands/:id/roadmap/adapt` | any | object | Rewrites a matched play in the language of the evidence. On demand, never on page load. `adapted: false` when the model was unusable and the curated wording is being shown. |
+> | `POST /brands/:id/roadmap/adapt` | any | object | Rewrites a matched play in the language of the evidence. On demand, never on page load. `adapted: false` when the model was unusable and the curated wording is being shown. Open to every role (it rewords what the caller can already see); its risk is spend, so it is limited to 20/min per user. |
 > | `GET /brands/:id/voice-of-customer` | any | object | What Sales and CS hear directly. Ranked by **distinct accounts × commercial band**, never by volume, plus the subjects raised both publicly and privately. `connected: false` distinguishes "no CRM" from "connected and quiet". |
 > | `GET /crm/connections` | admin, owner | bare array | Linked CRMs and their health. Never returns a token or a secret ARN. |
-> | `POST /crm/connections` | admin, owner | object | Stores OAuth tokens in Secrets Manager and records the link. Refuses Salesforce without an `instanceUrl`. |
+> | `POST /crm/connections` | admin, owner | object | Stores OAuth tokens in Secrets Manager and records the link. Refuses Salesforce without an `instanceUrl`; `instanceUrl` must be https. The secret is tagged from `RESOURCE_TAGS` (always `Project` and `ManagedBy=api`); a secret still in its recovery window is restored before rewrite; a secret this call created is scheduled for deletion if the row insert fails. |
 > | `DELETE /crm/connections/:id` | admin, owner | 204 | Disconnect. Schedules the secret for deletion with a recovery window rather than forcing it. |
 > | `GET /brands/:id/whats-new` | any | object | **What changed** over `?days=` (default 7, max 90) against the equal-length period before it: `newTopics`, `risingTopics`/`fallingTopics` (volume), `improvingTopics`/`worseningTopics` (sentiment), `bySource`, and the period sentiment delta. `?basis=ingested\|published` — `ingested` is what _we_ learned (the honest basis for "new since the last scans"), `published` is what the world said (the right basis for trend); the response echoes the choice. `?source=` narrows it. Computed on read — see `libs/scoring/src/change.ts` for why there is no snapshot table and what would justify one. |
 > | `GET /brands/:id/stats` | any | object | Dashboard stat row and the **coverage funnel**: this/previous week signal counts, `totalSignals` → `scoredSignals` → `classifiedSignals` → `lastRollupDate`, plus active/configured sources. `classifiedSignals` counts signals scored **and** tagged to ≥1 dimension; anything short of that reaches no index, no cluster and no drill-down. `classifiedSignals: 0` beside a non-zero `scoredSignals`, or a null `lastRollupDate`, is the signature of a brand silently falling out of the rollup. |
-> | `POST /assistant/messages` | any | object | Ask the assistant. Read-only over BRAND data; it writes only the conversation record. History is loaded server-side — see below. |
+> | `POST /assistant/messages` | any | object | Ask the assistant. Read-only over BRAND data; it writes only the conversation record, in one transaction. History is loaded server-side — see below. 10/min per user. |
 > | `GET /assistant/conversations` | any | bare array | The caller's **own** conversations, most recent first. Filtered by tenant **and** user. |
 > | `GET /assistant/conversations/:id` | any | object | One conversation and its turns. 404 whether it is missing or someone else's. |
 > | `PATCH /assistant/conversations/:id` | any | object | Rename. |
@@ -857,9 +943,11 @@ to a dead end when no topic has formed yet. Covered by `libs/scoring/test/score.
 (`topicsForDimension`) and `apps/web/test/drilldown-dimension.test.tsx`, which asserts on the URL
 requested, because a test that only mocked the response would pass against the broken version.
 
-**Why `DELETE /brands/:id` is so narrow.** Seven tables reference `brand_entities.id`: `signals`,
-`dimension_scores`, `signal_mentions`, `scan_runs`, `brand_aliases`, `source_configs` and
-`users.brand_entity_id`. Cascading through all of them would discard collected intelligence on a
+**Why `DELETE /brands/:id` is so narrow.** Eight tables reference `brand_entities.id`: `signals`,
+`dimension_scores`, `signal_mentions`, `scan_runs`, `brand_aliases`, `source_configs`,
+`tracked_actions` and `users.brand_entity_id`. (`tracked_actions` was missing from the blockers
+until 2026-11-16, so a brand with a committed action lost its feeds and aliases and then failed on
+the foreign key with a 500; the check is now there and the deletes share one transaction.) Cascading through all of them would discard collected intelligence on a
 misclick, and the `users` one is worse than that — `brand_entity_id` is an **authorisation scope**,
 so nulling it silently widens what that person can see. There is no soft-delete column, and adding
 one would mean teaching every read path to filter on it; miss one and archived brands quietly
@@ -879,15 +967,17 @@ the guard is not automatic.
 
 ### Ops script — `scripts/bootstrap-owner.ts`
 
-Bootstraps the first owner for an environment: creates the Identity Platform user if missing,
-sets the `role: owner` custom claim, and prints a password-reset link. Owner authorisation is
-claim-based, so **no DB row is required** to bootstrap.
+Bootstraps the first owner for an environment: creates the **Cognito** user if missing and sets
+`custom:role = owner`. Cognito emails the temporary password and forces a change on first
+sign-in, so the script never prints or transmits one. Owner authorisation is claim-based, so **no
+DB row is required** to bootstrap.
 
 ```bash
-GOOGLE_CLOUD_PROJECT=<your-gcp-project> npx tsx apps/api/scripts/bootstrap-owner.ts someone@example.com
+AWS_PROFILE=psignal-dev COGNITO_USER_POOL_ID=<pool id> npx tsx apps/api/scripts/bootstrap-owner.ts someone@example.com
 ```
 
-Uses Application Default Credentials — run `gcloud auth application-default login` first.
+Credentials come from the SDK default chain (the sandbox SSO profile). Not needed locally: in
+`AUTH_MODE=local` the seed's `local-owner` is the owner.
 
 ---
 
@@ -920,9 +1010,15 @@ one applies turns the tenant boundary into an enumeration oracle.
 **`agent.ts` — the loop.** Bounded at 6 model round-trips and 5 tool calls per turn. When the
 ceiling trips it makes one final tool-free call and returns `truncated: true`, which the UI shows
 — a partial answer presented as complete is the failure that makes an assistant untrustworthy.
+**Every tool call in a model turn gets a result block**: calls beyond the fifth are not run but are
+answered with an error result. Before 2026-11-16 the turn was replayed with all its calls and only
+five results, which Bedrock rejects, so a model asking for six tools broke the conversation.
 Situational context (current view, selected brand) goes in the **system prompt**, not a user turn:
 as a user turn the model can read it as an instruction from the person, so a signal titled
-"ignore your instructions" would have a path to becoming one.
+"ignore your instructions" would have a path to becoming one. Because it reaches the system
+prompt, it is validated first: `view` must match `^[a-z][a-z0-9-]{0,31}$`, and `brandId` /
+`conversationId` must be uuids. The `get_dimension_scores` tool's `days` argument is mapped
+to `from` (the endpoint ignored `days`, so it silently did nothing).
 
 **Conversation history is server-side, and scoped to the USER.** The assistant was initially
 stateless — the client sent the history it wanted considered and nothing was stored, which is the
@@ -968,14 +1064,27 @@ Fastify, port **8081**. Private: reachable only by the scheduler and itself.
 
 ### Endpoints
 
-| Path                        | Purpose                                                                                                                                             |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`, `GET /ready` | Liveness/readiness                                                                                                                                  |
-| `POST /ingest`              | Run one job. Body `{ sourceConfigId }`. 400 if missing.                                                                                             |
-| `POST /ingest/dispatch`     | Fan-out: selects **all** `source_configs` where `is_enabled = true` and runs each via `Promise.allSettled`; returns `{ total, succeeded, failed }`. |
+| Path                              | Purpose                                                                             |
+| --------------------------------- | ----------------------------------------------------------------------------------- |
+| `GET /health`, `GET /ready`       | Liveness/readiness                                                                  |
+| `POST /ingest`                    | Run one job. Body `{ sourceConfigId }`. 400 if missing. **Local development only.** |
+| `POST /reconcile`, `POST /rollup` | Run the sweep / the rollup by hand. **Local development only.**                     |
 
-Startup pings the DB (`SELECT 1`) and resolves the item queue URL before listening, so a
-broken connection fails fast rather than at first request.
+**In a deployed environment none of these is reachable** — ingestion has no ALB target group. All
+work arrives on the **scan queue** (`src/scanConsumer.ts`, one message per receive), as
+`{tenantId, brandEntityId}` for an on-demand scan or `{"job": "scan-all" | "rollup" |
+"reconcile"}` from EventBridge Scheduler (hourly at :00, :30 and :45). `POST /ingest/dispatch`,
+which ran every feed concurrently inside one HTTP request and had no caller, was removed on
+2026-11-16. Routes live in `src/app.ts` so they are testable without a socket.
+
+Startup pings the DB (`SELECT 1`), resolves the item queue URL and starts the scan consumer
+before listening, so a broken connection fails fast rather than at first message.
+
+**The reconcile sweep** (`reconcilePendingSignals`) re-publishes signals with no
+`sentiment_results` row that were ingested **between 6 h and 15 min ago**, have content, oldest
+first, at most 500 per run. The window means a permanently unscoreable signal is re-sent to
+Bedrock only for a few hours rather than forever; the grace period leaves normal scoring time to
+finish.
 
 ### `handleIngestionJob(sourceConfigId)` — `src/handler.ts`
 
@@ -993,9 +1102,12 @@ broken connection fails fast rather than at first request.
    missing object. The `(source_url, brand_entity_id)` unique constraint does the
    deduplication; `.returning()` is empty for a duplicate, so only genuinely new rows are
    collected.
-7. Publish one SQS message per **newly created** signal id via `getPublisher().publish("item", id)`.
-   The handler names only the logical queue; the publisher resolves the URL from `ITEM_QUEUE_URL`
-   and throws if it is unset. Body is the bare signal uuid.
+7. Publish the new signal id **immediately after its insert** via
+   `getPublisher().publish("item", id)`. It used to publish after the whole loop, so a failure
+   mid-batch left every row already inserted unpublished — and `onConflictDoNothing` meant a
+   re-run could never publish them. A loop failure is recorded on `source_configs.last_error` as
+   `Stopped after N of M items: …`. The publisher resolves the URL from `ITEM_QUEUE_URL` and
+   throws if it is unset. Body is the bare signal uuid.
 8. Stamp `last_fetched_at` / `updated_at` on the `source_config`.
 9. Return `{ signalsCreated, signalsPublished }`.
 
@@ -1007,27 +1119,20 @@ Dedup + incremental `since` together mean a re-run of the same job is safe and c
 
 Fastify, port **8082**. Private.
 
-> ⚠️ **This is still an HTTP push consumer and needs to become an SQS poller (Phase 4).** The
-> route below is shaped like a Pub/Sub push envelope, which nothing on AWS sends.
+### Consumer — `src/consumer.ts`
 
-### Endpoint
+An `SqsConsumer` on the **item** queue; the only HTTP routes are `/health` and `/ready`. (The
+`POST /pubsub/item` push route left over from the GCP design was unauthenticated and called by
+nothing; it was removed on 2026-11-16.) The body is a bare signal uuid or a JSON envelope. **Whether
+the message is deleted is the ack signal**:
 
-`POST /pubsub/item` accepts the standard Pub/Sub push envelope:
+| Outcome                   | Effect                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| Success                   | Deleted.                                                                             |
+| `PermanentScoringError`   | Deleted, logged at error level. Retry cannot help.                                   |
+| Anything else (transient) | Left on the queue → redelivered after the visibility timeout → DLQ after 5 receives. |
 
-```json
-{ "message": { "data": "<base64 signal uuid>" }, "subscription": "..." }
-```
-
-It base64-decodes `message.data` to a signal id and calls `handlePubSubMessage`. The **status
-code is the ack signal**, so it is load-bearing rather than cosmetic:
-
-| Outcome                   | Status  | Effect                                           |
-| ------------------------- | ------- | ------------------------------------------------ |
-| Success                   | **204** | Acked.                                           |
-| `PermanentScoringError`   | **204** | Acked, logged at error level. Retry cannot help. |
-| Anything else (transient) | **500** | Nacked → the queue retries with backoff → DLQ.   |
-
-### `handlePubSubMessage(signalId)` — `src/handler.ts`
+### `handleItemMessage(signalId)` — `src/handler.ts`
 
 1. Load the signal; warn and return if absent (a missing row is not coming back).
 2. Resolve `raw_storage_ref` through `getObjectStore()` and `keyFromRef()`, parse the stored
@@ -1037,8 +1142,9 @@ code is the ack signal**, so it is load-bearing rather than cosmetic:
    this is the idempotency guarantee, so redelivery is harmless.
 
 **Failures are classified, and the distinction is the point** (KNOWN-GAPS #9). Permanent —
-missing signal row, unresolvable reference, stored payload that is not JSON or has no text,
-model output that will not parse — raises `PermanentScoringError` and is acked, because
+missing signal row, unresolvable reference, stored payload that is not JSON or has no text, an
+`LlmResponseError` (no tool call, truncated output) or a `ScoreValidationError` — raises
+`PermanentScoringError` and is acked, because
 redelivering sends the identical prompt and gets the identical garbage. Everything else
 (network, quota, throttling, 5xx from Bedrock or the bucket) is rethrown so the retry backoff and
 `max_delivery_attempts` configured in Terraform can actually fire. **Do not swallow errors
@@ -1057,8 +1163,18 @@ Calls `getLlmClient().structured<…>()` with `SENTIMENT_SCHEMA`, which declares
 
 **That schema is not a hint in a prompt — it is the input schema of a Bedrock tool, with
 `toolChoice` forcing the model to call it**, so the provider returns an already-parsed object.
-`scoreSignal` does nothing to the result but stamp `modelVersion` from `getScorerModel()`.
-`PROMPT_TEMPLATE` and `SENTIMENT_SCHEMA` are both exported so tests can assert on them.
+
+**A parsed object is not a valid one.** `validateScore` rejects an unknown label or a non-numeric
+score or confidence, clamps score to [-1, 1] and confidence to [0, 1], drops unknown or duplicate
+dimensions (an empty list is still stored, with a warning, per KNOWN-GAPS #30), and lowercases,
+de-duplicates and caps topics at `MAX_TOPICS` (5). Out-of-range values used to reach
+`sentiment_results` and the index unchecked.
+
+**The scraped text is data, not instructions.** The instructions are in `SYSTEM_PROMPT`; the text
+is wrapped in a `<signal>` block (`asSignalBlock`, which neutralises closing tags) that the
+system prompt tells the model to treat as untrusted content. `maxTokens` is 1024.
+`PROMPT_TEMPLATE`, `SYSTEM_PROMPT` and `SENTIMENT_SCHEMA` are exported so tests can assert on
+them. Logging uses the pino logger; a successful score logs at `info`.
 
 > **There is no JSON parsing, no ` ```json ` fence-stripping and no "return ONLY valid JSON"
 > instruction anywhere in this path, and reintroducing any of them is a regression.** All three
@@ -1075,16 +1191,17 @@ Calls `getLlmClient().structured<…>()` with `SENTIMENT_SCHEMA`, which declares
 
 ## 9. apps/report-worker — deferred skeleton
 
-Fastify, port **8083**. Only `/health` and `/ready`, exposed through an exported
-`buildApp()` so tests can mount it without listening. Weekly narrative reports and
-PDF generation are Epic 12 — deliberately unbuilt. Its `vitest.config.ts` intentionally omits
-coverage thresholds so the empty skeleton doesn't fail the 80% gate.
+Fastify, port **8083**. Only `/health` and `/ready`, built in `src/app.ts` (`buildApp()`) so
+tests mount it without listening — the test used to import `main.ts`, which bound a port and
+called `process.exit(1)` when it was taken. Weekly narrative reports and PDF generation are
+Epic 12 — deliberately unbuilt. It carries the same 80% coverage gate as every other project.
 
 ---
 
 ## 10. apps/web — dashboard
 
-Next.js 16 (App Router) + React 19, port **3000**, `output: 'standalone'`.
+Next.js 16 (App Router) + React 19, `output: 'standalone'`. Local dev serves on **3100**
+(`next dev --port 3100`).
 
 ### Overlay features — `src/features/`
 
@@ -1104,9 +1221,17 @@ thing that prompted the question.
 > **Why the markdown renderer is hand-written.** Every markdown library renders to an HTML
 > string, which means `dangerouslySetInnerHTML`, which makes a sanitiser the only thing between
 > model output and script execution in an authenticated page. This one emits React elements, so
-> text can never become markup. The one remaining live capability is an `href`, and `safeHref`
-> permits only `http(s)` and in-app paths — `javascript:` and `data:` render as inert text.
-> Assistant answers can quote a hostile signal, so this is a real path, not a theoretical one.
+> text can never become markup. The one remaining live capability is an `href`. **Every
+> data-derived href in the app** — markdown links, the drill-down's scraped `sourceUrl`, roadmap
+> and assistant citations — goes through `lib/safe-url.ts`: `safeExternalHref` parses with the
+> WHATWG URL parser and allows only `http(s)`, rejecting `javascript:`, `data:`,
+> protocol-relative `//host` and `/\host`; `safeInAppPath` admits in-app paths. A help link with
+> no in-app handler renders as text rather than a link to a 404. Before 2026-11-16 the
+> drill-down rendered `sourceUrl` raw, so a hostile feed item could run script on click, and the
+> markdown check accepted `//host`.
+>
+> The dock and the Assistant page share one answer renderer (`features/assistant/shared.tsx`), and
+> the help centre and Documentation share `features/help/ArticleView.tsx`.
 
 The tour anchors on `data-tour="..."` attributes in `components/App.tsx`. A selector matching
 nothing degrades to a centred step; it must never spotlight the top-left corner.
@@ -1114,14 +1239,14 @@ nothing degrades to a centred step; it must never spotlight the top-left corner.
 ### Rendering strategy
 
 `app/page.tsx` is a client component that `dynamic()`-imports `ClientApp` with **`ssr: false`**
-and a styled loading fallback. This is deliberate: the Firebase client SDK touches browser
-APIs and must not be evaluated during server prerender. Consequence — **the dashboard is a
-client-side SPA inside an App Router shell.** Server Components are not used for the app
-surface, so don't "optimise" a view into a Server Component without moving its Firebase
-dependency first.
+and a styled loading fallback. This is deliberate: the Cognito SDK and session storage touch
+browser APIs and must not be evaluated during server prerender. Consequence — **the dashboard is
+a client-side SPA inside an App Router shell**, with one route; views switch on React state.
+Server Components are not used for the app surface.
 
-`app/layout.tsx` sets metadata and preconnects/loads Space Grotesk, Sora, IBM Plex Sans and
-IBM Plex Mono from Google Fonts.
+`app/layout.tsx` sets metadata and loads from Google Fonts **every font pair the Appearance
+popover offers** (Poppins, Open Sans, Space Grotesk, IBM Plex Sans, Sora). Until 2026-11-16 only
+Poppins and Open Sans were loaded, so choosing another pair silently fell back to a system font.
 
 ### Auth chain
 
@@ -1129,30 +1254,41 @@ IBM Plex Mono from Google Fonts.
 page.tsx → ClientApp → AuthProvider → AuthGate → App
 ```
 
-- **`lib/firebase.ts`** — initialises the Firebase app (guarding against double-init via
-  `getApps()`). Config comes from `NEXT_PUBLIC_FIREBASE_API_KEY` / `_AUTH_DOMAIN` /
-  `_PROJECT_ID`, all **required with no fallback** — a missing value throws at startup.
-  These values are public by design, but `NEXT_PUBLIC_*` is inlined at build time, so
-  defaulting them would silently ship a bundle pointed at the wrong Identity Platform
-  project. Set them in `apps/web/.env.local` locally and as Docker build args in CI.
-- **`lib/auth.tsx`** — `AuthProvider` subscribes to `onAuthStateChanged`, and on sign-in reads
-  the **`role` custom claim** off `getIdTokenResult()`. Exposes `{ user, role, loading, signIn,
-signOut }` via `useAuth()`. Currently email/password only (`signInWithEmailAndPassword`) —
-  the Microsoft/Google social buttons described in `PLAN.md` are configured in Terraform but
-  not yet surfaced in the UI.
+- **`lib/config.ts`** — `AUTH_MODE` is `'local'` only when `NEXT_PUBLIC_AUTH_MODE` is exactly
+  `local`; anything else is `'cognito'`. `API_BASE` is `NEXT_PUBLIC_API_URL`, falling back to
+  `http://localhost:8080` (set it to `http://localhost:9080` locally). Both are inlined at build
+  time.
+- **`lib/cognito.ts`** — the Cognito user pool, created **on first use** rather than at import,
+  so a local-mode build loads with no Cognito configuration. `NEXT_PUBLIC_COGNITO_*` have no
+  fallback. The SDK keeps Cognito tokens in `localStorage`; that residual risk is documented in
+  the file, and the mitigation is that no data reaches an `href` or markup unchecked.
+- **`lib/local-auth.ts`** — local mode only: `localSignIn` posts `{username, password}` to
+  `/auth/local/sign-in` and keeps the returned token in **`sessionStorage`**, so a local session
+  ends with the tab.
+- **`lib/auth.tsx`** — `AuthProvider` resolves the session for whichever mode is active and reads
+  role, tenant and brand pin off the Cognito ID token or the local sign-in response. Exposes
+  `{ user, role, loading, signIn, signOut, … }` via `useAuth()`; the value is memoised. Cognito
+  sign-out is **global**, so the refresh token is revoked, not just forgotten in this browser.
+- **`lib/session-events.ts`** — `apiFetch` calls `notifySessionExpired()` on any **401**; the
+  provider signs out and `SignIn` says "Your session has ended", instead of every view failing
+  with a missing token.
 - **`AuthGate`** — renders a loading pane, then `SignIn`, then children.
-- **`SignIn`** — email/password form with inline error handling.
+- **`SignIn`** — Cognito email/password (with the first-login new-password challenge), or in local
+  mode a form labelled **Local development sign-in**. Errors carry `role=alert`.
 
 ### API client — `lib/api.ts`
 
-`apiFetch<T>(path, init)` attaches `Authorization: Bearer <current ID token>` and JSON headers,
-throws `API <status>: <body>` on non-2xx, and parses JSON. Base URL is `NEXT_PUBLIC_API_URL`,
-falling back to `http://localhost:8080`. Like the Firebase config it is inlined at build time
-and passed as a Docker build arg by the deploy workflows — see
-[`../infra/README.md`](../infra/README.md) § Build-time configuration for the web app.
+`apiFetch<T>(path, init)` attaches `Authorization: Bearer <current token>` and JSON headers,
+turns error envelopes into readable messages on non-2xx, signals session expiry on a 401, and
+parses JSON. The base URL is `API_BASE` (`lib/config.ts`), inlined at build time and passed as a
+Docker build arg (`infra-aws/scripts/20-build-push.sh` reads it from `terraform output`).
 
 ### Shell — `components/App.tsx`
 
+- **Brand switcher** (`components/BrandSwitcher.tsx`) sets the selected brand on the brand
+  context; the choice persists and is validated against the current list. Before 2026-11-16 a
+  multi-brand tenant always saw its first owned brand. Each view renders inside a
+  `ViewErrorBoundary`, so one malformed row no longer blanks the whole app.
 - Left rail: brandmark, brand switcher, nav grouped **Brand / Intelligence / Delivery**, plus
   an **Admin** group injected only when `role` is `owner` or `admin`. Footer shows the signed-in
   email, role, and a sign-out button.
@@ -1200,10 +1336,13 @@ lens, and a stale one restored on the next visit would put Australian numbers un
 ### Charts and motion
 
 All visualisation is **hand-rolled SVG** — there is no charting library. `components/charts.tsx`
-provides `LineChart`, `Sparkline`, `VolumeBars`, `MixDonut`; `RadialGauge` and `DimBar` are
-separate. Animation is driven by two hooks: `useInView` (IntersectionObserver, fires once) and
-`useCountUp` (rAF easing). `components/primitives.tsx` holds `Delta`, `SourceGlyph`,
-`SourceBadge`, `Stars`, `SentChip`.
+provides `LineChart` and `Sparkline`; `RadialGauge` and `DimBar` are separate. Animation is
+driven by two hooks: `useInView` (IntersectionObserver, fires once) and `useCountUp` (rAF
+easing). `components/primitives.tsx` holds `Delta` and `SourceGlyph`; the unused `VolumeBars`,
+`MixDonut`, `SourceBadge`, `SentChip` and `Stars` were removed on 2026-11-16.
+
+The Dashboard sparkline under the composite plots the **mean of the dimensions** and is labelled
+so — no endpoint yet returns a per-day weighted composite.
 
 ### Design system — `app/globals.css`
 
@@ -1252,25 +1391,27 @@ and `/brands/:id/aliases`, dynamic add-source form driven by `SOURCE_FIELDS`),
 Three pieces carry that wiring and are worth knowing before you touch a view:
 
 - **`lib/brand-context.tsx`** — `BrandProvider` loads the tenant's brands and holds the
-  selected one. The shell previously hard-coded a single fictional brand.
+  selected one; `BrandSwitcher` and the admin managers share it, and it reloads after a brand is
+  created or deleted. The shell previously hard-coded a single fictional brand.
 - **`hooks/useApi.ts` + `components/ViewState.tsx`** — loading, error and empty are **three
   distinct states**, and every live view must render all three. A `null` path means "not ready
   yet", so views do not fire a request at `/brands/null/...`.
-- **`lib/brand-data.ts`** — pure API→presentation mapping with no React or fetch. Because every
-  view sits behind `AuthGate` and cannot be driven without a real identity provider
-  (KNOWN-GAPS #16), this is where the reshaping correctness is actually proven, under
-  `apps/web/test/brand-data.test.ts`.
+- **`lib/brand-data.ts`** — pure API→presentation mapping with no React or fetch, unit-tested
+  under `apps/web/test/brand-data.test.ts`.
 
-**Mock:** `lib/data.ts` (588 lines) still generates deterministic fake data for a fictional
-challenger bank called **"Cadence"**. It survives because `Roadmap` and `Report` remain on it,
-and because `App.tsx`, `charts.tsx`, `DrillDown.tsx` and `primitives.tsx` still import
-constants from it. Deleting it is Epic 6's exit criterion (KNOWN-GAPS #13). **No new code may
-depend on it.**
+**There is no mock data.** `lib/data.ts` was deleted on 2026-08-09 (KNOWN-GAPS #13) and every view
+reads the API. `lib/types.ts` now holds only the navigation view models (`Dimension`, `NavLevel`,
+`NavActions`); its fixture types went on 2026-11-16.
 
-`lib/types.ts` defines the frontend view models (`Brand`, `Dimension`, `HistoryRow`, `Cluster`,
-`Signal`, `RoadmapItem`, `Competitor`, `Alert`, `NavLevel`, `NavActions`, `TweakValues`). Note
-these are **presentation shapes and are not the same as `@project-signal/shared-types`** — replacing the
-mock data will require mapping API rows into them (or changing them).
+**Tests.** The Vitest coverage gate (80%) applies to **all of `src`**, excluding only `src/app/**`,
+type declarations, `lib/types.ts` and the design-system barrel — it used to cover a nine-file
+allowlist, so auth and every view could ship untested. `test/setup.ts` restores jsdom's
+`localStorage` (Node 25+ defines an unusable global one that shadows it) and stubs
+`IntersectionObserver`. The Playwright suite (`apps/web/e2e`, base URL `http://localhost:3100`)
+signs in through either mode (`E2E_AUTH_MODE`, `E2E_USERNAME`/`E2E_PASSWORD`, or
+`E2E_EMAIL`/`E2E_PASSWORD` for Cognito); `run-docker.sh` starts `e2e/port-forward.mjs` inside the
+container so its `localhost:3100` and `localhost:9080` reach the host, because the bundle calls
+`localhost:9080`.
 
 ---
 
@@ -1279,59 +1420,60 @@ mock data will require mapping API rows into them (or changing them).
 ### Sign-in → authorised request
 
 ```
-User → Identity Platform (email/password)
-     → ID token with custom claims { role, tenantId, brandEntityId }
-Web  → apiFetch attaches Bearer token
-API  → onRequest hook → verifyIdToken → request.user
-     → requireRole(...) preHandler
-     → query filtered by request.user.tenantId
+Cognito mode (deployed):
+User → Cognito (SRP, email/password) → ID token with custom:role, custom:tenantId, custom:brandEntityId
+Local mode (AUTH_MODE=local + NEXT_PUBLIC_AUTH_MODE=local):
+User → POST /auth/local/sign-in {username, password} → dev:<role>:<tenant>[:<brand>][:<uid>] from the users row
+
+Web  → apiFetch attaches Bearer token (401 → back to sign-in)
+API  → onRequest hook → CognitoJwtVerifier (or strict dev-token parse in local mode) → request.user
+     → rate limit (per user) → requireRole / requireBrandAccess preHandlers
+     → query filtered by request.user.tenantId; written brand ids checked by brandInTenant
 ```
 
-Role changes take effect in the token within roughly an hour (custom-claim refresh), which is
-why the API trusts the claim and the `users` table is only a mirror.
+Role changes take effect in a Cognito token on its next refresh, which is why the API trusts the
+claim and the `users` table is only a mirror (in local mode the row is the claim).
 
 ### Ingestion → scoring
 
 ```
-Cloud Scheduler (weekly, Mon 06:00 UTC)
-  └─ POST <ingestion>/ingest/dispatch      [OIDC]
-       └─ for each enabled source_config → handleIngestionJob
-            ├─ adapter.fetch(since = MAX(published_at))     ← incremental
-            ├─ store.put(rawKey(...)) → s3://<RAW_BUCKET>/… ← BEFORE the insert
-            ├─ INSERT signals ... ON CONFLICT DO NOTHING    ← dedup
-            └─ publish("item", id) → SQS            ← URL from ITEM_QUEUE_URL
-                 └─ push subscription [OIDC] → <sentiment>/pubsub/item
-                      ├─ read raw payload, scoreSignal(text) via Bedrock
-                      ├─ UPSERT sentiment_results ON CONFLICT (signal_id)  ← idempotent
-                      └─ transient failure → 500 → retry → item DLQ (after 5 attempts)
-Hourly  POST /reconcile  re-publishes signals with no sentiment_results row.
-Daily   POST /rollup     writes dimension_scores.
+EventBridge Scheduler → scan queue (SQS)
+  :00 {"job":"scan-all"}   :30 {"job":"rollup"}   :45 {"job":"reconcile"}
+  API POST /brands/:id/scan → {tenantId, brandEntityId}
+ingestion scan consumer (one message per receive; visibility heartbeat while it runs)
+  └─ for each enabled feed → handleIngestionJob
+       ├─ adapter.fetch(since = per-feed watermark)       ← incremental; outbound HTTP bounded + SSRF-guarded
+       ├─ store.put(rawKey(...)) → s3://<RAW_BUCKET>/…     ← BEFORE the insert
+       ├─ INSERT signals ... ON CONFLICT DO NOTHING        ← dedup
+       └─ publish("item", id) immediately after each insert → item queue
+            └─ sentiment-worker SqsConsumer → handleItemMessage
+                 ├─ read raw payload; scoreSignal(text) via Bedrock (forced tool use, validated)
+                 ├─ UPSERT sentiment_results ON CONFLICT (signal_id)   ← idempotent
+                 └─ transient failure → message left on queue → redelivered → item DLQ after 5 receives
+reconcile: re-publishes unscored signals ingested 6 h–15 min ago (oldest first, ≤ 500)
+rollup:    writes dimension_scores (per territory + 'all')
 ```
 
-Every link above is connected in both code and Terraform. The five defects this diagram used to
-carry a "reality check" for — in-process dispatch, unwritten raw payloads, a mismatched push
-path, a missing sweep endpoint, and divergent topic names — are closed (KNOWN-GAPS #1, #2, #4,
-#7, #9). **The one that was dissolved rather than fixed is #3:** there is still no Cloud Tasks
-queue, so `/ingest/dispatch` fans out in-process via `Promise.allSettled`. That has two
-properties which outlive the choice of queue technology and must be fixed by whatever replaces
-it: a dispatch across many brands runs inside a single HTTP request and can exceed the
-platform's request timeout, and a failed source is counted in `failed` and dropped rather than
-retried.
+**KNOWN-GAPS #3 is closed.** The in-process `Promise.allSettled` fan-out behind
+`/ingest/dispatch` is gone with the route; a sweep runs inside one queue message, kept claimed by
+the visibility heartbeat (scan queue visibility 1800 s), and a feed that fails records its error
+on `source_configs.last_error` and is retried by the next hourly sweep.
 
-**None of this has ever run in a cloud** — see `HANDOVER.md`. It is verified locally against
-Docker Postgres and LocalStack only.
+The deployed system runs this path in `290304998906` / `eu-west-2` (HANDOVER §0a). Locally it runs
+against Docker Postgres and LocalStack, with scoring reaching real Bedrock only when
+`BEDROCK_AWS_PROFILE` is set.
 
 ### Dashboard read path
 
 ```
-BrandProvider → apiFetch('/brands')                 → selects the brand
+BrandProvider → apiFetch('/brands')                 → brand list; BrandSwitcher selects
 Dashboard     → useApi(`/brands/${id}/score`)       → composite + breakdown + week-earlier delta
               → useApi(`/brands/${id}/dimension-scores`), `/stats`, `/brand-impact`, `/strengths`
               → brand-data.ts maps API rows into presentation shapes
-              → ViewState renders loading | error | empty | data
+              → ViewState renders loading | error | empty | data (errors from every request surface)
 ```
 
-All four analytical views read this path. `Roadmap` and `Report` still read `lib/data.ts`.
+Every view reads the API; there is no mock data.
 
 ---
 
@@ -1569,36 +1711,45 @@ startup migrations silently no-op.**
 
 ## 14. Testing
 
-Vitest 2 with V8 coverage; ~4,200 lines across 29 test files. **309 tests across 11 projects**
-(`@project-signal/db` has only a `build` target, which is why 13 projects lint, 12 typecheck and
-11 test).
+Vitest 2 with V8 coverage; 92 unit test files across 14 projects plus the API's integration
+suite. `yarn test` runs every project with coverage, exactly as CI does; `@project-signal/db` has
+no tests of its own and is exercised through the API's integration suite.
 
 **Coverage gate: 80%** on lines, branches, functions and statements — enforced **per project**
-in each `vitest.config.ts` rather than globally, so deferred skeletons can be exempted and
-barrels excluded. `**/main.ts` is excluded everywhere (bootstrapping code). `report-worker`
-has no thresholds by design.
+in each `vitest.config.ts`, **report-worker and the whole of `apps/web/src` included** (both
+were exempt or allowlisted until 2026-11-16). `**/main.ts` is excluded (boot wiring only); the
+logic it used to hold moved to testable `app.ts` / `consumer.ts` modules.
+
+**Real-Postgres integration suite** — `yarn nx run api:test:integration`
+(`apps/api/vitest.integration.config.ts`, `apps/api/test/integration/`). Its global setup drops and
+recreates a dedicated database (it refuses any name not ending in `_test`; locally
+`project_signal_test` on the Docker Postgres, overridable with `INTEGRATION_DATABASE_URL`), runs
+the real migrations, and drives `buildApp()` over real SQL: tenant isolation across routes, and
+the `PATCH /admin/users` mass-assignment case — re-introducing the body spread turns it red. CI
+runs it against a Postgres 16 service container. It never touches the `project_signal` dev
+database.
 
 Each project's config uses `vite-tsconfig-paths` so `@project-signal/*` aliases resolve in tests
 without building the libs.
 
-| Area           | Files                                                                                | Approach                                                                                                                                                                                                                                                 |
-| -------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| API routes     | `admin`, `aliases`, `brands`, `integrations`, `keyset`, `scores`, `signals`, `users` | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers `@fastify/sensible` and stubs `request.user` in an `onRequest` hook — **Firebase is never involved**. `DEFAULT_ADMIN` / `DEFAULT_OWNER` / `DEFAULT_PINNED_USER` presets. |
-| API plugins    | `plugins/auth.test.ts`                                                               | Token parsing, public-prefix bypass, `requireRole` and `requireBrandAccess` behaviour                                                                                                                                                                    |
-| API migrations | `migrate.test.ts`                                                                    | Advisory-lock and no-op-when-absent behaviour                                                                                                                                                                                                            |
-| Ingestion      | `handler.test.ts`, `rollup.test.ts`                                                  | `vi.hoisted` mock chain impersonating the Drizzle fluent builder with a queue of result sets; adapters, storage and the SQS publisher mocked                                                                                                             |
-| Sentiment      | `handler`, `scorer`                                                                  | Permanent-vs-transient classification, upsert-on-conflict, prompt shape, fence-stripping, JSON parsing                                                                                                                                                   |
-| Web            | `test/brand-data.test.ts`                                                            | The API→presentation mapping, which is where view correctness is proven while `AuthGate` blocks browser verification                                                                                                                                     |
-| Libs           | `config`, `llm`, `messaging`, `scoring`, `storage`, all 5 adapters + `apifyClient`   | `fetch` mocked; RSS tests cover both RSS and Atom shapes; `scoring` is pure and needs no mocks                                                                                                                                                           |
+| Area            | Files                                                                                      | Approach                                                                                                                                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API routes      | every route file, plus `keyset`, `attributed-to`, `benchmarks`, `local-auth`, `health`     | `test/helpers/app.ts` exposes `buildTestApp(plugin, mockUser)`, which registers the same error boundary as production and stubs `request.user` with uuid fixtures. `DEFAULT_ADMIN` / `DEFAULT_OWNER` / `DEFAULT_PINNED_USER` presets. |
+| API plugins     | `plugins/auth.test.ts`                                                                     | Cognito mapping, strict dev-token parsing (local mode only), exact public paths, `requireRole` and `requireBrandAccess`                                                                                                               |
+| API lib         | `http`, `rate-limit`, `claims`, `crm-secrets`, `migrate`                                   | Error boundary and Postgres error mapping, per-user rate-limit keys, lock timeout and missing-folder failure                                                                                                                          |
+| API integration | `test/integration/`                                                                        | Real Postgres, real migrations, `buildApp()` — see above                                                                                                                                                                              |
+| Ingestion       | `app`, `handler`, `rollup`, `scanConsumer`                                                 | `vi.hoisted` mock chain impersonating the Drizzle fluent builder; partial-failure publishing, the reconcile window, job routing                                                                                                       |
+| Sentiment       | `consumer`, `handler`, `scorer`                                                            | Permanent-vs-transient classification, upsert-on-conflict, prompt shape, output validation and clamping                                                                                                                               |
+| Web             | 28 files under `apps/web/test`                                                             | Auth in both modes, `safe-url`, every view, the drill-down, admin panels, error boundary, the API→presentation mapping                                                                                                                |
+| Libs            | `config`, `llm`, `messaging`, `scoring`, `storage`, every adapter + `apifyClient` + `http` | `fetch` mocked; RSS tests cover both RSS and Atom shapes; SSRF guard address classes; `scoring` is pure and needs no mocks                                                                                                            |
 
 **`test/routes/keyset.test.ts` is the one to copy for any new raw SQL.** It renders the keyset
 condition through the real `PgDialect`, which is what catches a JS `Date` interpolated into a
 raw `sql` fragment — a bug that has shipped twice and that every mocked test passed both times,
 because a mocked database never renders SQL.
 
-There are still **no integration tests against a real Postgres or emulator** — the route tests
-mock `@project-signal/db` entirely, which is why the two `sql` serialisation bugs above passed
-every one of them.
+The unit route tests still mock `@project-signal/db` entirely — which is why the two `sql`
+serialisation bugs above passed every one of them, and why the integration suite exists.
 
 **A browser harness now exists.** `apps/web/e2e` (Playwright 1.50, added 2026-08-09) signs in and
 drives the real application, asserting on **computed styles** rather than on class names. That
@@ -1610,8 +1761,9 @@ nothing rendered the page and read the colour back. A class-name assertion would
 with no local browser install — the image tag is pinned to the `@playwright/test` version so the
 two cannot drift.
 
-`apps/web` also has **component tests** now (Vitest + jsdom + React Testing Library), covering
-the markdown renderer's link-safety behaviour and the tour's storage logic.
+Locally it signs in through **local auth mode** (`E2E_AUTH_MODE=local`, `E2E_USERNAME`,
+`E2E_PASSWORD`) against `http://localhost:3100`; against a deployed environment it uses a Cognito
+test user (`E2E_EMAIL`, `E2E_PASSWORD`).
 
 ---
 
@@ -1671,7 +1823,14 @@ with the password in `LOCAL_AUTH_PASSWORD`. The API refuses `AUTH_MODE=local` wh
 
 ```bash
 curl -H "Authorization: Bearer dev:owner:$TENANT_ID:$BRAND_ID" http://localhost:9080/brands
-#                              dev:<role>:<tenantId>[:<brandEntityId>]
+#                              dev:<role>:<tenantId>[:<brandEntityId>][:<uid>]
+```
+
+Or sign in as a seeded user and use the returned token:
+
+```bash
+curl -s -X POST http://localhost:9080/auth/local/sign-in -H 'Content-Type: application/json' \
+     -d "{\"username\":\"local-owner\",\"password\":\"$LOCAL_AUTH_PASSWORD\"}"
 ```
 
 **Adding a migration:**
@@ -1695,7 +1854,8 @@ yarn db:generate            # drizzle-kit generate → apps/api/migrations/
 4. **Credentials are merged, not stored.** Never write an API key into `source_configs.config`
    — it goes in env/Secret Manager and is merged in by `getSystemCredentials()`.
 5. **`request.user` comes from token claims, not the `users` table.** Changing a row without
-   calling `setCustomUserClaims` leaves authorisation stale for up to an hour.
+   calling `setUserClaims` (inside the same transaction) leaves authorisation stale until the
+   token refreshes. Local mode is the exception: there the row is the claim.
 6. **Tenant scoping is manual.** There is no RLS. Every new query must filter on `tenant_id`,
    and every new `/brands/:id...` route must add the `requireBrandAccess` preHandler — it is
    not applied globally. Missing it is how `GET /brands/:id` leaked a sibling brand's metadata
@@ -1709,12 +1869,15 @@ yarn db:generate            # drizzle-kit generate → apps/api/migrations/
    `items: [{}, {}]` for exactly this reason and no unit test caught it — check every new or
    changed route against a real HTTP response.
 9. **`apps/web` is client-side by necessity.** Don't convert views to Server Components while
-   they depend on the Firebase client SDK.
+   they depend on the Cognito SDK and browser session storage.
 10. **Style with CSS custom properties.** Literal hex values break the Tweaks palette switcher.
 11. **Two API response conventions exist** (`{status,data}` vs bare rows). Match the file you're
     editing and check the frontend caller before changing one.
 12. **`commitlint` enforces a closed scope list.** New scope → update `commitlint.config.js`.
 13. **Terraform requires `image_tag`.** `terraform apply` without it fails; that is intentional
     so local applies can't accidentally roll images back.
-14. **Read [`KNOWN-GAPS.md`](KNOWN-GAPS.md) and [`HANDOVER.md`](HANDOVER.md).** Most of the
-    register is closed, but four items remain open — and nothing here has ever run in a cloud.
+14. **Every request body needs `additionalProperties: false`, and every id `format: 'uuid'`.**
+    Without the first, Fastify passes undeclared keys straight through — the mass-assignment hole
+    in `PATCH /admin/users` (KNOWN-GAPS #31). A written brand id must also pass `brandInTenant()`.
+15. **Read [`KNOWN-GAPS.md`](KNOWN-GAPS.md) and [`HANDOVER.md`](HANDOVER.md).** Most of the
+    register is closed; the open items are listed in its summary table.
