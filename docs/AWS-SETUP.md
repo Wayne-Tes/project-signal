@@ -302,23 +302,87 @@ activate the six keys centrally, once, benefiting every project in the account, 
 
 ---
 
-## Phases 2+ — not yet written
+## Phases 2+
 
-They land as the code does, and deliberately not before: a runbook written ahead of the code it
-provisions is a runbook that drifts. The intended order, for context:
+| Phase | What                                                                      | State                                                              |
+| ----- | ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 0     | Discovery                                                                 | ✅ **done 2026-08-07**                                             |
+| B     | Port the libraries — S3, SQS, Bedrock, config                             | ✅ **done 2026-08-07**                                             |
+| 1     | Guardrails: budget alarm, tagging, prefix, teardown script                | ✅ **applied 2026-08-08**                                          |
+| 2     | Foundation: VPC, RDS Postgres, S3, ECR, Secrets Manager                   | ✅ **applied 2026-08-08**                                          |
+| 3     | **Thin vertical slice** — one brand, one RSS feed, one signal, end to end | ✅ done                                                            |
+| 4     | Full stack: ECS Fargate services, SQS + DLQs, EventBridge Scheduler       | ✅ deployed; live tag in HANDOVER §0a                              |
+| 5     | Cognito, then the browser pass                                            | ✅ deployed and browser-verified (OWNER-ACTIONS 5b)                |
+| 6     | CI/CD via GitHub OIDC                                                     | ❌ not built — deploys run from a workstation (`20-build-push.sh`) |
+| 7     | Delete `infra/`                                                           | ❌ not done; no GCP SDK remains in the code                        |
 
-| Phase | What                                                                      | Needs your account?                                  |
-| ----- | ------------------------------------------------------------------------- | ---------------------------------------------------- |
-| 0     | Discovery                                                                 | ✅ **done 2026-08-07**                               |
-| B     | Port the libraries — S3, SQS, Bedrock, config                             | ✅ **done 2026-08-07**, no account needed            |
-| 1     | Guardrails: budget alarm, tagging, prefix, teardown script                | ✅ **written 2026-08-07**, apply pending credentials |
-| 2     | Foundation: VPC, RDS Postgres, S3, ECR, Secrets Manager                   | Yes                                                  |
-| 3     | **Thin vertical slice** — one brand, one RSS feed, one signal, end to end | Yes                                                  |
-| 4     | Full stack: ECS Fargate services, SQS + DLQs, EventBridge Scheduler       | Yes                                                  |
-| 5     | Cognito, then the browser pass over the views nobody has ever seen        | Yes                                                  |
-| 6     | CI/CD via GitHub OIDC                                                     | Yes                                                  |
-| 7     | Delete `infra/` and the five GCP dependencies                             | No                                                   |
+---
 
-Phase 3 is deliberately early. **Nothing in this system has ever run in any cloud**, so the
-first real end-to-end run is the highest-information moment in the whole plan and should not be
-deferred behind a full build-out.
+## Pending apply — written 2026-11-16, NOT applied
+
+Branch `fix/assessment-findings` changes `infra-aws/stack` and the three modules' variable
+validation. **Nothing below has been planned or applied against the account**: it was written on a
+workstation with no AWS credentials, and checked only with `terraform fmt -check -recursive` and
+`init -backend=false` + `validate` on all three root modules (pinned `hashicorp/terraform:1.10.5`
+container, no AWS call). This is the blast-radius analysis CLAUDE.md requires **before** the apply.
+Read the real plan against it line by line; any difference is a stop-and-report.
+
+### Before planning
+
+1. `aws sts get-caller-identity` → `290304998906`; `bash infra-aws/scripts/10-preflight.sh`.
+2. **Set `rds_log_groups_existing` from the account, not from this note.** Run
+   `aws logs describe-log-groups --region eu-west-2 --log-group-name-prefix /aws/rds/instance/psignal-dev-postgres/ --query 'logGroups[].logGroupName'`
+   and list exactly the suffixes it returns in `envs/dev.stack.tfvars` (pre-filled
+   `["postgresql"]`). A wrong value fails the plan or the apply before anything changes.
+3. Build and push images from the new commit (`20-build-push.sh`) — the Dockerfiles moved to
+   `node:26-alpine`, so the apply should ship them together.
+
+### Expected plan, by resource
+
+| Change                     | Resources                                                                                                   | Effect on the running system                                                                                                                                                                 |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Create**                 | `aws_s3_bucket.alb_logs` + public-access block, ownership, encryption, lifecycle (90 d expiry), policy      | New bucket `psignal-dev-alb-logs-290304998906`. The ALB starts writing access logs to it                                                                                                     |
+| **Create**                 | `aws_security_group.web`                                                                                    | New group for web tasks; HTTPS egress only                                                                                                                                                   |
+| **Create**                 | `aws_cloudwatch_log_group.exec` (`/psignal-dev/ecs-exec`, 365 d)                                            | Exec transcripts                                                                                                                                                                             |
+| **Create / import**        | `aws_cloudwatch_log_group.rds["postgresql"]` (import), `["upgrade"]` (create, unless step 2 says it exists) | Retention 30 d on RDS logs that were unbounded. An import changes no data                                                                                                                    |
+| **Create**                 | `aws_sns_topic.alarms`, one email subscription per budget address, 13 `aws_cloudwatch_metric_alarm`         | Alarm emails once the subscription is confirmed                                                                                                                                              |
+| **Create**                 | `aws_scheduler_schedule.reconcile` (:45 hourly, `{"job":"reconcile"}` → scan queue)                         | **Requires the ingestion image from this branch**, which handles the `reconcile` job. An older image logs and drops the message                                                              |
+| **Update in place**        | `aws_lb.main`                                                                                               | `drop_invalid_header_fields = true`, access logs on. No downtime                                                                                                                             |
+| **Update in place**        | `aws_security_group.alb`                                                                                    | Egress narrowed from `0.0.0.0/0` to `10.20.0.0/16`                                                                                                                                           |
+| **Replace**                | `aws_vpc_security_group_ingress_rule.app_from_alb["web"]`                                                   | Moves from the app group to the web group. A few seconds where the ALB cannot reach web tasks is possible during the swap — **web may 502 briefly**                                          |
+| **Update in place**        | `aws_lb_listener_rule.api_crm`                                                                              | Adds `/auth*` (2 of 5 values)                                                                                                                                                                |
+| **Replace (new revision)** | `aws_ecs_task_definition.app` × 4                                                                           | New image tag; container health checks; web loses `DATABASE_URL` and every backend env var                                                                                                   |
+| **Update in place**        | `aws_ecs_service.app` × 4                                                                                   | New task definitions (rolling, circuit breaker); web moves to the web security group                                                                                                         |
+| **Update in place**        | `aws_ecs_cluster.main`                                                                                      | Exec logging configuration                                                                                                                                                                   |
+| **Update in place**        | `aws_iam_role_policy.task_api`, `task_sentiment`, `task_common` × 4                                         | Bedrock narrowed to `eu.anthropic.*` profiles in eu-west-2 and `anthropic.*` models in `eu-*`; CRM secret create now requires a `Project` tag, force-delete denied; exec logging permissions |
+| **Update in place**        | `aws_sqs_queue.main["scan"]`                                                                                | Visibility 300 s → 1800 s. In-flight messages are unaffected                                                                                                                                 |
+| **Update in place**        | `aws_cognito_user_pool.main`, `aws_cognito_user_pool_client.web`                                            | `deletion_protection = INACTIVE` (dev, same as today's implicit default); `ALLOW_USER_PASSWORD_AUTH` removed — the web app uses SRP, so sign-in is unaffected                                |
+| **Update in place**        | `aws_ecr_repository.app` × 4, `aws_s3_bucket.raw` / `reports`                                               | `force_delete` / `force_destroy` — Terraform-side attributes only; nothing changes in AWS until a destroy                                                                                    |
+| **Destroy**                | **nothing**, other than the replaced ingress rule and superseded task-definition revisions                  |                                                                                                                                                                                              |
+
+**Account-global effects: none.** No IAM user, no OIDC provider, no Organizations, SCP, billing,
+cost-allocation-tag or Bedrock model-access change. Every new resource carries the six mandatory
+tags through `default_tags` and the `psignal-dev-` prefix. The ALB log bucket's policy grants
+`s3:PutObject` to the regional Elastic Load Balancing service account (resolved by
+`data.aws_elb_service_account`), scoped to this account's prefix only.
+
+**Cost:** about **+$2/month** — 13 alarms (~$1.30), ALB log storage at this traffic (cents), exec
+log storage (cents). Steady state rises from ~$120 to ~$122 against the $150 budget
+(`envs/dev.stack.tfvars` has the arithmetic).
+
+**Order dependencies:**
+
+- The CRM `aws:RequestTag/Project` condition requires the API image from this branch, which tags
+  secrets at creation. An older API image would get `AccessDenied` on **CRM connect** (no other
+  path). Deploy the image and the policy together.
+- The `reconcile` schedule requires the ingestion image from this branch (see above).
+
+**Rollback:** re-apply the previous commit with the previous `image_tag`. Everything above is
+additive or an in-place attribute change except the web ingress-rule replacement, which re-creates
+symmetrically. The new log bucket and alarms would be destroyed by such a rollback; ALB logs
+already written go with the bucket.
+
+**After the apply:** confirm the SNS subscription email; check that each alarm is `OK` or
+`INSUFFICIENT_DATA` rather than `ALARM`; `curl -s -o /dev/null -w '%{http_code}' http://<alb>/auth/local/sign-in`
+should return **404** (the route exists only in local auth mode); `curl …/crm/connections` should
+still return **401**.

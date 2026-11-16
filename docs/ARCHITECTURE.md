@@ -120,7 +120,7 @@ contexts, so HTTP-per-signal was rejected as wasteful. The API remains the sole 
 | Lint              | ESLint 9 flat config               | `no-explicit-any: error`, `consistent-type-imports: error`, `no-console: warn` (allows `warn`/`error`). Test files relax `any` and unused-vars.                          |
 | Format            | Prettier 3                         | Plus `prettier-plugin-tailwindcss` (installed; the web app currently uses plain CSS, not Tailwind).                                                                      |
 | Commits           | husky + commitlint                 | Conventional commits with a **fixed `scope-enum`** in `commitlint.config.js` — a new scope must be added there or the commit is rejected. `pre-commit` runs lint-staged. |
-| Node              | ≥ 20                               | Docker images are `node:20-alpine`.                                                                                                                                      |
+| Node              | **26** (Active LTS)                | `.nvmrc` = 26, `engines` `>=26 <27`, CI reads `.nvmrc`, Docker images are `node:26-alpine`. Node 25+ ships without corepack; it is installed pinned (`corepack@0.36.0`). |
 
 **Nx target names** are consistent across projects: `build`, `dev`, `lint`, `typecheck`,
 `test`, plus `docker-build` on the backend apps and `generate` / `seed` on `api`.
@@ -240,7 +240,7 @@ manually re-triggered run overwrites rather than duplicating.
 > server truncates it while drizzle's snapshot records the full name, and the first future
 > migration that drops or renames it would fail against a real database while passing every test.
 >
-> **Any read of this table must filter `territory`.** It holds one row per territory *plus* the
+> **Any read of this table must filter `territory`.** It holds one row per territory _plus_ the
 > `'all'` row for the same `(brand, date, dimension)`, so an unfiltered read returns the aggregate
 > and each of its parts together — the history chart plots several points per day and the totals
 > double-count. `/score` and `/dimension-scores` default to `'all'`.
@@ -278,7 +278,7 @@ What turns the roadmap from a list into an experiment log. Two rules make it wor
 - **The `baseline_*` columns are stamped once and never updated.** A baseline cannot be
   retrofitted — a row created after the work began has to guess where the index stood, and a
   guessed baseline makes every later verdict a guess too. This is why outcome tracking was built
-  *before* the playbook rather than after it.
+  _before_ the playbook rather than after it.
 - **`ceiling_delta` is stored rather than recomputed.** It is a claim made at a moment in time, and
   the point is to check it later. Recomputing would rewrite the prediction to match the outcome.
 
@@ -294,7 +294,7 @@ than none. Same reasoning as the portfolio index.
 `source_configs.config` — the obvious home — is plain JSONB, readable by anyone with database
 access and trivially dumped into a log, and unlike an API key an OAuth refresh token grants
 standing access to a customer's commercial records. `last_attempted_at` / `last_error` mirror
-`source_configs` so an expired grant shows *why* on the row somebody can fix.
+`source_configs` so an expired grant shows _why_ on the row somebody can fix.
 
 **`accounts`** — the customer a CRM interaction is about.
 `tenant_id`, `provider`, `external_id`, `name`, `domain`, `segment`, `arr_band`, `owner_name`,
@@ -313,15 +313,15 @@ runtime by the ingestion handler.
 
 Seven migrations exist, tracked in `apps/api/migrations/meta/_journal.json`:
 
-| Tag                       | Contents                                                              |
-| ------------------------- | --------------------------------------------------------------------- |
-| `0000_hot_loners`         | `tenants`, `brand_entities`, `signals` + indexes                      |
-| `0001_fluffy_guardsmen`   | `users`, `sentiment_results`, `dimension_scores`                      |
-| `0002_slippery_energizer` | `source_configs`                                                      |
-| `0003_amused_moondragon`  | Unique `(source_url, brand_entity_id)` on `signals`                   |
-| `0004_chief_freak`        | `brand_aliases`                                                       |
-| `0005_demonic_mindworm`   | Drops the four denormalised sentiment columns from `signals`          |
-| `0006_familiar_vermin`    | Adds `brand_entities.dimension_weights` jsonb (per-brand BPI weights) |
+| Tag                       | Contents                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------- |
+| `0000_hot_loners`         | `tenants`, `brand_entities`, `signals` + indexes                                            |
+| `0001_fluffy_guardsmen`   | `users`, `sentiment_results`, `dimension_scores`                                            |
+| `0002_slippery_energizer` | `source_configs`                                                                            |
+| `0003_amused_moondragon`  | Unique `(source_url, brand_entity_id)` on `signals`                                         |
+| `0004_chief_freak`        | `brand_aliases`                                                                             |
+| `0005_demonic_mindworm`   | Drops the four denormalised sentiment columns from `signals`                                |
+| `0006_familiar_vermin`    | Adds `brand_entities.dimension_weights` jsonb (per-brand BPI weights)                       |
 | `0007_productive_patriot` | `conversations`, `conversation_messages` — assistant history, scoped by tenant **and** user |
 
 Authoring a new migration: edit the schema in `libs/db/src/schema/`, then run
@@ -409,7 +409,7 @@ EXISTS subquery filters it too. There is no row-level security in this product, 
 that is only safe when the call site remembers something is not safe.
 
 Its third parameter, `voice`, **defaults to `direct`**, and that default is the same lesson applied
-again. A CRM note is written *because* something needs attention, so that channel is a work queue
+again. A CRM note is written _because_ something needs attention, so that channel is a work queue
 rather than a sample and is negative by construction; averaging it into the index would move the
 number for reasons unrelated to brand perception while still looking plausible. Rather than adding
 a filter every read path must remember — which is exactly how six of them drifted from the rollup
@@ -540,8 +540,8 @@ clusterTopics(items, asOf); // damage = volume × negativity × recency
 brandImpact(clusters); // top 3 by damage, zero-damage excluded
 ```
 
-`src/change.ts` adds **period-over-period movement** — what the index *did*, as opposed to what it
-*is*:
+`src/change.ts` adds **period-over-period movement** — what the index _did_, as opposed to what it
+_is_:
 
 ```ts
 splitPeriods(items, asOf, days, basis); // equal-length windows, future-dated items dropped
@@ -641,14 +641,14 @@ reads `config.credentials['placeId']` even though a place ID is not a secret.
 
 **Implementations:**
 
-| Adapter                | Mechanism                                         | Key config                        | Notes                                                                                                       |
-| ---------------------- | ------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `GoogleReviewsAdapter` | Apify actor `compass~google-maps-reviews-scraper` | `placeId`                         | `maxReviews: 100`; `since` → `cutoffDate`                                                                   |
-| `AppStoreAdapter`      | Apify `nikita-shakula~app-store-scraper`          | `appId`, `country` (default `us`) | Joins title + body as text; drops empty                                                                     |
-| `PlayStoreAdapter`     | Apify `emastra~google-play-scraper`               | `appId`                           | Sorted newest; drops empty content                                                                          |
-| `RssAdapter`           | Direct `fetch` + `fast-xml-parser`                | `feedUrl`                         | Handles **both RSS and Atom**; filters by `since` client-side; no API key needed                            |
-| `RedditAdapter`        | Apify `trudax~reddit-scraper-lite`                | `query`, `subreddit` (optional)    | Posts only (`searchComments: false`); `searchCommunityName` scopes to a subreddit; title + body joined as text; `since` filtered client-side |
-| `YoutubeAdapter`       | YouTube Data API v3                               | `channelId`                       | Last 10 videos → up to 50 top-level comments each; **HTTP 403 = comments disabled → skipped, not an error** |
+| Adapter                | Mechanism                                         | Key config                        | Notes                                                                                                                                        |
+| ---------------------- | ------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GoogleReviewsAdapter` | Apify actor `compass~google-maps-reviews-scraper` | `placeId`                         | `maxReviews: 100`; `since` → `cutoffDate`                                                                                                    |
+| `AppStoreAdapter`      | Apify `nikita-shakula~app-store-scraper`          | `appId`, `country` (default `us`) | Joins title + body as text; drops empty                                                                                                      |
+| `PlayStoreAdapter`     | Apify `emastra~google-play-scraper`               | `appId`                           | Sorted newest; drops empty content                                                                                                           |
+| `RssAdapter`           | Direct `fetch` + `fast-xml-parser`                | `feedUrl`                         | Handles **both RSS and Atom**; filters by `since` client-side; no API key needed                                                             |
+| `RedditAdapter`        | Apify `trudax~reddit-scraper-lite`                | `query`, `subreddit` (optional)   | Posts only (`searchComments: false`); `searchCommunityName` scopes to a subreddit; title + body joined as text; `since` filtered client-side |
+| `YoutubeAdapter`       | YouTube Data API v3                               | `channelId`                       | Last 10 videos → up to 50 top-level comments each; **HTTP 403 = comments disabled → skipped, not an error**                                  |
 
 > **Reddit goes through the existing Apify account, not Reddit's own API.** The key and the
 > billing already exist and are already wired through `getSystemCredentials`, so there is no second
@@ -661,7 +661,7 @@ reads `config.credentials['placeId']` even though a place ID is not a secret.
 > Actor `trudax/reddit-scraper-lite` (`oAuCIx3ItNrs2okjQ`, build 5.7.9); the input schema was read
 > from `GET /v2/actor-builds/{id}` and the output shape from two real runs on 2026-08-09 —
 > `id, parsedId, url, username, title, communityName, parsedCommunityName, body, html, createdAt,
-> scrapedAt, dataType`. `libs/source-adapters/test/reddit.test.ts` uses that shape verbatim. This
+scrapedAt, dataType`. `libs/source-adapters/test/reddit.test.ts` uses that shape verbatim. This
 > repository has twice shipped a model id written from memory; an actor's output schema decays the
 > same way, and a test built on invented field names passes forever while the adapter collects
 > nothing.
@@ -742,23 +742,23 @@ Two response conventions coexist — the newer route files wrap in `{ status, da
 older ones return bare rows. Both are documented below because the frontend depends on the
 difference.
 
-| Method & path                             | Role         | Response shape       | Behaviour                                                                                                               |
-| ----------------------------------------- | ------------ | -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `POST /admin/tenants`                     | owner        | `{status,data}`      | **Transactional**: creates tenant + owned brand + admin user row in one `db.transaction`. Slugs are derived from names. |
-| `POST /admin/users`                       | owner, admin | bare row             | Row **and** claims written in one transaction. An `admin` is confined to their own tenant and to the roles admin/user.  |
-| `PATCH /admin/users/:id`                  | owner, admin | bare row             | Reads the target first, then updates role/brand and re-syncs claims in one transaction. 404 for a foreign tenant.       |
-| `GET /admin/users`                        | owner, admin | bare array           | Users in the caller's tenant.                                                                                           |
-| `GET /brands`                             | any          | bare array           | Tenant-scoped. A `user` with a `brandEntityId` sees **only** that brand.                                                |
-| `GET /brands/:id`                         | any          | bare row             | Tenant-scoped + `requireBrandAccess`; 404 otherwise.                                                                    |
-| `GET /brands/tree`                        | any          | bare array           | The whole hierarchy as nested `children`. Built from one flat select in a map, not N queries. Orphans surface as roots rather than vanishing. |
-| `POST /brands`                            | admin, owner | bare row             | Create a brand or a product. `parentId` optional; the parent is checked inside the caller's tenant.                      |
-| `PATCH /brands/:id`                       | admin, owner | bare row             | Rename, re-type, re-own or re-parent. `parentId: null` promotes to a root — distinct from omitting it. Refuses cycles via `wouldCreateCycle`. |
-| `DELETE /brands/:id`                      | admin, owner | 204                  | **Only when nothing is attached.** 409 naming the blocker if it has children, signals, dimension scores, mentions or an assigned user. Aliases, source configs and scan runs are removed with it. See below. |
-| `GET /brands/:id/signals`                 | any          | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`, `?sourceConfigId=`, `?topic=`, `?dimension=`; `limit` max 100, default 50. Returns `content`/`title`/`author`/`rating` and a nested `sentiment` (LEFT join; null = unscored). `topic` and `dimension` are EXISTS sub-selects against `sentiment_results`, never joins — a join multiplies the signal row by its array members and breaks both the page size and the cursor. |
-| `GET /brands/:id/sentiment-summary`       | any          | object               | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results.    |
-| `GET /brands/:id/dimension-scores`        | any          | bare array           | Dimension history from `dimension_scores`, `from`/`to` optional, default last 90 days. Lives in `routes/scores.ts`.     |
-| `GET /brands/:id/score`                   | any          | object               | Brand Perception Index for the latest rollup, its per-dimension breakdown, and the comparison point ≥7 days earlier.    |
-| `GET /brands/:id/brand-impact`            | any          | bare array           | Top topic clusters by damage, computed on read from `sentiment_results`. `limit` defaults to 3.                         |
+| Method & path                       | Role         | Response shape       | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------- | ------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /admin/tenants`               | owner        | `{status,data}`      | **Transactional**: creates tenant + owned brand + admin user row in one `db.transaction`. Slugs are derived from names.                                                                                                                                                                                                                                                                                                                     |
+| `POST /admin/users`                 | owner, admin | bare row             | Row **and** claims written in one transaction. An `admin` is confined to their own tenant and to the roles admin/user.                                                                                                                                                                                                                                                                                                                      |
+| `PATCH /admin/users/:id`            | owner, admin | bare row             | Reads the target first, then updates role/brand and re-syncs claims in one transaction. 404 for a foreign tenant.                                                                                                                                                                                                                                                                                                                           |
+| `GET /admin/users`                  | owner, admin | bare array           | Users in the caller's tenant.                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `GET /brands`                       | any          | bare array           | Tenant-scoped. A `user` with a `brandEntityId` sees **only** that brand.                                                                                                                                                                                                                                                                                                                                                                    |
+| `GET /brands/:id`                   | any          | bare row             | Tenant-scoped + `requireBrandAccess`; 404 otherwise.                                                                                                                                                                                                                                                                                                                                                                                        |
+| `GET /brands/tree`                  | any          | bare array           | The whole hierarchy as nested `children`. Built from one flat select in a map, not N queries. Orphans surface as roots rather than vanishing.                                                                                                                                                                                                                                                                                               |
+| `POST /brands`                      | admin, owner | bare row             | Create a brand or a product. `parentId` optional; the parent is checked inside the caller's tenant.                                                                                                                                                                                                                                                                                                                                         |
+| `PATCH /brands/:id`                 | admin, owner | bare row             | Rename, re-type, re-own or re-parent. `parentId: null` promotes to a root — distinct from omitting it. Refuses cycles via `wouldCreateCycle`.                                                                                                                                                                                                                                                                                               |
+| `DELETE /brands/:id`                | admin, owner | 204                  | **Only when nothing is attached.** 409 naming the blocker if it has children, signals, dimension scores, mentions or an assigned user. Aliases, source configs and scan runs are removed with it. See below.                                                                                                                                                                                                                                |
+| `GET /brands/:id/signals`           | any          | `{items,nextCursor}` | Cursor pagination via `limit+1` lookahead; optional `?source=`, `?sourceConfigId=`, `?topic=`, `?dimension=`; `limit` max 100, default 50. Returns `content`/`title`/`author`/`rating` and a nested `sentiment` (LEFT join; null = unscored). `topic` and `dimension` are EXISTS sub-selects against `sentiment_results`, never joins — a join multiplies the signal row by its array members and breaks both the page size and the cursor. |
+| `GET /brands/:id/sentiment-summary` | any          | object               | 30-day window; counts per label via `COUNT(*) FILTER (WHERE …)` plus `avg(score)`, joined signals→sentiment_results.                                                                                                                                                                                                                                                                                                                        |
+| `GET /brands/:id/dimension-scores`  | any          | bare array           | Dimension history from `dimension_scores`, `from`/`to` optional, default last 90 days. Lives in `routes/scores.ts`.                                                                                                                                                                                                                                                                                                                         |
+| `GET /brands/:id/score`             | any          | object               | Brand Perception Index for the latest rollup, its per-dimension breakdown, and the comparison point ≥7 days earlier.                                                                                                                                                                                                                                                                                                                        |
+| `GET /brands/:id/brand-impact`      | any          | bare array           | Top topic clusters by damage, computed on read from `sentiment_results`. `limit` defaults to 3.                                                                                                                                                                                                                                                                                                                                             |
 
 > **Every brand-scoped read counts the same population.** `/signals`, `/sentiment-summary`,
 > `/brand-impact`, `/topics`, `/strengths` and `/stats` all filter through `attributedTo`
@@ -766,32 +766,32 @@ difference.
 > filtered on `signals.brand_entity_id` alone while the rollup also counted mentions, so a score
 > and the evidence offered for it were computed from different sets of rows. **Any new
 > brand-scoped read must use `attributedTo` rather than `eq(signals.brandEntityId, …)`.**
-| `GET /brands/:id/strengths`               | any          | bare array           | The mirror of `/brand-impact`, ranked by `volume × positivity × recency`. `limit` defaults to 3.                        |
-| `GET /brands/:id/topics`                  | any          | bare array           | **Every** cluster, optionally `?dimension=`, ranked by `volume × recency` — positive, negative and NEUTRAL alike. `limit` defaults to 12. Exists because `/brand-impact` and `/strengths` are both *signed* rankings that exclude the middle, so neither can answer "what is this dimension made of". See the note below. |
-| `GET /brands/:id/roadmap`                 | any          | object               | **What to fix, what it is worth, and what you are aiming at.** Per action: damage share, the matched play from `libs/playbook`, and `ifResolved` — a computed counterfactual re-running the composite with that subject's negativity neutralised. Plus the target and its provenance, the gap, the measured benchmarks, and a projection. Every figure is measured or computed; **no external benchmark is imported, because none exists for this index**. |
-| `PATCH /brands/:id/target`                | admin, owner | object               | Set or clear the brand's target index. `null` clears it back to a competitor-derived default — there has to be a way back from a target set in error. |
-| `POST /brands/:id/roadmap/actions`        | any          | object               | Commit to an action; stamps the immutable baseline. |
-| `GET /brands/:id/roadmap/actions`         | any          | bare array           | The log, with each outcome computed on read. |
-| `POST /brands/:id/roadmap/adapt`          | any          | object               | Rewrites a matched play in the language of the evidence. On demand, never on page load. `adapted: false` when the model was unusable and the curated wording is being shown. |
-| `GET /brands/:id/voice-of-customer`       | any          | object               | What Sales and CS hear directly. Ranked by **distinct accounts × commercial band**, never by volume, plus the subjects raised both publicly and privately. `connected: false` distinguishes "no CRM" from "connected and quiet". |
-| `GET /crm/connections`                    | admin, owner | bare array           | Linked CRMs and their health. Never returns a token or a secret ARN. |
-| `POST /crm/connections`                   | admin, owner | object               | Stores OAuth tokens in Secrets Manager and records the link. Refuses Salesforce without an `instanceUrl`. |
-| `DELETE /crm/connections/:id`             | admin, owner | 204                  | Disconnect. Schedules the secret for deletion with a recovery window rather than forcing it. |
-| `GET /brands/:id/whats-new`               | any          | object               | **What changed** over `?days=` (default 7, max 90) against the equal-length period before it: `newTopics`, `risingTopics`/`fallingTopics` (volume), `improvingTopics`/`worseningTopics` (sentiment), `bySource`, and the period sentiment delta. `?basis=ingested\|published` — `ingested` is what *we* learned (the honest basis for "new since the last scans"), `published` is what the world said (the right basis for trend); the response echoes the choice. `?source=` narrows it. Computed on read — see `libs/scoring/src/change.ts` for why there is no snapshot table and what would justify one. |
-| `GET /brands/:id/stats`                   | any          | object               | Dashboard stat row and the **coverage funnel**: this/previous week signal counts, `totalSignals` → `scoredSignals` → `classifiedSignals` → `lastRollupDate`, plus active/configured sources. `classifiedSignals` counts signals scored **and** tagged to ≥1 dimension; anything short of that reaches no index, no cluster and no drill-down. `classifiedSignals: 0` beside a non-zero `scoredSignals`, or a null `lastRollupDate`, is the signature of a brand silently falling out of the rollup. |
-| `POST /assistant/messages`                | any          | object               | Ask the assistant. Read-only over BRAND data; it writes only the conversation record. History is loaded server-side — see below. |
-| `GET /assistant/conversations`           | any          | bare array           | The caller's **own** conversations, most recent first. Filtered by tenant **and** user. |
-| `GET /assistant/conversations/:id`       | any          | object               | One conversation and its turns. 404 whether it is missing or someone else's. |
-| `PATCH /assistant/conversations/:id`     | any          | object               | Rename. |
-| `DELETE /assistant/conversations/:id`    | any          | 204                  | Delete; messages cascade. |
-| `GET /brands/:id/integrations`             | admin, owner | `{status,data}`      | Every configured feed for the brand. **Many rows per source type are expected.**                                        |
-| `GET /brands/:id/integrations/stats`       | admin, owner | `{status,data}`      | Per feed: signals collected, newest signal, last run. LEFT JOIN, so a feed that has collected nothing is still returned — that row is the point. |
-| `POST /brands/:id/integrations`            | admin, owner | `{status,data}`      | **Creates** a feed; returns **201**. No longer an upsert. **409** for an exact duplicate config (key-order-independent). |
-| `PATCH /brands/:id/integrations/:configId` | admin, owner | `{status,data}`      | Update `label`, `isEnabled` and/or `config`. `label: ""` clears it. 404 if absent.                                       |
-| `DELETE /brands/:id/integrations/:configId`| admin, owner | `{status,data}`      | **Hard delete.** Signals survive — `signals.source_config_id` is `ON DELETE SET NULL`. Pausing a feed is `PATCH isEnabled:false`. |
-| `GET /brands/:id/aliases`                 | admin, owner | `{status,data}`      | List aliases.                                                                                                           |
-| `POST /brands/:id/aliases`                | admin, owner | `{status,data}`      | `onConflictDoNothing` → **409** when the alias already exists.                                                          |
-| `DELETE /brands/:id/aliases/:aliasId`     | admin, owner | `{status,data}`      | Hard delete, tenant + brand scoped.                                                                                     |
+> | `GET /brands/:id/strengths` | any | bare array | The mirror of `/brand-impact`, ranked by `volume × positivity × recency`. `limit` defaults to 3. |
+> | `GET /brands/:id/topics` | any | bare array | **Every** cluster, optionally `?dimension=`, ranked by `volume × recency` — positive, negative and NEUTRAL alike. `limit` defaults to 12. Exists because `/brand-impact` and `/strengths` are both _signed_ rankings that exclude the middle, so neither can answer "what is this dimension made of". See the note below. |
+> | `GET /brands/:id/roadmap` | any | object | **What to fix, what it is worth, and what you are aiming at.** Per action: damage share, the matched play from `libs/playbook`, and `ifResolved` — a computed counterfactual re-running the composite with that subject's negativity neutralised. Plus the target and its provenance, the gap, the measured benchmarks, and a projection. Every figure is measured or computed; **no external benchmark is imported, because none exists for this index**. |
+> | `PATCH /brands/:id/target` | admin, owner | object | Set or clear the brand's target index. `null` clears it back to a competitor-derived default — there has to be a way back from a target set in error. |
+> | `POST /brands/:id/roadmap/actions` | any | object | Commit to an action; stamps the immutable baseline. |
+> | `GET /brands/:id/roadmap/actions` | any | bare array | The log, with each outcome computed on read. |
+> | `POST /brands/:id/roadmap/adapt` | any | object | Rewrites a matched play in the language of the evidence. On demand, never on page load. `adapted: false` when the model was unusable and the curated wording is being shown. |
+> | `GET /brands/:id/voice-of-customer` | any | object | What Sales and CS hear directly. Ranked by **distinct accounts × commercial band**, never by volume, plus the subjects raised both publicly and privately. `connected: false` distinguishes "no CRM" from "connected and quiet". |
+> | `GET /crm/connections` | admin, owner | bare array | Linked CRMs and their health. Never returns a token or a secret ARN. |
+> | `POST /crm/connections` | admin, owner | object | Stores OAuth tokens in Secrets Manager and records the link. Refuses Salesforce without an `instanceUrl`. |
+> | `DELETE /crm/connections/:id` | admin, owner | 204 | Disconnect. Schedules the secret for deletion with a recovery window rather than forcing it. |
+> | `GET /brands/:id/whats-new` | any | object | **What changed** over `?days=` (default 7, max 90) against the equal-length period before it: `newTopics`, `risingTopics`/`fallingTopics` (volume), `improvingTopics`/`worseningTopics` (sentiment), `bySource`, and the period sentiment delta. `?basis=ingested\|published` — `ingested` is what _we_ learned (the honest basis for "new since the last scans"), `published` is what the world said (the right basis for trend); the response echoes the choice. `?source=` narrows it. Computed on read — see `libs/scoring/src/change.ts` for why there is no snapshot table and what would justify one. |
+> | `GET /brands/:id/stats` | any | object | Dashboard stat row and the **coverage funnel**: this/previous week signal counts, `totalSignals` → `scoredSignals` → `classifiedSignals` → `lastRollupDate`, plus active/configured sources. `classifiedSignals` counts signals scored **and** tagged to ≥1 dimension; anything short of that reaches no index, no cluster and no drill-down. `classifiedSignals: 0` beside a non-zero `scoredSignals`, or a null `lastRollupDate`, is the signature of a brand silently falling out of the rollup. |
+> | `POST /assistant/messages` | any | object | Ask the assistant. Read-only over BRAND data; it writes only the conversation record. History is loaded server-side — see below. |
+> | `GET /assistant/conversations` | any | bare array | The caller's **own** conversations, most recent first. Filtered by tenant **and** user. |
+> | `GET /assistant/conversations/:id` | any | object | One conversation and its turns. 404 whether it is missing or someone else's. |
+> | `PATCH /assistant/conversations/:id` | any | object | Rename. |
+> | `DELETE /assistant/conversations/:id` | any | 204 | Delete; messages cascade. |
+> | `GET /brands/:id/integrations` | admin, owner | `{status,data}` | Every configured feed for the brand. **Many rows per source type are expected.** |
+> | `GET /brands/:id/integrations/stats` | admin, owner | `{status,data}` | Per feed: signals collected, newest signal, last run. LEFT JOIN, so a feed that has collected nothing is still returned — that row is the point. |
+> | `POST /brands/:id/integrations` | admin, owner | `{status,data}` | **Creates** a feed; returns **201**. No longer an upsert. **409** for an exact duplicate config (key-order-independent). |
+> | `PATCH /brands/:id/integrations/:configId` | admin, owner | `{status,data}` | Update `label`, `isEnabled` and/or `config`. `label: ""` clears it. 404 if absent. |
+> | `DELETE /brands/:id/integrations/:configId`| admin, owner | `{status,data}` | **Hard delete.** Signals survive — `signals.source_config_id` is `ON DELETE SET NULL`. Pausing a feed is `PATCH isEnabled:false`. |
+> | `GET /brands/:id/aliases` | admin, owner | `{status,data}` | List aliases. |
+> | `POST /brands/:id/aliases` | admin, owner | `{status,data}` | `onConflictDoNothing` → **409** when the alias already exists. |
+> | `DELETE /brands/:id/aliases/:aliasId` | admin, owner | `{status,data}` | Hard delete, tenant + brand scoped. |
 
 Every route declares JSON Schema (`body` / `params` / `querystring` / `response`) so Swagger
 output stays accurate and Fastify serialises responses fast.
@@ -806,9 +806,9 @@ worked off `source_configs.id` — so removing it (migration `0011`) and re-keyi
 the whole fix, plus a `label` column, because "rss" identifies nothing once there are six.
 
 Two things follow that are easy to miss. `signals.source_config_id` records **which feed** produced
-each signal, so a finding can be attributed to *"Google News — Tes MyConcern"* rather than to
-*"rss"*; `GET /brands/:id/signals?sourceConfigId=` filters on it. And the ingestion watermark is
-**per feed**: it used to be `max(published_at)` over the brand and the source *type*, which meant a
+each signal, so a finding can be attributed to _"Google News — Tes MyConcern"_ rather than to
+_"rss"_; `GET /brands/:id/signals?sourceConfigId=` filters on it. And the ingestion watermark is
+**per feed**: it used to be `max(published_at)` over the brand and the source _type_, which meant a
 busy hourly feed pushed the cutoff to now and a quieter feed on the same brand had everything it
 published filtered out as too old, on every run, permanently — indistinguishable from nobody
 talking about the brand.
@@ -836,15 +836,15 @@ normalisation itself improves.
 
 **Why `/topics` exists alongside `/brand-impact` and `/strengths`.** All three read the same
 clusters out of `clusterTopics()`; the difference is which ones they throw away. `brandImpact`
-keeps only `damage > 0` — *"a topic nobody is negative about is not a weakness"* — and
+keeps only `damage > 0` — _"a topic nobody is negative about is not a weakness"_ — and
 `topStrengths` keeps only `strength > 0`. Both are correct as **summaries**, and both are wrong as
 **evidence**, because between them they discard every neutral cluster and each discards the other
 half of the sentiment range.
 
 The drill-down's dimension level filtered `/brand-impact` by dimension, which produced a
-contradiction the owner reported from the running product: level 1 said *"Experience — 5 signals
-contributed"* at a score of **69.2, the brand's highest**, and level 2 said *"No topic cluster has
-been tagged to experience yet"*. Both statements were true. Experience scored highest **because**
+contradiction the owner reported from the running product: level 1 said _"Experience — 5 signals
+contributed"_ at a score of **69.2, the brand's highest**, and level 2 said _"No topic cluster has
+been tagged to experience yet"_. Both statements were true. Experience scored highest **because**
 its signals were positive, positive signals carry no damage, and `brandImpact` had therefore
 excluded every one of its clusters. **The better a dimension performed, the more certain its
 drill-down was to be empty** — on the one screen whose entire purpose is tracing a number to its
@@ -948,7 +948,7 @@ the answer, because history you cannot check is the opposite of the point.
 
 **`citations.ts` — citations are derived, not declared.** The obvious design is to ask the model
 for `[1]` markers and a source list. It is worthless: a model that invents a figure invents a
-plausible source for it, and the citation then makes a wrong answer *more* convincing. Citations
+plausible source for it, and the citation then makes a wrong answer _more_ convincing. Citations
 here are built from the tool results that actually came back, so a citation cannot reference
 something that was not read. That is a weaker claim than "this sentence came from here" — and
 unlike that one, it is true.
@@ -1089,17 +1089,17 @@ Next.js 16 (App Router) + React 19, port **3000**, `output: 'standalone'`.
 ### Overlay features — `src/features/`
 
 Three surfaces that sit above every view rather than inside one, because all three answer
-questions that arise *while* looking at something. Navigating away to a `/help` route loses the
+questions that arise _while_ looking at something. Navigating away to a `/help` route loses the
 thing that prompted the question.
 
-| Path | What it is |
-| --- | --- |
-| `features/help/HelpCentre.tsx` | Slide-over help panel. Opens on the **current view's** article (`articleForView`) rather than the index, with search and cross-references. Imports the corpus directly, so it works even when the API is the thing that is broken — which is exactly when someone opens help. |
-| `features/help/Markdown.tsx` | Markdown → **React elements**. Never `dangerouslySetInnerHTML`. |
-| `features/tour/Tour.tsx` | First-run tour. Spotlights the live element rather than showing screenshots, which go stale silently. Shown once; both completion and dismissal are final. |
-| `features/assistant/AssistantDock.tsx` | The assistant panel, for a question raised by what you are looking at. One-off: it does not write to saved history. |
-| `views/Assistant.tsx` | The assistant **page** — persistent, revisitable conversations. Shares the API and the renderer with the dock but not its state: coupling them would mean the dock either resurrecting a page conversation on every view or silently writing into one. |
-| `views/Documentation.tsx` | The help corpus as a page, with contents beside the article. Same corpus and components as the panel — a second copy styled differently is how a help centre and its documentation start disagreeing. |
+| Path                                   | What it is                                                                                                                                                                                                                                                                    |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `features/help/HelpCentre.tsx`         | Slide-over help panel. Opens on the **current view's** article (`articleForView`) rather than the index, with search and cross-references. Imports the corpus directly, so it works even when the API is the thing that is broken — which is exactly when someone opens help. |
+| `features/help/Markdown.tsx`           | Markdown → **React elements**. Never `dangerouslySetInnerHTML`.                                                                                                                                                                                                               |
+| `features/tour/Tour.tsx`               | First-run tour. Spotlights the live element rather than showing screenshots, which go stale silently. Shown once; both completion and dismissal are final.                                                                                                                    |
+| `features/assistant/AssistantDock.tsx` | The assistant panel, for a question raised by what you are looking at. One-off: it does not write to saved history.                                                                                                                                                           |
+| `views/Assistant.tsx`                  | The assistant **page** — persistent, revisitable conversations. Shares the API and the renderer with the dock but not its state: coupling them would mean the dock either resurrecting a page conversation on every view or silently writing into one.                        |
+| `views/Documentation.tsx`              | The help corpus as a page, with contents beside the article. Same corpus and components as the panel — a second copy styled differently is how a help centre and its documentation start disagreeing.                                                                         |
 
 > **Why the markdown renderer is hand-written.** Every markdown library renders to an HTML
 > string, which means `dangerouslySetInnerHTML`, which makes a sanitiser the only thing between
@@ -1172,17 +1172,17 @@ and passed as a Docker build arg by the deploy workflows — see
 
 ### Views (`src/views/`)
 
-| View          | Data     | Contents                                                                                                                                         |
-| ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Dashboard`   | live     | Hero score (radial gauge or bars), dimension bars, sparklines, stat row → `/score`, `/dimension-scores`, `/stats`, `/brand-impact`, `/strengths` |
-| `Trends`      | live     | Dimension history line chart → `/score`, `/dimension-scores`                                                                                     |
-| `BrandImpact` | live     | Top weakness cards ranked by damage → `/brand-impact`                                                                                            |
-| `Competitors` | live     | Benchmark bars → `/brands` plus one `/score` per brand                                                                                           |
-| `WhatsChanged` | live    | **What moved**, over a 7/30/90-day window → `/whats-new`. Five panels: getting worse and getting better (sentiment), new subjects, more and less discussed (volume), plus a by-source table that keeps feeds which went silent. A `Newly collected` / `Newly published` toggle chooses the `basis`. Subjects open the drill-down via `nav.openTopic`, which — unlike `openCluster` — inserts no dimension level, because there isn't one to name. |
-| `Roadmap`     | live     | **What to fix, what it is worth, what you are aiming at.** Target with stated provenance, gap, measured benchmarks, and per action a matched play with concrete steps plus the `ifResolved` ceiling → `/roadmap`. Admins can set or clear the target inline. |
-| `VoiceOfCustomer` | live | What Sales and CS hear directly → `/voice-of-customer`. Ranked by accounts × band, with the corroboration panel. Empty until a CRM connector exists, and it says which kind of empty. |
-| `Report`      | live     | Print-styled weekly report → `/score`, `/dimension-scores`, `/brand-impact`, `/stats`, all territory-aware. **The view is real; what Epic 12 still owes is the PDF render and the email delivery**, not the page. |
-| `Admin`       | live     | Tenant creation, `BrandManager`, `UserManager`                                                                                                   |
+| View              | Data | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Dashboard`       | live | Hero score (radial gauge or bars), dimension bars, sparklines, stat row → `/score`, `/dimension-scores`, `/stats`, `/brand-impact`, `/strengths`                                                                                                                                                                                                                                                                                                  |
+| `Trends`          | live | Dimension history line chart → `/score`, `/dimension-scores`                                                                                                                                                                                                                                                                                                                                                                                      |
+| `BrandImpact`     | live | Top weakness cards ranked by damage → `/brand-impact`                                                                                                                                                                                                                                                                                                                                                                                             |
+| `Competitors`     | live | Benchmark bars → `/brands` plus one `/score` per brand                                                                                                                                                                                                                                                                                                                                                                                            |
+| `WhatsChanged`    | live | **What moved**, over a 7/30/90-day window → `/whats-new`. Five panels: getting worse and getting better (sentiment), new subjects, more and less discussed (volume), plus a by-source table that keeps feeds which went silent. A `Newly collected` / `Newly published` toggle chooses the `basis`. Subjects open the drill-down via `nav.openTopic`, which — unlike `openCluster` — inserts no dimension level, because there isn't one to name. |
+| `Roadmap`         | live | **What to fix, what it is worth, what you are aiming at.** Target with stated provenance, gap, measured benchmarks, and per action a matched play with concrete steps plus the `ifResolved` ceiling → `/roadmap`. Admins can set or clear the target inline.                                                                                                                                                                                      |
+| `VoiceOfCustomer` | live | What Sales and CS hear directly → `/voice-of-customer`. Ranked by accounts × band, with the corroboration panel. Empty until a CRM connector exists, and it says which kind of empty.                                                                                                                                                                                                                                                             |
+| `Report`          | live | Print-styled weekly report → `/score`, `/dimension-scores`, `/brand-impact`, `/stats`, all territory-aware. **The view is real; what Epic 12 still owes is the PDF render and the email delivery**, not the page.                                                                                                                                                                                                                                 |
+| `Admin`           | live | Tenant creation, `BrandManager`, `UserManager`                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ### The territory lens
 
@@ -1337,33 +1337,53 @@ All four analytical views read this path. `Roadmap` and `Report` still read `lib
 
 ## 12. Infrastructure
 
-### Current state: nothing is deployed, anywhere
+### Current state: deployed in the sandbox
 
-**No part of this system has ever run in any cloud.** Everything below §12 describes either a
-GCP stack that will never be applied, or an AWS stack that does not exist yet.
+The AWS stack has been **deployed in `290304998906` / `eu-west-2` since 2026-08-08**
+([`HANDOVER.md`](HANDOVER.md) §0a carries the deploy record and live image tag). The GCP tree
+in `infra/` was never applied and never will be.
 
-### `infra-aws/` — the real target
+### `infra-aws/` — the deployed stack
 
 Region **`eu-west-2`** (London). Compute **ECS Fargate**, database **RDS Postgres**, auth
 **Cognito**, all decided by the owner.
 
-**Phase 1 (guardrails) is written; Phases 2–7 do not exist yet.** What is there:
+| Path                       | What                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bootstrap/`               | S3 remote-state bucket — versioned, encrypted, TLS-only, `prevent_destroy`. Local state, because it creates the backend everything else uses                                                                                                                                                                                                          |
+| `account/`                 | **ACCOUNT-GLOBAL, not ours.** Activates the six mandatory tag keys as cost allocation tags — one switch per key for the _whole_ account, shared with every co-tenant project. Separate state (`account/terraform.tfstate`), `prevent_destroy` on each key, applied deliberately by the owner or platform team and **never by CI or a project deploy** |
+| `stack/`                   | The application. S3 remote state with native locking (`use_lockfile`; no DynamoDB table). See the file map below                                                                                                                                                                                                                                      |
+| `envs/dev.tfvars`          | Account, region and tag values, shared by `bootstrap/` and `stack/` so they cannot drift. `dev.stack.tfvars` holds stack-only values (sizing, budget, models, lifecycle flags); `account.tfvars` feeds the account module                                                                                                                             |
+| `scripts/00-discover.sh`   | Phase 0 discovery, read-only — findings in [`HANDOVER.md`](HANDOVER.md) §3                                                                                                                                                                                                                                                                            |
+| `scripts/10-preflight.sh`  | Pre-apply checks: account, cost allocation tag status, prefix collisions                                                                                                                                                                                                                                                                              |
+| `scripts/20-build-push.sh` | Builds and pushes the four images to ECR; refuses a dirty tree or an existing tag, and reads the `NEXT_PUBLIC_*` values from `terraform output`                                                                                                                                                                                                       |
+| `scripts/99-teardown.sh`   | Reversal, dry-run by default, verifying by **independent inventory — by tag and by name prefix** — rather than Terraform state, which is what catches a resource orphaned by a failed apply or created at runtime (CRM token secrets). Exits non-zero if the destroy fails                                                                            |
+| `scripts/_guard.sh`        | The account guard every AWS-calling script sources first. Tested by `scripts/test/guard.test.sh` (hermetic, stubbed CLI)                                                                                                                                                                                                                              |
+| `CONVENTIONS.md`           | The proposed cross-repo standard for the shared account                                                                                                                                                                                                                                                                                               |
 
-| Path                      | What                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bootstrap/`              | S3 remote-state bucket — versioned, encrypted, TLS-only, `prevent_destroy`. Local state, because it creates the backend everything else uses                                                                                                                                                                                                          |
-| `account/`                | **ACCOUNT-GLOBAL, not ours.** Activates the six mandatory tag keys as cost allocation tags — one switch per key for the _whole_ account, shared with every co-tenant project. Separate state (`account/terraform.tfstate`), `prevent_destroy` on each key, applied deliberately by the owner or platform team and **never by CI or a project deploy** |
-| `stack/`                  | The tag-filtered monthly budget. S3 remote state with native locking (`use_lockfile`); **no DynamoDB lock table** — that mechanism is deprecated upstream                                                                                                                                                                                             |
-| `envs/dev.tfvars`         | Tag values, shared by `bootstrap/` and `stack/` so they cannot drift. `dev.stack.tfvars` holds budget-only values; `account.tfvars` feeds the account module                                                                                                                                                                                          |
-| `scripts/00-discover.sh`  | Phase 0 discovery, read-only, already run — findings in [`HANDOVER.md`](HANDOVER.md) §3. **Sources `_guard.sh` like every other AWS-calling script**                                                                                                                                                                                                  |
-| `scripts/10-preflight.sh` | Pre-apply checks: account, cost allocation tag status, prefix collisions                                                                                                                                                                                                                                                                              |
-| `scripts/99-teardown.sh`  | Reversal, dry-run by default, verifying by **independent tag inventory** rather than Terraform state — which is what catches a resource orphaned by a failed apply                                                                                                                                                                                    |
-| `CONVENTIONS.md`          | The proposed cross-repo standard for the shared account                                                                                                                                                                                                                                                                                               |
+**`stack/` file map.**
+
+| File                                  | Defines                                                                                                                                                                                               |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vpc.tf`, `nat.tf`                    | Own VPC `10.20.0.0/16`, 2 AZs, public + private subnets; one NAT gateway for private egress (ingestion needs arbitrary third-party HTTPS)                                                             |
+| `rds.tf`                              | Postgres 16, private, encrypted; `app` security group (api, ingestion, sentiment-worker) is the only one the DB admits                                                                                |
+| `s3.tf`, `alb_logs.tf`                | `raw` (versioned), `reports`, and the ALB access-log bucket — all public-access-blocked, TLS-only, bucket-owner-enforced                                                                              |
+| `ecr.tf`                              | One IMMUTABLE repository per deployed service                                                                                                                                                         |
+| `sqs.tf`                              | `item`, `report`, `scan` + DLQs (`maxReceiveCount` 5); visibility 300 s, 1800 s for `scan`                                                                                                            |
+| `ecs.tf`                              | Cluster (Container Insights, exec logging), four services; per-container health checks; web has its own security group and no database credential                                                     |
+| `alb.tf`                              | One ALB, path-routed: `/admin* /assistant* /brands* /docs*`, `/crm* /auth*`, `/health /ready` → API, everything else → web. HTTPS listener + HTTP→HTTPS redirect appear when `certificate_arn` is set |
+| `iam.tf`                              | Shared execution role; one least-privilege task role per service; Bedrock limited to `eu.anthropic.*` profiles in the stack region                                                                    |
+| `cognito.tf`                          | User pool (admin-create only, SRP + refresh flows only) and the public web client                                                                                                                     |
+| `scheduler.tf`                        | EventBridge Scheduler → `scan` queue: `scan-all` :00, `rollup` :30, `reconcile` :45                                                                                                                   |
+| `monitoring.tf`                       | SNS topic + 13 alarms: DLQ not empty, ALB 5xx, unhealthy targets, ECS tasks below desired, RDS CPU and free storage                                                                                   |
+| `logs.tf`                             | App log group (30 d), ECS Exec transcripts (365 d), RDS export groups with retention (adopted by `import`)                                                                                            |
+| `secrets.tf`, `budget.tf`, `guard.tf` | Apify/YouTube key secrets (value set out of band); the tag-filtered budget; account/region `check` blocks                                                                                             |
 
 The account is **shared with other projects**, so the build is designed to be _separable_: own
 VPC, `psignal-<env>-*` naming, mandatory tags applied as Terraform provider `default_tags` (so a
 resource cannot be created untagged), and `allowed_account_ids` aborting before the first API
-call in the wrong account. See [`AWS-SETUP.md`](AWS-SETUP.md) for the guardrails,
+call in the wrong account — fed by an `aws_account_id` variable validated against the literal
+`290304998906` in every root module, so the pin cannot be moved by a `-var`. See [`AWS-SETUP.md`](AWS-SETUP.md) for the guardrails,
 [`HANDOVER.md`](HANDOVER.md) §3.2 for why each exists, and
 [`../infra-aws/CONVENTIONS.md`](../infra-aws/CONVENTIONS.md) for the standard co-tenant repos
 should follow.
@@ -1478,23 +1498,30 @@ repository can reach an account from CI.
 
 ### `ci.yml` — PRs and pushes to `main`/`staging`
 
-| Job            | Does                                                                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `changes`      | `dorny/paths-filter` computes which apps changed (each app watches its own dir plus `libs/**`, `package.json`, `yarn.lock`, `tsconfig.base.json`) |
-| `code-quality` | `yarn install --immutable` → `nx run-many -t lint` → `nx run-many -t typecheck`                                                                   |
-| `test`         | `nx run-many -t test -- --coverage`                                                                                                               |
-| `docker-check` | Matrix over changed apps: build each Dockerfile with GHA layer cache, **no push**                                                                 |
+Every job installs through one composite action, `.github/actions/setup-yarn` — Node from
+`.nvmrc`, `corepack@0.36.0` (Node 25+ has none), a cached Yarn download cache, then
+`yarn install --immutable` — so the toolchain cannot drift between jobs. Every third-party action
+is **pinned to a commit SHA** with the release named in a comment; runs are grouped by branch
+with `cancel-in-progress` on PRs only; every job has a `timeout-minutes`.
 
-### `terraform-plan.yml` — PRs and pushes to `main` touching `infra-aws/**`
+| Job            | Does                                                                                                                                                                                                                             |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `changes`      | `dorny/paths-filter` computes which apps changed (each app watches its own dir plus a shared set: `libs/**`, `scripts/**`, `package.json`, `yarn.lock`, `.yarnrc.yml`, `tsconfig.base.json`, `.dockerignore`)                    |
+| `code-quality` | `nx run-many -t lint` → `nx run-many -t typecheck` → `yarn check:deps` → **`alb-routes.test.sh`** (every API route prefix is forwarded by the ALB — runs on every PR, because the defect arrives in `apps/api`, not `infra-aws`) |
+| `test`         | `nx run-many -t test -- --coverage`                                                                                                                                                                                              |
+| `integration`  | `@project-signal/api:test:integration` against a Postgres 16 service container (`project_signal_test`) — real SQL, real migrations, real tenant filters                                                                          |
+| `docker-check` | Matrix over changed apps: build each Dockerfile with GHA layer cache and placeholder `NEXT_PUBLIC_*` build args, **no push**                                                                                                     |
+
+### `terraform-plan.yml` — PRs and pushes to `main` touching `infra-aws/**` or `scripts/**`
 
 Static validation of the AWS Terraform tree. **It makes zero AWS API calls**, deliberately:
 `init -backend=false` skips backend configuration and state entirely, so nothing authenticates
 and nothing is read from the account. `permissions` is `contents: read` with no `id-token`.
 
-| Job        | Does                                                                                                                                                                                          |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `validate` | `terraform fmt -check -recursive -diff`, then `init -backend=false` + `validate` on each of the three root modules — `bootstrap`, `account`, `stack`. **A module not listed is not checked.** |
-| `scripts`  | `bash -n` and `shellcheck -S warning` over `infra-aws/scripts/*.sh`, then asserts that **every script invoking the AWS CLI sources `_guard.sh` and calls `assert_sandbox_account`**           |
+| Job        | Does                                                                                                                                                                                                                                                                                                                                   |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validate` | `terraform fmt -check -recursive -diff`, then `init -backend=false -lockfile=readonly` + `validate` on each of the three root modules — `bootstrap`, `account`, `stack`. **A module not listed is not checked.** The provider locks record windows/linux/darwin hashes, so a lock drift fails here instead of being silently rewritten |
+| `scripts`  | `bash -n` and `shellcheck -S warning` over `infra-aws/scripts/*.sh` and `scripts/*.sh`, the guard tests, the ALB route test, then asserts that **every script invoking the AWS CLI sources `_guard.sh` and calls `assert_sandbox_account`**                                                                                            |
 
 That last check is the important one. The sandbox rule is enforced by a guard a script has to
 remember to source, and `00-discover.sh` had silently not sourced it — running ~20 `describe`
@@ -1513,7 +1540,13 @@ instead of reaching an account.
 
 ### Docker images
 
-All five use multi-stage builds ending on `node:20-alpine` with a non-root `signal` user.
+All five use multi-stage builds on `node:26-alpine` ending with a non-root `signal` user. Because
+Node 25+ no longer bundles corepack, the base stage runs `npm install -g corepack@0.36.0 &&
+corepack enable` (pinned, so an image never depends on whatever npm serves on build day).
+`.dockerignore` keeps `.env`, `.env.local`, `docs`, `infra`, `infra-aws` and `design` out of the
+build context — a developer's local web env file must never be baked into an image.
+Health checks are defined in the ECS task definitions (`infra-aws/stack/ecs.tf`,
+`container_health`), not as Dockerfile `HEALTHCHECK`s, because ECS ignores the latter.
 
 **Backends** copy the whole workspace (`.dockerignore` keeps `node_modules`/`dist` out), run
 `yarn install --immutable`, then `sh scripts/build-libs.sh` followed by `tsc -p
@@ -1585,19 +1618,27 @@ the markdown renderer's link-safety behaviour and the tour's storage logic.
 ## 15. Local development
 
 ```bash
-corepack yarn install
-cp .env.example .env
+npm install -g corepack@0.36.0 && corepack enable   # once per machine: Node 25+ has no corepack
+yarn install
+cp .env.example .env                                # then set LOCAL_AUTH_PASSWORD
 docker compose up -d        # Postgres 16 (:5432) + LocalStack (:4566, s3 + sqs)
-corepack yarn dev           # docker compose up -d && nx run-many -t dev --parallel
+PORT=9080 yarn nx run api:dev                       # API first: it applies migrations
+yarn db:seed                                        # demo tenant + local-owner/-admin/-user
+yarn nx run ingestion:dev & yarn nx run sentiment-worker:dev &
+yarn nx run @project-signal/web:dev                 # http://localhost:3100
 ```
+
+`yarn dev` (all apps at once, API on 8080) still works on a machine where 8080 is free; on the
+owner's machine 3000, 8080 and 8090 are occupied, hence the per-process `PORT=9080`.
 
 **Migrations apply when the API boots** — there is no manual migrate step, and seeding before
 the API has started fails with `relation "tenants" does not exist`. Boot the API first.
 
 `scripts/localstack-init.sh` runs inside the LocalStack container on first boot and creates
-the `psignal-local-raw` bucket plus the item/report queues and their DLQs, with
-`maxReceiveCount: 5` matching the intended deployed redrive policy — so the local stack fails
-the same way the real one will.
+the `psignal-local-raw` bucket plus the item, report and scan queues and their DLQs, with
+`maxReceiveCount: 5` and the same visibility timeouts as the deployed queues (300 s; 1800 s for
+`scan`, which carries whole collection sweeps) — so the local stack fails the same way the real
+one will.
 
 **This replaced the Pub/Sub emulator, and it is a straight upgrade.** There was never a GCS
 emulator, so the raw-payload write and read path could only ever be exercised against mocks.
@@ -1605,23 +1646,31 @@ It can now be run for real — and was, on 2026-08-07: 52 signals ingested from 
 written to S3, read back, published to SQS, deduplicated on re-run and swept by `/reconcile`.
 See [`HANDOVER.md`](HANDOVER.md) §5.
 
-The one link that cannot be closed locally is **scoring** — LocalStack does not emulate
-Bedrock, so that needs real AWS credentials.
+The one link that cannot be closed locally is **LLM calls** (scoring, the assistant, roadmap
+rewording) — LocalStack does not emulate Bedrock. Set `BEDROCK_AWS_PROFILE=psignal-dev` and
+`aws sso login --profile psignal-dev`: the LLM client alone uses that profile and ignores
+`AWS_ENDPOINT_URL`, while S3 and SQS stay on LocalStack.
+
+**Sign-in is local too.** With `AUTH_MODE=local` (root `.env`) and `NEXT_PUBLIC_AUTH_MODE=local`
+(`apps/web/.env.local`) the web app shows a local sign-in screen backed by the API's
+`POST /auth/local/sign-in`; the seed creates `local-owner`, `local-admin` and `local-user`, all
+with the password in `LOCAL_AUTH_PASSWORD`. The API refuses `AUTH_MODE=local` when
+`NODE_ENV=production`; the deployed stack never sets it and signs in through Cognito.
 
 | Service             | URL                                                                      |
 | ------------------- | ------------------------------------------------------------------------ |
-| web                 | http://localhost:3000                                                    |
-| api                 | http://localhost:8080 (Swagger UI at `/docs`)                            |
+| web                 | http://localhost:3100                                                    |
+| api                 | http://localhost:9080 (Swagger UI at `/docs`)                            |
 | ingestion           | http://localhost:8081                                                    |
 | sentiment-worker    | http://localhost:8082                                                    |
 | report-worker       | http://localhost:8083                                                    |
 | Postgres            | `postgresql://project_signal_app:password@localhost:5432/project_signal` |
 | LocalStack (S3+SQS) | http://localhost:4566                                                    |
 
-**Calling the API locally without Firebase** — with `NODE_ENV=development`:
+**Calling the API locally without Cognito** — with `AUTH_MODE=local`:
 
 ```bash
-curl -H "Authorization: Bearer dev:owner:$TENANT_ID:$BRAND_ID" http://localhost:8080/brands
+curl -H "Authorization: Bearer dev:owner:$TENANT_ID:$BRAND_ID" http://localhost:9080/brands
 #                              dev:<role>:<tenantId>[:<brandEntityId>]
 ```
 

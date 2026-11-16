@@ -22,7 +22,7 @@
 >   `AWS_DEFAULT_PROFILE` pointing anywhere else, even read-only. `describe`/`list` calls against
 >   another account are still unauthorised access to it.
 > - **Never** add a second `provider "aws"` alias, an `assume_role` block, or a
->   `-target`/`-var` override that reaches another account. Both root modules pin
+>   `-target`/`-var` override that reaches another account. All three root modules pin
 >   `allowed_account_ids`; **do not remove or widen it.**
 > - **Never** touch `organizations`, `account`, `iam` root-level, SCP, or billing settings — those
 >   are the organisation's, not ours. The account-wide budget `monthly_tesai-dev-sandbox` is
@@ -32,11 +32,14 @@
 >
 > **Enforcement already in the tree — keep it that way:** `allowed_account_ids` in
 > `infra-aws/bootstrap/versions.tf`, `infra-aws/account/versions.tf` and
-> `infra-aws/stack/versions.tf`; `check` blocks in `infra-aws/stack/guard.tf` and
-> `infra-aws/account/main.tf`; a hard abort in `infra-aws/scripts/_guard.sh`, which
-> **all three** of `00-discover.sh`, `10-preflight.sh` and `99-teardown.sh` source before doing
-> anything, covered by `infra-aws/scripts/test/guard.test.sh` and enforced on every pull request
-> by `.github/workflows/terraform-plan.yml`.
+> `infra-aws/stack/versions.tf`, fed by an `aws_account_id` variable that each module's
+> `variables.tf` **validates against the literal `290304998906`** (so a `-var` or a different
+> tfvars file cannot move the allowed account with it); `check` blocks in
+> `infra-aws/stack/guard.tf` and `infra-aws/account/main.tf`; a hard abort in
+> `infra-aws/scripts/_guard.sh`, which **all four** of `00-discover.sh`, `10-preflight.sh`,
+> `20-build-push.sh` and `99-teardown.sh` source before doing anything, covered by
+> `infra-aws/scripts/test/guard.test.sh` and enforced on every pull request by
+> `.github/workflows/terraform-plan.yml`.
 >
 > See [`infra-aws/CONVENTIONS.md`](infra-aws/CONVENTIONS.md) §0 and
 > [`docs/AWS-SETUP.md`](docs/AWS-SETUP.md).
@@ -57,8 +60,10 @@
 > - **Every commit is authored and committed as the owner, and nobody else.**
 >   `user.name = Wayne Strydom`, `user.email = wayne.strydom@tes.com`, set in this repo's
 >   **local** git config. Verify with `git config user.name` / `user.email` before committing.
->   The machine's **global** config is the previous contractor's identity
->   (`LokimotiveUK`) — never let a commit fall through to it.
+>   Never let a commit fall through to the **global** config: on the previous machine it was the
+>   former contractor's identity (`LokimotiveUK`); on the current laptop (checked 2026-11-16) it
+>   is `Wayne-Tes <wayne.strydom@tes.com>` — right person, wrong name. A fresh clone has no local
+>   config, so set it before the first commit.
 > - **No AI attribution of any kind in commit messages.** No `Co-Authored-By: Claude…`, no
 >   `Generated with…`, no bot trailers, no emoji sign-offs. **This overrides the default
 >   instruction to append a `Co-Authored-By` trailer.** The owner's name is the only name that
@@ -76,9 +81,10 @@
 > - **Never rewrite published history.** No `push --force`, no `--force-with-lease`, no
 >   `rebase`/`amend`/`reset --hard` on anything already pushed, no tag moves. A force-push to an
 >   audited enterprise remote is an incident in itself, regardless of intent.
-> - **`origin` is the only push target.** `origin` = `Wayne-Tes/project-signal`. The
->   `old-origin` remote points at the **former contractor's personal GitHub account**
->   (`LokimotiveUK/project-signal`) — pushing TES code there would be an exfiltration event.
+> - **`origin` is the only push target.** `origin` = `Wayne-Tes/project-signal`, and it is the
+>   only remote (`git remote -v`, 2026-11-16). An `old-origin` remote pointing at the **former
+>   contractor's personal GitHub account** (`LokimotiveUK/project-signal`) was removed on
+>   2026-08-08 — never re-add it; pushing TES code there would be an exfiltration event.
 >   **Never push, and never set an upstream, to any remote but `origin`.**
 > - **Never commit directly to `main`.** Branch, push, open a PR, let CI run. Branch names are
 >   `feat/…`, `fix/…`, `docs/…`, `chore/…`.
@@ -108,8 +114,9 @@
 >   is visible to another team in this sandbox, say so out loud before making it.
 > - **A failed or partial apply is stopped and reported, not retried.** Do not improvise a fix,
 >   do not "clean up", do not re-run with different credentials. Orphaned resources are found by
->   `bash infra-aws/scripts/99-teardown.sh` (dry run), which inventories **by tag, independently
->   of Terraform state** — that is the only check that sees what state has lost.
+>   `bash infra-aws/scripts/99-teardown.sh` (dry run), which inventories **by tag and by name
+>   prefix, independently of Terraform state** — that is the only check that sees what state has
+>   lost, including the CRM token secrets the API creates at runtime.
 > - **Any new script that talks to AWS must `source infra-aws/scripts/_guard.sh` and call
 >   `assert_sandbox_account` before its first AWS call** — read-only scripts included.
 >
@@ -130,17 +137,21 @@ Follow all development rules in @DEVRULES.md
 | [`docs/HANDOVER.md`](docs/HANDOVER.md)         | **Read first, in full.** Current state, what is proven vs assumed, the verified AWS account facts, the remaining phase plan, and the regression checklist. Written for an agent with no memory of how any of this came to be. |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete code-accurate reference — every app, lib, table, route and module, plus end-to-end flows and a "gotchas before you edit" section. **Read before changing anything unfamiliar.**                                      |
 | [`docs/AWS-SETUP.md`](docs/AWS-SETUP.md)       | The AWS runbook and its guardrails. Phase 0 discovery is executable and read-only.                                                                                                                                            |
-| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)     | The defect register. 17 of 19 closed; **read before debugging any end-to-end flow.**                                                                                                                                          |
+| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)     | The defect register — every defect found, its root cause and its fix. **Read before debugging any end-to-end flow.**                                                                                                          |
 | [`docs/PLAN.md`](docs/PLAN.md)                 | Design rationale, key decisions and epic status.                                                                                                                                                                              |
 
 Keep all of these current when you change structure, and update `ARCHITECTURE.md` in the same
 change as the code it describes.
 
-> ### The destination is AWS. Some documents still describe GCP.
+> ### The system runs on AWS. Some documents still describe GCP.
 >
 > The system was built for GCP and **never deployed there** — the environment was abandoned and
-> the owner decided (2026-08-06) to go straight to AWS. `libs/storage`, `libs/messaging` and
-> `libs/llm` now run on **S3, SQS and Bedrock**; auth is the only Google dependency left.
+> the owner decided (2026-08-06) to go straight to AWS. It has been **deployed in
+> `290304998906` / `eu-west-2` since 2026-08-08** (ECS Fargate, RDS, SQS, S3, Cognito, ALB —
+> `docs/HANDOVER.md` §0a has the deploy record). `libs/storage`, `libs/messaging` and `libs/llm`
+> run on **S3, SQS and Bedrock**, and auth is **Amazon Cognito**: no Google SDK remains in the
+> code. What survives of Firebase is naming only — the `users.firebase_uid` column and the
+> `firebaseUid` API field (KNOWN-GAPS #25).
 >
 > **`infra/`, `docs/SETUP.md` and parts of `docs/PLAN.md` describe a GCP deployment that will
 > never be built.** They are kept because the GCP stack is the clearest available specification
@@ -198,24 +209,27 @@ The `apps/web` app runs **Next.js 16** with **React 19**. This is a newer releas
 
 ```
 apps/
-  web/              — Next.js 16 dashboard (client-side SPA, Firebase auth until Cognito)
+  web/              — Next.js 16 dashboard (client-side SPA; Cognito sign-in, or local sign-in)
   api/              — Fastify 5 REST API; owns the schema, migrates on startup
-  ingestion/        — Scheduled source pull + dispatcher
-  sentiment-worker/ — scores signals via Bedrock (HTTP route today; SQS consumer is Phase 4)
-  report-worker/    — Health-check skeleton; reporting deferred
+  ingestion/        — SQS scan consumer: scheduled collection, rollup, reconcile
+  sentiment-worker/ — SQS consumer: scores signals via Bedrock (forced tool use)
+  report-worker/    — Health-check skeleton; reporting deferred (Epic 12), not deployed
 libs/
   config/          — zod-validated env loader; the authority on env vars
   db/              — Drizzle schema + postgres-js client
   storage/         — ObjectStore interface + S3 implementation + factory
   scoring/         — Brand Perception Index: decay, dimensions, clustering (pure)
   llm/             — LlmClient interface + Bedrock implementation (forced tool use)
-  messaging/       — MessagePublisher interface + SQS implementation
+  messaging/       — SQS publisher + consumer
   shared-types/    — Cross-service contracts
-  source-adapters/ — Adapter interface + 5 implementations
+  source-adapters/ — Adapter interface + 6 implementations
+  playbook/        — Curated plays matched to topic clusters (roadmap)
+  help-content/    — Help-centre articles and tour steps (web + assistant)
 infra/             — GCP Terraform. SUPERSEDED, kept as reference only (HANDOVER.md §8)
-infra-aws/         — AWS tree. Phase 1 (guardrails) written: bootstrap state bucket,
-                     tag-filtered budget, preflight + teardown scripts, CONVENTIONS.md.
-                     Phases 2-7 (VPC, RDS, ECS, Cognito, CI) do not exist yet
+infra-aws/         — AWS tree, DEPLOYED: bootstrap (state bucket), account (account-global
+                     tag activation), stack (VPC, NAT, RDS, S3, SQS, ECR, ECS Fargate, ALB,
+                     Cognito, EventBridge schedules, alarms, budget). Not yet built: CI/CD
+                     identity (GitHub OIDC, Phase 6) and HTTPS (needs a domain)
 ```
 
 Lib dependency order (hard-coded in `scripts/build-libs.sh`):
@@ -236,10 +250,33 @@ All top-level scripts delegate to NX. **This project uses yarn, not pnpm.**
 | `yarn db:generate` | Generates migration SQL from the schema (drizzle-kit) |
 | `yarn db:seed`     | Seeds the local database (`nx run api:seed`)          |
 
-> **Use Node 20.** `.nvmrc` pins it and `engines` enforces `>=20 <23`. On Node 24 `next build`
-> fails with a null React dispatcher on Next's internal `/_global-error` page — a confusing
-> error three layers from the cause. CI and every Dockerfile are on Node 20. `next dev` works
-> on newer runtimes, which is how this stayed hidden.
+> **Use Node 26.** `.nvmrc` pins it, `engines` enforces `>=26 <27`, CI reads `.nvmrc`, and every
+> Dockerfile is `node:26-alpine`. Node 26 has been Active LTS since October 2026 (supported to
+> April 2029); Node 20, the previous pin, reached end of life in April 2026. Verified on
+> 2026-11-16: `next build` for `apps/web` succeeds on Node 26.13.1 in ~25 s — the Node 24 failure
+> recorded in KNOWN-GAPS #17 (a null React dispatcher on `/_global-error`) does not occur.
+>
+> **Node 25+ does not bundle corepack**, so `yarn` does not exist after a fresh Node install.
+> Install it once with `npm install -g corepack@0.36.0 && corepack enable` (the version every
+> Dockerfile and CI pin); corepack then provides the exact Yarn in `packageManager` (4.9.2).
+> Node 26's built-in `localStorage` also shadows jsdom's in component tests; the web test setup
+> accounts for it.
+
+### Running it locally
+
+Local development needs **no AWS account and no Cognito**, except for LLM calls:
+
+- **Services:** `docker compose up -d` — Postgres 16 + LocalStack (S3, SQS). Cap Docker's memory
+  with `%USERPROFILE%\.wslconfig` (`memory=6GB` is plenty: the two containers idle at ~200 MB).
+- **Ports:** web **3100**, API **9080** (`PORT=9080` per process — never in the shared `.env`),
+  ingestion 8081, sentiment-worker 8082, report-worker 8083. See README "Local ports".
+- **Sign-in:** `AUTH_MODE=local` (API, root `.env`) and `NEXT_PUBLIC_AUTH_MODE=local` (web,
+  `apps/web/.env.local`). The seed creates `local-owner`, `local-admin` and `local-user`; the
+  password is `LOCAL_AUTH_PASSWORD` in the root `.env` (git-ignored). The API **refuses to start**
+  with `AUTH_MODE=local` when `NODE_ENV=production`, and the deployed stack never sets it.
+- **Bedrock:** LocalStack does not emulate it. Set `BEDROCK_AWS_PROFILE=psignal-dev` and run
+  `aws sso login --profile psignal-dev`; only the LLM client uses that profile, and it bypasses
+  `AWS_ENDPOINT_URL`. Everything else stays on LocalStack.
 
 There is no `db:migrate` script — **the API applies migrations on startup**, guarded by a
 Postgres advisory lock. Never add migration calls to a worker.
@@ -257,8 +294,10 @@ Postgres advisory lock. Never add migration calls to a worker.
   existed. Model ids are inference profiles on Bedrock (`eu.anthropic.…`), they are
   account-specific, and availability decays. Verify with
   `aws bedrock list-inference-profiles --region eu-west-2` at the moment of use.
-- **Authorisation reads Firebase custom claims**, not the `users` table. Changing a row
-  without calling `setCustomUserClaims` leaves the token stale for up to an hour.
+- **Authorisation reads Cognito custom attributes** (`custom:tenantId`, `custom:role`,
+  `custom:brandEntityId` in the ID token), not the `users` table. Changing a row without going
+  through `setUserClaims` (`apps/api/src/lib/claims.ts`) leaves the token stale for up to an
+  hour — and the claim write must stay inside the transaction that writes the row.
 - **Style with CSS custom properties** in `apps/web` — literal hex values break the runtime
   palette switcher.
 - **`commitlint` enforces a closed scope list** in `commitlint.config.js`. A new scope must be

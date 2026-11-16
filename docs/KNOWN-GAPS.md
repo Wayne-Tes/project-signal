@@ -37,14 +37,14 @@
 | 10  | ~~`dimension_scores` is never written~~                            | ✅ resolved | Epic 11               |
 | 11  | ~~Unused denormalised sentiment columns on `signals`~~             | ✅ resolved | schema                |
 | 12  | `POST /admin/users` gating fixed; users UI unverified              | 🟠 partial  | API + web             |
-| 13  | ~~Views on mock data; `lib/data.ts` fixture~~                       | ✅ resolved | web ↔ API             |
+| 13  | ~~Views on mock data; `lib/data.ts` fixture~~                      | ✅ resolved | web ↔ API             |
 | 14  | ~~Hardcoded contractor fallbacks in the web client~~               | ✅ resolved | web config            |
 | 15  | ~~Working directory is not a git repository~~                      | ✅ resolved | repo                  |
 | 16  | No cloud environment — AWS discovery done, libs ported, undeployed | 🔴          | infra                 |
 | 17  | ~~`apps/web` build failure~~ — was local Node 24                   | ✅ resolved | tooling               |
 | 18  | ~~User writes not atomic with Firebase custom claims~~             | ✅ resolved | API                   |
 | 19  | ~~Web components use literal hex, not CSS custom properties~~      | ✅ resolved | web style             |
-| 20  | ~~Light theme painted black cards on eight views~~                  | ✅ resolved | web styling           |
+| 20  | ~~Light theme painted black cards on eight views~~                 | ✅ resolved | web styling           |
 | 21  | ~~No committed e2e harness; no component tests~~                   | ✅ resolved | testing               |
 | 22  | ~~Deployed model id could no longer be invoked~~                   | ✅ resolved | llm ↔ infra           |
 | 23  | ~~Workspace import undeclared; container crashed on boot~~         | ✅ resolved | build ↔ deploy        |
@@ -399,10 +399,10 @@ is gated on **#16**, not on the build. DEVRULES requires UI work to be exercised
 before it is complete.
 
 > **Update 2026-08-18.** #16 is closed — the environment exists — so this is no longer blocked on
-> anything but a browser pass. `apps/web/e2e/users.spec.ts` now exists and *is* that pass. It
+> anything but a browser pass. `apps/web/e2e/users.spec.ts` now exists and _is_ that pass. It
 > asserts the **role model** rather than layout, because that is where being wrong costs: chiefly
 > that `owner` is never offered as an assignable role, on the new-user form or on any existing
-> row. The API rejects that escalation, but a UI that *offers* it turns a 403 into a support
+> row. The API rejects that escalation, but a UI that _offers_ it turns a 403 into a support
 > ticket — and teaches whoever clicked it that the product is unreliable rather than that the
 > action is forbidden.
 >
@@ -424,12 +424,12 @@ invented authors on real-looking dates.
 
 Everything that read it now reads the API:
 
-| Surface | Now |
-| --- | --- |
-| **Roadmap** | Derived from real Brand impact clusters. Effort, confidence and projected uplift are GONE rather than reimplemented — the product has no model of what a fix costs, and with a 90-day half-life there is no honest point prediction. Share of current damage is real; "+3.4 pts" was not. |
-| **Report** | Real index, dimensions, trend, clusters and volumes. Says "not scored yet" rather than printing a number — this is the one page a user prints and hands to someone who cannot check it. |
-| **DrillDown** | Every level reads the API. The cluster level shows real signals via a new `?topic=` filter, and renders **no quotation at all**: the API returns signal metadata, the verbatim text lives in object storage and is exposed by no endpoint. A link to the original is the honest affordance. |
-| **Top-bar period** | The range `dimension_scores` actually covers, absent when there is none. |
+| Surface             | Now                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Roadmap**         | Derived from real Brand impact clusters. Effort, confidence and projected uplift are GONE rather than reimplemented — the product has no model of what a fix costs, and with a 90-day half-life there is no honest point prediction. Share of current damage is real; "+3.4 pts" was not.                                                                                           |
+| **Report**          | Real index, dimensions, trend, clusters and volumes. Says "not scored yet" rather than printing a number — this is the one page a user prints and hands to someone who cannot check it.                                                                                                                                                                                             |
+| **DrillDown**       | Every level reads the API. The cluster level shows real signals via a new `?topic=` filter, and renders **no quotation at all**: the API returns signal metadata, the verbatim text lives in object storage and is exposed by no endpoint. A link to the original is the honest affordance.                                                                                         |
+| **Top-bar period**  | The range `dimension_scores` actually covers, absent when there is none.                                                                                                                                                                                                                                                                                                            |
 | **Source metadata** | Moved to `config/sources.ts` and keyed by the real `SignalSource` union. It was never mock data — a label and colour per source is real configuration — and deleting it with the fixture would have taken working presentation with it. It also fixes a live defect: the old map was keyed on display prose ("Google", "News"), so every real API id fell through to a grey bullet. |
 
 **The original entry, for context:**
@@ -482,7 +482,7 @@ Supporting work:
 > criterion is met.**
 >
 > **Roadmap** is live and was never as unspecified as this entry claimed — `Project-Signal-
-> Product-Spec.md` §7.3 and §5.6 describe it in full, including its producer. This register said
+Product-Spec.md` §7.3 and §5.6 describe it in full, including its producer. This register said
 > otherwise because it was never cross-referenced against the spec. It now carries a target with
 > stated provenance, a computed counterfactual per action, a matched play from `libs/playbook`,
 > and outcome tracking against an immutable baseline. It still refuses to state effort or
@@ -650,6 +650,15 @@ install instead of surfacing as a null React dispatcher three layers down.
 > verification of UI work. It never did — `next dev` works. The actual blocker for verifying
 > authed views is #16, because everything behind `AuthGate` needs a real Identity Platform
 > project to sign in against.
+
+> **Update 2026-11-16 — the pin moved to Node 26, and the failure does not recur there.** Node 20
+> reached end of life in April 2026; Node 26 has been Active LTS since October 2026 (EOL April
+> 2029). `next build` for `apps/web` (Next 16.2.7) was run on host Node **26.13.1** and succeeded
+> in ~25 s, 3/3 static pages — the null-dispatcher error on `/_global-error` seen on Node 24.14.0
+> does not occur. `.nvmrc` is now `26`, `engines.node` is `>=26.0.0 <27.0.0`, CI reads `.nvmrc`,
+> and every Dockerfile is `node:26-alpine`. One consequence to know: Node 25+ no longer bundles
+> corepack, so the Dockerfiles and CI install `corepack@0.36.0` explicitly before
+> `corepack enable`.
 
 ---
 
@@ -890,8 +899,8 @@ later: `No topic cluster has been tagged to experience yet`.
 
 **Both levels were right, and that is what made it hard to see.** Level 1 reads
 `dimension_scores.signal_count`. Level 2 read `/brands/:id/brand-impact` and filtered it by
-dimension — and `brandImpact()` excludes every zero-damage cluster by design, because *"a topic
-nobody is negative about is not a weakness"*. Correct for a Brand impact summary. Fatal as an
+dimension — and `brandImpact()` excludes every zero-damage cluster by design, because _"a topic
+nobody is negative about is not a weakness"_. Correct for a Brand impact summary. Fatal as an
 evidence view: a dimension people are POSITIVE about has nothing but zero-damage clusters, so
 **the better a dimension performed, the more certain its drill-down was to be empty** — on the one
 screen whose entire purpose is tracing a number to the specific things people said.
@@ -914,7 +923,7 @@ left to show.
   broken number rather than as good news.
 
 **Why the unit suite could not have caught it.** Every component, endpoint and scoring function
-was individually correct — the fault was in *which endpoint the level asked*. So
+was individually correct — the fault was in _which endpoint the level asked_. So
 `apps/web/test/drilldown-dimension.test.tsx` asserts on the URLs requested, not only on the
 rendered output, and `apps/web/e2e/drilldown.spec.ts` drills into the **highest-scoring** dimension
 against live data, because that is the only one the defect ever showed on.
@@ -934,15 +943,15 @@ showed a healthy green timestamp while collecting nothing, indefinitely.
 
 Three distinct signatures, all read from live run logs on 2026-08-10:
 
-| `statusMessage` | Source affected |
-| --- | --- |
-| `The developer of this actor doesn't allow the use of API in the Free Plan` | X (evaluated), and one App Store actor previously written off as dead |
-| `Free tier limit reached (5 total runs)` | **Play Store** — 54 reviews on the first five runs, then zero for a day, reported as success each time |
-| `Finished! Total 1 requests: 0 succeeded, 1 failed.` | Google reviews — seven consecutive hourly scans |
+| `statusMessage`                                                             | Source affected                                                                                        |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `The developer of this actor doesn't allow the use of API in the Free Plan` | X (evaluated), and one App Store actor previously written off as dead                                  |
+| `Free tier limit reached (5 total runs)`                                    | **Play Store** — 54 reviews on the first five runs, then zero for a day, reported as success each time |
+| `Finished! Total 1 requests: 0 succeeded, 1 failed.`                        | Google reviews — seven consecutive hourly scans                                                        |
 
 **Resolved** in `libs/source-adapters/src/apifyClient.ts`: `waitForApifyRun` now throws on those
-signatures, so the reason lands on `source_configs.last_error` and the feed row says *"Free tier
-limit reached"* instead of showing a fresh timestamp; failed runs carry Apify's own message
+signatures, so the reason lands on `source_configs.last_error` and the feed row says _"Free tier
+limit reached"_ instead of showing a fresh timestamp; failed runs carry Apify's own message
 instead of a bare status; and `fetchApifyDataset` strips placeholder rows — which would otherwise
 become signals with no text, no external id and an `Invalid Date` — throwing if a dataset contains
 nothing else.

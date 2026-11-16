@@ -1,8 +1,11 @@
 # `infra-aws/` — Project Signal on AWS
 
 **Region:** `eu-west-2` (London) · **Account:** `290304998906` (`tesai-dev-sandbox`, shared)
-**Phase:** 1 of 7 — guardrails. See [`../docs/AWS-SETUP.md`](../docs/AWS-SETUP.md) for the runbook
-and [`../docs/HANDOVER.md`](../docs/HANDOVER.md) §6 for the phase plan.
+**State:** **deployed** since 2026-08-08 — Phases 0–5 applied (guardrails, network, database,
+storage, ECS Fargate, ALB, Cognito, schedules). Not yet built: Phase 6 (GitHub OIDC CI/CD — deploys
+run from a workstation) and HTTPS (needs a domain). See [`../docs/AWS-SETUP.md`](../docs/AWS-SETUP.md)
+for the runbook, [`../docs/HANDOVER.md`](../docs/HANDOVER.md) §0a for the deploy record, and
+[`../docs/AWS-SETUP.md`](../docs/AWS-SETUP.md) § "Pending apply" for what is written but not applied.
 
 > This is the real target. [`../infra/`](../infra/) is the superseded GCP tree, kept only as the
 > clearest available specification of what each service needs. It will never be applied.
@@ -21,20 +24,33 @@ and [`../docs/HANDOVER.md`](../docs/HANDOVER.md) §6 for the phase plan.
 
 ## What exists today
 
-| Path                      | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bootstrap/`              | The S3 remote-state bucket. Local state, run once, creates nothing else                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `account/`                | ⚠️ **ACCOUNT-GLOBAL, and NOT APPLICABLE HERE.** Activates the six tag keys as cost allocation tags. **`290304998906` is a linked account and cannot do this** — verified 2026-08-08: _"Linked account doesn't have access to cost allocation tags"_. It stays **unapplied**; the platform team activates the keys from management account `857154590661` instead (request ready to send in `../docs/AWS-SETUP.md`). Kept because it is correct for an account that does hold the permission |
-| `stack/`                  | The tag-filtered budget. Remote state                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `envs/dev.tfvars`         | Tag values shared by `bootstrap/` and `stack/`, so they cannot drift                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `envs/dev.stack.tfvars`   | Budget-only values                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `envs/account.tfvars`     | Values for the account-global module. Separate because nothing in it is per-environment                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `scripts/00-discover.sh`  | Phase 0 discovery, read-only. Already run — findings in HANDOVER §3                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `scripts/10-preflight.sh` | Run before any apply. Checks account, cost allocation tags, collisions                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `scripts/99-teardown.sh`  | Reverses everything and proves the account is clean. Dry run by default                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `CONVENTIONS.md`          | The proposed cross-repo standard for this shared account                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Path                       | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bootstrap/`               | The S3 remote-state bucket. Local state, run once, creates nothing else                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `account/`                 | ⚠️ **ACCOUNT-GLOBAL, and NOT APPLICABLE HERE.** Activates the six tag keys as cost allocation tags. **`290304998906` is a linked account and cannot do this** — verified 2026-08-08: _"Linked account doesn't have access to cost allocation tags"_. It stays **unapplied**; the platform team activates the keys from management account `857154590661` instead (request ready to send in `../docs/AWS-SETUP.md`). Kept because it is correct for an account that does hold the permission |
+| `stack/`                   | The application: VPC + NAT, RDS, S3, SQS, ECR, ECS Fargate (api, web, ingestion, sentiment-worker), ALB, Cognito, EventBridge schedules, alarms, budget. Remote state. File map in [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §12                                                                                                                                                                                                                                                 |
+| `envs/dev.tfvars`          | Account, region and tag values shared by `bootstrap/` and `stack/`, so they cannot drift                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `envs/dev.stack.tfvars`    | Stack-only values: sizing, budget, model ids, lifecycle flags (`allow_force_destroy`, `protect_stateful_resources`), `rds_log_groups_existing`, `certificate_arn`                                                                                                                                                                                                                                                                                                                           |
+| `envs/account.tfvars`      | Values for the account-global module. Separate because nothing in it is per-environment                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `scripts/00-discover.sh`   | Phase 0 discovery, read-only. Already run — findings in HANDOVER §3                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `scripts/10-preflight.sh`  | Run before any apply. Checks account, cost allocation tags, collisions                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `scripts/20-build-push.sh` | Builds and pushes the four images for the current commit. Refuses a dirty tree or an existing tag                                                                                                                                                                                                                                                                                                                                                                                           |
+| `scripts/99-teardown.sh`   | Reverses everything and proves the account is clean — inventory by tag AND by name prefix. Dry run by default; `--execute` prompts for `yes` and exits non-zero if the destroy fails                                                                                                                                                                                                                                                                                                        |
+| `CONVENTIONS.md`           | The proposed cross-repo standard for this shared account                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
-**No VPC, RDS, ECR, Secrets Manager, ECS or Cognito yet** — those are Phases 2–5.
+## Prerequisites on a workstation
+
+Nothing here is installed by the repository; on a fresh machine you need, through whatever route
+your organisation approves:
+
+- **AWS CLI v2**, then `aws configure sso --profile psignal-dev` (SSO region `eu-west-1`, client
+  region `eu-west-2`, account `290304998906`, role `TesAiDevSandboxAdmin` — HANDOVER §3.1) and
+  `aws sso login --profile psignal-dev` whenever the session expires.
+- **Terraform ≥ 1.10** — or, with no host install, the pinned container used for local checks:
+  `docker run --rm -v "$PWD/infra-aws:/w" -w /w/stack hashicorp/terraform:1.10.5 …`. A container
+  needs your AWS credentials passed in explicitly for a plan or apply; `fmt` and
+  `init -backend=false` + `validate` need none and make no AWS call.
+- **Docker** (for `20-build-push.sh`) and Node 26 with `corepack@0.36.0` (repo root `CLAUDE.md`).
 
 ## Order of operations
 
@@ -112,9 +128,15 @@ Teardown, in reverse, dry run first:
 
 ```bash
 bash infra-aws/scripts/99-teardown.sh              # shows what would go
-bash infra-aws/scripts/99-teardown.sh --execute
+bash infra-aws/scripts/99-teardown.sh --execute    # Terraform prints the plan and waits for "yes"
 bash infra-aws/scripts/99-teardown.sh              # re-run: step 3 must report nothing
 ```
+
+The destroy can only complete because dev sets `allow_force_destroy = true` (non-empty ECR
+repositories and the versioned raw bucket are emptied as part of it) and
+`protect_stateful_resources = false` (no deletion protection on the Cognito pool or the ALB).
+**Any environment holding real data or users sets both the other way**, and its contents are
+exported deliberately before anyone destroys anything.
 
 ## Things that will cost you time if you don't know them
 
@@ -154,13 +176,19 @@ this reason.
 **The account-wide budget is not ours.** `monthly_tesai-dev-sandbox` belongs to whoever runs the
 sandbox. We add alongside it and never modify it.
 
-**Prefer VPC endpoints to a NAT gateway in Phase 2.** A NAT gateway is roughly $33/month before
-a byte crosses it — on a stack budgeted at $150 that is over a fifth of the ceiling for
-something the workload may not need.
+**There is one NAT gateway, deliberately.** It is roughly $33/month before a byte crosses it —
+over a fifth of the $150 budget — and it was chosen over VPC endpoints because ingestion must
+reach arbitrary third-party HTTPS (RSS, Apify, YouTube), which no endpoint covers. The reasoning
+is in `stack/nat.tf`.
 
 **ECS Fargate does not scale to zero.** The GCP costing this replaces (~$13–15/month) rested
-entirely on Cloud Run doing so. Five idle services bill continuously. The `FORECASTED`
-notification on the budget is the one that catches this, and it is not ceremony.
+entirely on Cloud Run doing so. Four services bill continuously (report-worker is deliberately
+not deployed). The `FORECASTED` notification on the budget is the one that catches this, and it
+is not ceremony. The steady-state arithmetic is in `envs/dev.stack.tfvars`.
+
+**Alarm emails need confirming once.** `stack/monitoring.tf` subscribes the budget addresses to
+the alarm topic by email; SNS sends each a confirmation link after the first apply and delivers
+nothing until it is clicked.
 
 ## State
 

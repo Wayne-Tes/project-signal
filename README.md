@@ -7,15 +7,15 @@ scores them for sentiment with **Claude on Amazon Bedrock**, and surfaces a Bran
 Index, a "Brand impact" analysis and an action roadmap — with a full audit trail, multi-tenant
 and role-scoped.
 
-> ### Status: code-complete on AWS libraries, verified locally, **deployed nowhere**
+> ### Status: deployed in the AWS sandbox; runs fully locally for development
 >
 > The system was built for GCP and never deployed there. On 2026-08-06 the owner decided to go
-> straight to AWS; `libs/storage`, `libs/messaging` and `libs/llm` now run on **S3, SQS and
-> Bedrock**. Auth (Firebase) is the only Google dependency left.
+> straight to AWS, and it has run in `290304998906` / `eu-west-2` since 2026-08-08 — ECS
+> Fargate, RDS, SQS, S3, Cognito behind one ALB ([`docs/HANDOVER.md`](docs/HANDOVER.md) §0a has
+> the deploy record). No Google dependency remains in the code.
 >
-> The pipeline has been run end to end for real — **locally**, against LocalStack. **Nothing has
-> ever run in any cloud.** See [`docs/HANDOVER.md`](docs/HANDOVER.md) §5 for the exact line
-> between what is proven and what is assumed.
+> Day-to-day development runs **locally**: Postgres and LocalStack in Docker, local sign-in, and
+> only LLM calls going to Bedrock.
 
 ## Documentation
 
@@ -27,17 +27,23 @@ Read in this order.
 | [`DEVRULES.md`](DEVRULES.md)                                            | The operating rules. Verify, never assume.                                                                                                                          |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)                          | Complete code-accurate reference: every app, lib, table, route and module, plus end-to-end flows and editing gotchas.                                               |
 | [`docs/AWS-SETUP.md`](docs/AWS-SETUP.md)                                | The AWS runbook and its guardrails. Phase 0 discovery is executable and read-only.                                                                                  |
-| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)                              | The defect register — 17 of 19 closed. The closed entries explain _why_ things are as they are.                                                                     |
+| [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)                              | The defect register. The closed entries explain _why_ things are as they are.                                                                                       |
 | [`docs/PLAN.md`](docs/PLAN.md)                                          | Design rationale, key decisions, epic status.                                                                                                                       |
 | [`docs/SETUP.md`](docs/SETUP.md) · [`infra/README.md`](infra/README.md) | **Superseded.** GCP setup and Terraform, kept as the clearest specification of what each service needs. Will never be applied.                                      |
 
 ## Quick start
 
 ```bash
+# 0. Toolchain, once per machine. Node 26 (.nvmrc). Node 25+ does NOT bundle corepack, so
+#    install it pinned — it then provides the exact Yarn in package.json "packageManager" (4.9.2).
+npm install -g corepack@0.36.0 && corepack enable
+
 # 1. Install dependencies (Yarn 4 — not npm, not pnpm)
 corepack yarn install
 
-# 2. Copy env and start local services (Postgres 16 + LocalStack for S3/SQS)
+# 2. Copy env and start local services (Postgres 16 + LocalStack for S3/SQS).
+#    In .env set AUTH_MODE=local and a LOCAL_AUTH_PASSWORD; in apps/web/.env.local set
+#    NEXT_PUBLIC_AUTH_MODE=local — see "Signing in locally" below.
 cp .env.example .env
 docker compose up -d
 
@@ -52,7 +58,7 @@ corepack yarn nx run @project-signal/web:dev   # 3100 (the dev script's port)
 
 **Local ports (landed 2026-11-16).** On the owner's machine `3000`, `8080` and `8090` are held by
 unrelated applications, so local dev runs **web on 3100** and **API on 9080**; the workers keep
-8081–8083. The API's port is passed as a *per-process* `PORT` env var, never set in the root
+8081–8083. The API's port is passed as a _per-process_ `PORT` env var, never set in the root
 `.env` — that file is shared by all four backends, and the workers read `process.env.PORT` too,
 so a single `PORT` there makes them all fight for one socket (see the comment in `.env.example`).
 `corepack yarn dev` (one shared environment, api 8080) still works on a machine where 8080 is
@@ -119,14 +125,14 @@ Migrations are **generated, never hand-written**. The `.sql`, its `meta/` snapsh
 ## Nx commands
 
 ```bash
-corepack yarn lint         # 13 projects
-corepack yarn typecheck    # 12 projects
-corepack yarn test         # 11 projects, 309 tests, 80% coverage gate
+corepack yarn lint         # 15 projects
+corepack yarn typecheck    # 14 projects
+corepack yarn test         # 14 projects, 80% coverage gate
 ```
 
 > **Check the project count, not just the exit code.** If Nx computed its graph while
 > `node_modules` was incomplete, it caches a graph with zero lint/test targets and `yarn lint`
-> exits 0 having run nothing. Expect **13 / 12 / 11**. Fix with `nx reset`.
+> exits 0 having run nothing. Expect **15 / 14 / 14** (counted 2026-11-16). Fix with `nx reset`.
 
 > **`nx run-many -t test` has hung for 35+ minutes here.** Drive vitest per project instead:
 > `cd apps/api && corepack yarn vitest run --coverage`.
@@ -140,15 +146,16 @@ names (`api`, `ingestion`, `sentiment-worker`, `report-worker`); `web` and the l
 
 ```
 apps/
-  web/               Next.js 16 dashboard (client-side SPA, Firebase auth until Cognito)
+  web/               Next.js 16 dashboard (client-side SPA; Cognito sign-in, local sign-in in dev)
   api/               Fastify 5 REST API — owns the schema, applies migrations on startup
-  ingestion/         Scheduled source pull + dispatcher + rollup
-  sentiment-worker/  Scores signals via Bedrock (HTTP route today; SQS consumer is Phase 4)
-  report-worker/     Skeleton only — reporting deferred (Epic 12)
+  ingestion/         SQS scan consumer: scheduled collection, rollup, reconcile
+  sentiment-worker/  SQS consumer: scores signals via Bedrock (forced tool use)
+  report-worker/     Skeleton only — reporting deferred (Epic 12), not deployed
 libs/
   config/  shared-types/  db/  storage/  scoring/  llm/  messaging/  source-adapters/
+  playbook/  help-content/
 infra/               GCP Terraform — SUPERSEDED, reference only
-infra-aws/           AWS tree — Phase 0 discovery script only so far
+infra-aws/           AWS Terraform — deployed: VPC, RDS, S3, SQS, ECR, ECS, ALB, Cognito, alarms
 ```
 
 ### Data layer — one shared Postgres, API owns the schema
@@ -167,12 +174,22 @@ infra-aws/           AWS tree — Phase 0 discovery script only so far
 
 ### Auth
 
-Currently **Firebase / GCP Identity Platform** — email/password, with social sign-in configured
-in Terraform but not surfaced in the UI. **This is the last Google dependency and Cognito
-replaces it in Phase 5.**
+**Amazon Cognito** in every deployed environment — admin-created users only, email + password
+over SRP. RBAC uses the **ID token's custom attributes** (`custom:role` — `owner`, `admin`,
+`user` — plus `custom:tenantId` and `custom:brandEntityId`), so authorisation needs no DB lookup
+per request.
 
-RBAC uses **identity-provider custom claims** — `owner`, `admin`, `user` — so authorisation
-needs no DB lookup per request. The `users` table mirrors roles for the management UI; it is
+### Signing in locally
+
+Local development does not need Cognito. With `AUTH_MODE=local` (root `.env`) and
+`NEXT_PUBLIC_AUTH_MODE=local` (`apps/web/.env.local`), the web app shows a local sign-in screen
+backed by the API's `POST /auth/local/sign-in`. `yarn db:seed` creates three users —
+`local-owner`, `local-admin`, `local-user` (pinned to the demo brand) — all with the password in
+`LOCAL_AUTH_PASSWORD`. The API **refuses to start** with `AUTH_MODE=local` when
+`NODE_ENV=production`, and the deployed stack never sets it.
+
+LLM calls are the one thing that still needs AWS locally (LocalStack has no Bedrock): set
+`BEDROCK_AWS_PROFILE=psignal-dev` and run `aws sso login --profile psignal-dev`. The `users` table mirrors roles for the management UI; it is
 **not** what authorises a request.
 
 Tenant isolation is enforced at the query layer (**no RLS**), so every query must filter on
@@ -182,15 +199,11 @@ guard is opt-in and nothing fails when a new route omits it — which is exactly
 
 ## Current state
 
-Epics 0–8, 10 and part of 11 are built. Four of the six analytical views (Dashboard, Trends,
-Brand impact, Competitors) read the live API; **Roadmap and Report still render mock data** from
-`apps/web/src/lib/data.ts`, deferred by owner decision until AWS is running — no new code may
-depend on that file.
+Every analytical view — Dashboard, Trends, Brand impact, What's changed, Voice of the customer,
+Action roadmap, Competitors and the Weekly report — reads the live API; the mock-data file
+`apps/web/src/lib/data.ts` was deleted on 2026-08-09. The stack is deployed in the AWS sandbox
+(see the status note at the top). [`docs/HANDOVER.md`](docs/HANDOVER.md) is authoritative on
+state; [`docs/OWNER-ACTIONS.md`](docs/OWNER-ACTIONS.md) lists what waits on the owner.
 
-**No cloud environment exists.** AWS discovery is complete against a live account and the
-libraries are ported, but there is no Terraform beyond the discovery script, scoring has never
-executed against a real model, and everything behind `AuthGate` has never been seen rendered.
-[`docs/HANDOVER.md`](docs/HANDOVER.md) is authoritative; [`docs/KNOWN-GAPS.md`](docs/KNOWN-GAPS.md)
-#16 is the tracking entry.
-
-Reporting (Epic 12) and alerts (Epic 13) are deliberately deferred.
+Not yet built: the report PDF render and email delivery (Epic 12), alerting (Epic 13), CI/CD
+deploys via GitHub OIDC (Phase 6), and HTTPS on the load balancer (needs a domain).

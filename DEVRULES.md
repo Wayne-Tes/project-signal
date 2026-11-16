@@ -32,12 +32,13 @@ This is a production-critical, end-to-end system. Every piece of development wor
 - **Migrations are generated, never hand-written.** Change `libs/db/src/schema/*.ts`, then run `yarn db:generate` (→ `nx run api:generate`, drizzle-kit). This produces both the `NNNN_name.sql` file and its `meta/` snapshot plus a `_journal.json` entry — all of which must be committed together. Never hand-author a migration file, never renumber one, and never edit a migration that has been applied anywhere.
 - **The API applies migrations on startup**, guarded by a Postgres advisory lock. There is no `db:migrate` script and never should be. Never add migration calls to a worker.
 - Keep `libs/shared-types` in sync with any schema change **in the same commit series**.
-- **NEVER apply SQL directly to a deployed database** (Cloud SQL today, RDS after the AWS migration) without explicit user confirmation.
+- **NEVER apply SQL directly to a deployed database** (RDS `psignal-dev-postgres`) without explicit user confirmation.
 - Perform **full regression analysis** for every change: enumerate all call sites, dependents, and flows the change touches, and verify none break. `libs/*` changes fan out to every app — check all five.
 - Wire to **real services only** — no ad-hoc stubs, placeholders, or one-off synthesised fixtures standing in for real behaviour in shipped code. Sanctioned exceptions, which are documented test infrastructure rather than fabrication:
   - `vi.mock` of cloud SDKs inside unit tests (the established pattern across `libs/*/test/`).
-  - The Pub/Sub emulator and Postgres container in `docker-compose.yml` for local development.
-  - **`apps/web/src/lib/data.ts` is NOT a sanctioned exception.** It is 588 lines of generated mock data for a fictional bank. Four of the six analytical views now read the live API; it still renders in **Roadmap and Report**, and is still imported for constants by `App.tsx`, `charts.tsx`, `DrillDown.tsx` and `primitives.tsx`. Pre-existing debt tracked as KNOWN-GAPS #13, deferred by owner decision until AWS is running. **No new code may depend on it.**
+  - The Postgres and LocalStack (S3 + SQS) containers in `docker-compose.yml` for local development.
+  - Local sign-in (`AUTH_MODE=local` / `NEXT_PUBLIC_AUTH_MODE=local`) for local development only — the API refuses it under `NODE_ENV=production`, and the deployed stack uses Cognito.
+  - Mock data is **not** a sanctioned exception. `apps/web/src/lib/data.ts` — 588 lines of generated data for a fictional bank — was deleted on 2026-08-09 when the last two views (Roadmap, Report) moved to the live API (KNOWN-GAPS #13). Do not reintroduce anything like it.
 - Verify **end-to-end against the running app**, across every surface the change affects, not just unit tests. Tests passing ≠ done.
 
 ## DEFINITION OF DONE — nothing is "complete" until proven working to production-release standard
@@ -57,7 +58,7 @@ A task is NOT done when the code is written, when it compiles, or when a unit te
   each `vitest.config.ts` but coverage only runs when asked for, so `yarn test` passed while CI
   failed on a project whose new functions had no tests. `yarn test:fast` skips coverage for a
   quick inner loop, but is not the gate. For Terraform changes, additionally: `terraform fmt -check -recursive` and `terraform validate` in the affected tree.
-- **Front-end / UX / UI / user-facing work MUST be driven like a real user.** For any feature with a UI or an interactive flow, exercise it in a real browser. Start the stack with `yarn dev` (Docker services + all apps; the Next.js dashboard serves on `:3000`, the API on `:8080`), then drive it with the **Playwright MCP tools** or the **claude-in-chrome MCP tools** — confirm the MCP is actually connected before relying on it. PHYSICALLY interact with it — click, type, drag, navigate, submit, reload — and confirm it behaves exactly as a user would expect across the real flow. A green Vitest test does NOT substitute for actually using the feature; component tests are necessary, not sufficient.
+- **Front-end / UX / UI / user-facing work MUST be driven like a real user.** For any feature with a UI or an interactive flow, exercise it in a real browser. Start the stack as the README's "Local ports" section describes (Docker services, then each app; the Next.js dashboard serves on `:3100`, the API on `:9080`, sign in with local auth mode), then drive it with the **Playwright MCP tools** or the **claude-in-chrome MCP tools** — confirm the MCP is actually connected before relying on it. PHYSICALLY interact with it — click, type, drag, navigate, submit, reload — and confirm it behaves exactly as a user would expect across the real flow. A green Vitest test does NOT substitute for actually using the feature; component tests are necessary, not sufficient.
   > **The harness now exists.** `apps/web/e2e` (added 2026-08-09) drives the real app with
   > Playwright and asserts on **computed styles**, which is the only way a whole class of defect
   > is caught: the light theme painted black cards on eight views while the entire unit suite
@@ -93,7 +94,7 @@ These are Project Signal invariants. Breaking one produces a security hole or a 
     **Any new script must source it** — CI fails the pull request otherwise.
   - If credentials resolve anywhere else: **stop, change nothing, tell the owner.**
 
-- **Tenant scoping is manual.** There is no Postgres RLS. Every query MUST filter on `tenant_id`. Brand-scoped routes MUST additionally check `request.user.brandEntityId`. Note that `apps/api/src/routes/signals.ts` currently does _not_ — that is KNOWN-GAPS #5, an open intra-tenant isolation hole. Do not copy that pattern.
+- **Tenant scoping is manual.** There is no Postgres RLS. Every query MUST filter on `tenant_id`. Brand-scoped routes MUST additionally check `request.user.brandEntityId` via the `requireBrandAccess` preHandler. It is opt-in per route and nothing fails when a new route omits it — that is how KNOWN-GAPS #5 and #5b (both since closed) happened.
 - **Authorisation reads identity-provider custom claims, not the `users` table.** Changing a row without also updating the claim leaves the token stale for up to an hour. Any role change must go through the claim-setting path.
 - **Never interpolate a JS `Date` into a raw drizzle `sql` fragment.** It bypasses the
   timestamptz serialiser and Postgres receives `Thu Jul 30 2026 15:41:17 GMT+0100 (British
@@ -126,7 +127,8 @@ Verified 2026-08-06 by reading the files named. Re-verify rather than trusting t
 | Test runner            | Vitest 2, 80% coverage gate                                        | `package.json`, `*/vitest.config.ts` |
 | E2E harness            | Playwright 1.50, `apps/web/e2e`, container runner                  | `apps/web/playwright.config.ts`      |
 | Component tests        | Vitest + jsdom + React Testing Library                             | `apps/web/vitest.config.ts`          |
-| Package manager        | Yarn 4.9.2                                                         | `package.json` `packageManager`      |
+| Package manager        | Yarn 4.9.2, via corepack 0.36.0 (Node 25+ no longer bundles it)    | `package.json` `packageManager`      |
+| Node runtime           | Node 26 (Active LTS) — `.nvmrc`, `engines`, CI, every Dockerfile   | `.nvmrc`, `apps/*/Dockerfile`        |
 
 ## Standing conflicts to resolve
 
@@ -137,4 +139,4 @@ Recorded here rather than silently ignored, because each is a live tension betwe
    **Amended 2026-08-07 by the owner.** The original wording blocked _all_ new work — including the AWS migration — while any item remained open, which was unworkable: **#16 is the AWS work itself**, **#12's UI is blocked _on_ AWS**, and **#13's Roadmap is unspecified product work** that cannot be burned down without a product decision. #19 was closed first at the owner's direction; #13 and #12 are deferred until AWS is running. So the rule now reads: **burn down what is actionable and unblocked; #16 proceeds regardless.**
 
 2. **Autonomous, uninterrupted execution vs. plan review checkpoints.** `docs/superpowers/plans/2026-08-06-aws-migration.md` prescribes review between tasks. This file forbids pausing once development is underway. For that plan, the autonomous rule wins unless the user says otherwise: run phases end-to-end, gate on the full `lint && typecheck && test` suite at each phase boundary, and report only at phase boundaries.
-3. **Wire to real services only vs. two dashboard views on mock data.** Four of six views now read the live API; `apps/web/src/lib/data.ts` survives for **Roadmap and Report** only. Deferred by owner decision (2026-08-07) until AWS is running. KNOWN-GAPS #13; Epic 6's exit criterion is the file's deletion.
+3. ~~**Wire to real services only vs. two dashboard views on mock data.**~~ **Resolved 2026-08-09:** Roadmap and Report moved to the live API and `apps/web/src/lib/data.ts` was deleted (KNOWN-GAPS #13). Epic 6's exit criterion is met.

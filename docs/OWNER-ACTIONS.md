@@ -33,8 +33,6 @@ anything I am building.
 > All three model slots now default to `eu.anthropic.claude-haiku-4-5-20251001-v1:0`.
 > Sonnet 5 and Opus 5 never required the form and remain available as a fallback.
 
-
-
 > **Downgraded from 🔴 BLOCKING on 2026-08-09.** Two profiles — `eu.anthropic.claude-sonnet-5`
 > and `eu.anthropic.claude-opus-5` — **do** answer in this account, so nothing is blocked. Every
 > service now defaults to Sonnet 5. Submitting the form re-opens the cheaper and faster profiles,
@@ -45,10 +43,10 @@ anything I am building.
 > underneath us" during the working day — a guess, from watching models answer at 22:50 and
 > refuse by 23:39. `get-foundation-model-availability` gives the actual reason:
 >
-> | Model | `agreementAvailability.status` |
-> | --- | --- |
-> | Sonnet 5, Opus 5 | `AVAILABLE` |
-> | Haiku 4.5, Sonnet 4.5, Opus 4.5, Sonnet 4.6, Opus 4.6 | `NOT_AVAILABLE` |
+> | Model                                                 | `agreementAvailability.status` |
+> | ----------------------------------------------------- | ------------------------------ |
+> | Sonnet 5, Opus 5                                      | `AVAILABLE`                    |
+> | Haiku 4.5, Sonnet 4.5, Opus 4.5, Sonnet 4.6, Opus 4.6 | `NOT_AVAILABLE`                |
 >
 > Every one of them is `AUTHORIZED`, `entitlementAvailability: AVAILABLE` and
 > `regionAvailability: AVAILABLE`. The single differing field is the **agreement** — the
@@ -64,9 +62,9 @@ anything I am building.
 >
 > **Verified 2026-08-08T23:39Z** by invoking each EU Anthropic profile in `290304998906`:
 >
-> | Profile | Result |
-> | --- | --- |
-> | `eu.anthropic.claude-sonnet-5`, `eu.anthropic.claude-opus-5` | answered |
+> | Profile                                                             | Result                                         |
+> | ------------------------------------------------------------------- | ---------------------------------------------- |
+> | `eu.anthropic.claude-sonnet-5`, `eu.anthropic.claude-opus-5`        | answered                                       |
 > | Haiku 4.5, Sonnet 4.5, Opus 4.5, Sonnet 4.6, Opus 4.6, and the rest | `ResourceNotFoundException` — use case details |
 >
 > Six of the blocked profiles were still answering at ~22:50 the same evening. **Account-level
@@ -217,12 +215,12 @@ and the feed shows a green timestamp.
 
 Read out of the last 25 runs on the account, 2026-08-10:
 
-| Actor | Used by | What the runs actually return |
-| --- | --- | --- |
-| `neatrat/google-play-store-reviews-scraper` | Play Store | **0 items on every run since the 5th.** Log: `[FREE USER] Quota: 54/500 reviews used; 5/5 runs used, 0 remaining` → `Free tier limit reached (5 total runs)` |
-| `apidojo/tweet-scraper` | (evaluated for X) | **10 × `{"noResults": true}` per run.** Log: `The developer of this actor doesn't allow the use of API in the Free Plan` |
-| `trudax/reddit-scraper-lite` | Reddit | 1 real item per run — working |
-| `compass/Google-Maps-Reviews-Scraper` | Google reviews | `FAILED` — see item 4c, a separate and unrelated defect |
+| Actor                                       | Used by           | What the runs actually return                                                                                                                                |
+| ------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `neatrat/google-play-store-reviews-scraper` | Play Store        | **0 items on every run since the 5th.** Log: `[FREE USER] Quota: 54/500 reviews used; 5/5 runs used, 0 remaining` → `Free tier limit reached (5 total runs)` |
+| `apidojo/tweet-scraper`                     | (evaluated for X) | **10 × `{"noResults": true}` per run.** Log: `The developer of this actor doesn't allow the use of API in the Free Plan`                                     |
+| `trudax/reddit-scraper-lite`                | Reddit            | 1 real item per run — working                                                                                                                                |
+| `compass/Google-Maps-Reviews-Scraper`       | Google reviews    | `FAILED` — see item 4c, a separate and unrelated defect                                                                                                      |
 
 **So the Play Store gave us 54 reviews, once, and has collected nothing since — while reporting
 success.** Any earlier statement that ClassCharts was collecting from "6 of 6 sources" counted
@@ -236,12 +234,12 @@ Every platform on it except YouTube needs a paid Apify actor, and the popular on
 refuse API access on the Free plan — that is a policy the actor's author sets, not a quota we can
 work around. Verified live prices per item, if the plan is upgraded:
 
-| Platform | Actor | Price per item |
-| --- | --- | --- |
-| X (Twitter) | `apidojo/tweet-scraper` | $0.0004 |
-| TikTok comments | `clockworks/tiktok-comments-scraper` | $0.00125 |
-| Facebook comments | `apify/facebook-comments-scraper` | $0.0025 |
-| Instagram comments | `apify/instagram-comment-scraper` | $0.0026 |
+| Platform           | Actor                                | Price per item |
+| ------------------ | ------------------------------------ | -------------- |
+| X (Twitter)        | `apidojo/tweet-scraper`              | $0.0004        |
+| TikTok comments    | `clockworks/tiktok-comments-scraper` | $0.00125       |
+| Facebook comments  | `apify/facebook-comments-scraper`    | $0.0025        |
+| Instagram comments | `apify/instagram-comment-scraper`    | $0.0026        |
 
 Those are the **comment** scrapers deliberately, not the post scrapers. Signal scores what the
 audience says; the brand's own marketing posts would score uniformly positive and pollute the
@@ -352,15 +350,15 @@ list that needs no Apify plan — the adapter uses the YouTube Data API directly
 above is set, these eight feeds can be added. Resolved 2026-08-10 by reading each channel page and
 requiring its `<link rel="canonical">` and `<meta itemprop="identifier">` to agree:
 
-| Channel | Channel id |
-| --- | --- |
-| Tes Magazine | `UC-gOKwgu5_g9Pm1YBMb5G_A` |
+| Channel                  | Channel id                 |
+| ------------------------ | -------------------------- |
+| Tes Magazine             | `UC-gOKwgu5_g9Pm1YBMb5G_A` |
 | The Safeguarding Company | `UCxOS7SpDGlNX8IQwNzPe4hA` |
-| Tes for Teachers | `UCow2vbkIRCom36dG0iUJhFA` |
+| Tes for Teachers         | `UCow2vbkIRCom36dG0iUJhFA` |
 | Tes Recruitment Services | `UCvKPtBxPwXmuB5QTZ_gnckA` |
-| Teach Starter | `UCOJA1gGG0E10GQ9FDg7eu_w` |
-| Tes Recommends | `UCLCIz0tyPD4c_7k1MCE1Nog` |
-| Education Horizons | `UC8JaDzRfJPS0fSOorbXkL1A` |
+| Teach Starter            | `UCOJA1gGG0E10GQ9FDg7eu_w` |
+| Tes Recommends           | `UCLCIz0tyPD4c_7k1MCE1Nog` |
+| Education Horizons       | `UC8JaDzRfJPS0fSOorbXkL1A` |
 
 **`UCow2vbkIRCom36dG0iUJhFA` is Tes for Teachers** — that answers the question asked on 2026-08-10
 about whether it was the right id to paste. It is, for that channel and no other.
@@ -419,17 +417,17 @@ render. This is the checkpoint those two gaps have been waiting on since before 
 **Territory reporting shipped 2026-08-17 and works — but it can only report what is classified,
 and almost nothing is.** Verified live the same day:
 
-| Territory | Signals | Index |
-| --- | ---: | --- |
-| All | 337 | 51.6 |
-| United Kingdom | 1 | 92.5 |
-| Global | 0 | not scored |
-| **Not set** | **336** | 48.4 |
+| Territory      | Signals | Index      |
+| -------------- | ------: | ---------- |
+| All            |     337 | 51.6       |
+| United Kingdom |       1 | 92.5       |
+| Global         |       0 | not scored |
+| **Not set**    | **336** | 48.4       |
 
 Two feeds are classified: the App Store feed is **GB** (its own config said `country=UK`, which
 the API corrected to the ISO code) and the "Tes for Teachers" YouTube channel is **GLOBAL**,
 because `Tes Social Channels.md` says so. **I classified only what that sheet or the feed's own
-configuration justified**, and left the other eight at *Not set* rather than guessing — a feed
+configuration justified**, and left the other eight at _Not set_ rather than guessing — a feed
 filed under the wrong territory produces reporting that is confidently wrong and that nobody ever
 finds.
 
@@ -440,7 +438,7 @@ are GB or GLOBAL is a judgement about who the coverage is for.
 
 Then run **`POST /admin/backfill/territory`** (owner or admin) to stamp the existing signals from
 their feeds. It is idempotent and set-based; signals collected before `source_config_id` existed
-— 80 of them — will stay *Not set*, because there is genuinely nothing to inherit from.
+— 80 of them — will stay _Not set_, because there is genuinely nothing to inherit from.
 
 **Six rows in the sheet say `Global?`.** The API refuses that value rather than guessing, so
 those need a decision from whoever maintains it before they can be imported.
@@ -464,22 +462,22 @@ else can start without it.
 ### 2. 🔴 Data protection sign-off — **start this now, it is the long pole**
 
 `HANDOVER.md` §3 justifies letting Bedrock inference route across EU regions on the grounds that
-*"what crosses a border is public review text, not personal data"*. **CRM notes are personal
+_"what crosses a border is public review text, not personal data"_. **CRM notes are personal
 data** — named client contacts, their employer, their job, and commercially sensitive detail about
 a live relationship. That premise does not survive this work, so the decision has to be re-taken
 rather than inherited.
 
 Four questions for the DPO, none of which are an engineer's to answer:
 
-| | |
-| --- | --- |
-| **Inference routing** | `eu.` profiles route to seven EU regions. May client personal data go to them? |
-| **Retention** | Spec §6.2 sets 12 months on raw items. Personal data needs a defined period and an actual deletion path — neither exists. |
-| **Right to erasure** | There is currently no way to delete a signal by the person it concerns. |
-| **Access within a tenant** | Every user of a tenant can read every signal. A CSM's note about a named account may not be appropriate for all of them. |
+|                            |                                                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Inference routing**      | `eu.` profiles route to seven EU regions. May client personal data go to them?                                            |
+| **Retention**              | Spec §6.2 sets 12 months on raw items. Personal data needs a defined period and an actual deletion path — neither exists. |
+| **Right to erasure**       | There is currently no way to delete a signal by the person it concerns.                                                   |
+| **Access within a tenant** | Every user of a tenant can read every signal. A CSM's note about a named account may not be appropriate for all of them.  |
 
 **My recommendation, subject to their sign-off: pseudonymise at ingest.** Strip contact names,
-emails and phone numbers before the text is stored or sent to Bedrock, keeping the *account*
+emails and phone numbers before the text is stored or sent to Bedrock, keeping the _account_
 attribution, which is the only part the analysis needs. That removes most of the compliance
 surface at no analytical cost.
 
@@ -517,3 +515,42 @@ certificate).
 sign-in page as insecure. HTTPS needs a certificate, and a certificate needs a domain you
 control. I will stand the stack up on the ALB name so it is testable immediately; moving to a
 real hostname later is a certificate plus a listener rule, not a rebuild.
+
+**Update 2026-11-16 — the HTTPS half is now written and waiting only on this decision.**
+`infra-aws/stack` takes an optional `certificate_arn`. Once a domain exists: issue an ACM
+certificate for it in **eu-west-2** (DNS validation), set `certificate_arn` in
+`envs/dev.stack.tfvars`, point a CNAME at the ALB, and apply — the ALB gains a 443 listener
+(TLS 1.3/1.2) and port 80 becomes a permanent redirect. Until then Cognito ID tokens cross the
+internet in cleartext, which is why this should not be shared beyond the team.
+
+---
+
+## 7. 🟠 Apply the infra changes from `fix/assessment-findings`
+
+Written and validated offline on 2026-11-16, **not applied**. The blast-radius analysis, the
+pre-plan checks (including one read-only command whose output decides
+`rds_log_groups_existing`) and the expected plan are in
+[`AWS-SETUP.md`](AWS-SETUP.md) § "Pending apply". Ship the images from the same commit — two of
+the changes depend on new application code.
+
+## 8. 🟡 Confirm the alarm email subscription
+
+After that apply, SNS emails each address in `budget_notification_emails` an
+"AWS Notification - Subscription Confirmation". **Nothing is delivered until you click it.**
+The 13 alarms (`infra-aws/stack/monitoring.tf`) cover dead-letter queues, ALB 5xx, unhealthy
+targets, ECS services below their desired task count, and RDS CPU and free storage.
+
+## 9. 🟡 MFA — decide when, then enable it with the UI change
+
+The Cognito pool has MFA **OFF**, recorded as a decision (`infra-aws/stack/cognito.tf`): the
+sign-in screen handles only the password and new-password challenges, so enabling MFA — even as
+optional — before the UI handles the TOTP challenge would strand anyone who enrolled. It needs the
+web change and the pool change in one release.
+
+## 10. 🟡 GitHub Actions: approve the new composite action path
+
+CI now installs through a local composite action, `.github/actions/setup-yarn`, and pins every
+third-party action to a commit SHA. If the repository's Actions settings restrict which actions
+may run, allow local actions and the pinned SHAs (`actions/checkout`, `actions/setup-node`,
+`actions/cache`, `dorny/paths-filter`, `docker/setup-buildx-action`, `docker/build-push-action`,
+`hashicorp/setup-terraform`). This is a settings check only you can do.

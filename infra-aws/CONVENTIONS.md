@@ -137,8 +137,15 @@ forward only. Do it before the first billable resource, not after.
 - **⚠️ The default VPC quota is 5 per region.** With several repos each taking one, this is a
   real ceiling and not a theoretical one. Reaching it is a quota-increase request, so plan the
   allocation rather than discovering the limit.
-- **IAM roles scoped by resource tag**, so a bug in one project cannot reach another's data.
-  Role names carry the prefix too.
+- **IAM policies scoped to the project's own resources**, so a bug in one project cannot reach
+  another's data. Project Signal scopes by **exact ARN** (each task role names the specific
+  bucket, queue and secret it uses) and, where resources are created at runtime, by **name
+  prefix** (`psignal-dev-crm/*` for CRM token secrets) — never `Resource: "*"` on a data-bearing
+  action. Tag-based conditions (`aws:ResourceTag/Project`) are an acceptable alternative where
+  ARNs cannot be known in advance; Project Signal uses one on secret creation
+  (`aws:RequestTag/Project`), so a runtime-created secret cannot exist untagged. Role names
+  carry the prefix too. (Corrected 2026-11-16: this line previously said "scoped by resource
+  tag", which did not describe what the policies actually do.)
 - **One Terraform state bucket per project**, keyed per environment
   (`env/<environment>/terraform.tfstate`). Use S3 native locking (`use_lockfile = true`);
   DynamoDB-based locking is deprecated upstream and needs no table.
@@ -164,6 +171,8 @@ Say these out loud rather than discovering them:
   mistake in week one and the total tells you in week four.
 - Prefer **VPC endpoints over a NAT gateway** where the traffic allows. A NAT gateway is roughly
   $33/month before a byte crosses it, which on a small stack can exceed the compute it serves.
+  Project Signal runs one NAT anyway, because ingestion must reach arbitrary third-party HTTPS
+  that no endpoint covers (`stack/nat.tf`).
 
 ---
 
@@ -171,10 +180,10 @@ Say these out loud rather than discovering them:
 
 Maintained here until something better exists. **Add a row before you apply**, not after.
 
-| Project        | Prefix    | VPC CIDR                             | Repository                 | Owner                 |
-| -------------- | --------- | ------------------------------------ | -------------------------- | --------------------- |
-| Project Signal | `psignal` | `10.20.0.0/16` _(proposed, Phase 2)_ | `Wayne-Tes/project-signal` | wayne.strydom@tes.com |
-| _next project_ | —         | `10.21.0.0/16` suggested             | —                          | —                     |
+| Project        | Prefix    | VPC CIDR                                   | Repository                 | Owner                 |
+| -------------- | --------- | ------------------------------------------ | -------------------------- | --------------------- |
+| Project Signal | `psignal` | `10.20.0.0/16` _(in use since 2026-08-08)_ | `Wayne-Tes/project-signal` | wayne.strydom@tes.com |
+| _next project_ | —         | `10.21.0.0/16` suggested                   | —                          | —                     |
 
 Allocating `/16`s from `10.20.0.0/16` upward leaves `10.0.0.0/16`–`10.19.0.0/16` clear of the
 range, which keeps this scheme from colliding with anything pre-existing or with a corporate

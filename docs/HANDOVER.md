@@ -13,16 +13,16 @@
 >
 > ### Deployed and verified in a browser
 >
-> | | |
-> | --- | --- |
-> | **Readable evidence** | `signals.content/title/author/rating`; the drill-down shows the actual review, with the source link kept alongside |
-> | **Coverage funnel** | `/stats` reports collected → scored → classified → rolled up. It immediately exposed that **238 of 337 signals were scored into no dimension** and therefore reached no index, cluster or drill-down |
-> | **One signal population** | `attributedTo` in `libs/db` — the index and its own evidence used to be computed from different rows (KNOWN-GAPS #29) |
-> | **What's changed** | `/whats-new` and its view: new, rising, falling, improving, worsening, by source |
-> | **Territory** | On the FEED, copied onto signals; per-territory rollups; a picker in the shell |
-> | **Raw payload** | `sourceText`/`sourceTitle` at `schemaVersion: 2`, plus S3 versioning (KNOWN-GAPS #28 closed) |
-> | **Action roadmap** | Targets with stated provenance, counterfactual ceilings, outcome tracking, a curated playbook, LLM rewording |
-> | **CRM plumbing** | `crm_connections`, `accounts`, `signals.voice`; connector deliberately not written. **Schema and API are deployed; the endpoints are NOT reachable yet** — see the deploy record below |
+> |                           |                                                                                                                                                                                                      |
+> | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | **Readable evidence**     | `signals.content/title/author/rating`; the drill-down shows the actual review, with the source link kept alongside                                                                                   |
+> | **Coverage funnel**       | `/stats` reports collected → scored → classified → rolled up. It immediately exposed that **238 of 337 signals were scored into no dimension** and therefore reached no index, cluster or drill-down |
+> | **One signal population** | `attributedTo` in `libs/db` — the index and its own evidence used to be computed from different rows (KNOWN-GAPS #29)                                                                                |
+> | **What's changed**        | `/whats-new` and its view: new, rising, falling, improving, worsening, by source                                                                                                                     |
+> | **Territory**             | On the FEED, copied onto signals; per-territory rollups; a picker in the shell                                                                                                                       |
+> | **Raw payload**           | `sourceText`/`sourceTitle` at `schemaVersion: 2`, plus S3 versioning (KNOWN-GAPS #28 closed)                                                                                                         |
+> | **Action roadmap**        | Targets with stated provenance, counterfactual ceilings, outcome tracking, a curated playbook, LLM rewording                                                                                         |
+> | **CRM plumbing**          | `crm_connections`, `accounts`, `signals.voice`; connector deliberately not written. **Schema and API are deployed; the endpoints are NOT reachable yet** — see the deploy record below               |
 >
 > ### Deploy record
 >
@@ -326,7 +326,7 @@ both ultimately belong to whoever operates it.
 > ## ⚠️ THE MODEL BELOW NO LONGER WORKS. Re-verified 2026-08-08T23:39Z.
 >
 > Haiku 4.5 now returns `ResourceNotFoundException: Model use case details have not been
-> submitted for this account`. It was the deployed `SCORER_MODEL`, so the sentiment worker was
+submitted for this account`. It was the deployed `SCORER_MODEL`, so the sentiment worker was
 > carrying a model id it could no longer invoke.
 >
 > **What answers in `290304998906` / `eu-west-2` as of that timestamp:**
@@ -641,18 +641,18 @@ already visible to others. The budget alarm in Phase 1 is not ceremony.
 Fifteen defects were closed to reach this point, several found by running the system rather than
 testing it. A re-platform is exactly the change that silently undoes them.
 
-| Property                                                                      | Note                                                                                                                                                                                                        |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Brand-scoped routes enforce `brandEntityId`                                   | Via `requireBrandAccess`. **It is opt-in per route and nothing fails when a new route omits it** — that is how `GET /brands/:id` kept the hole until 2026-08-07. Add it to every new `/brands/:id...` route |
-| User row and identity-provider claim are atomic                               | §4.4. The Cognito trap                                                                                                                                                                                      |
-| `PATCH /admin/users/:id` reads the target first and 404s for a foreign tenant | Not confirming a row's existence is deliberate                                                                                                                                                              |
-| Cursor pagination has deterministic `ORDER BY` + composite keyset             | `(published_at, id)`; neither is a stable sort key alone                                                                                                                                                    |
-| Raw payloads written to object storage **before** the row insert              | So `raw_storage_ref` can never point at a missing object                                                                                                                                                    |
-| Queue/topic names come from the environment, never a constant                 | Gap #7                                                                                                                                                                                                      |
-| Worker failures classified permanent vs transient                             | So the DLQ can fire. **Do not swallow errors in the SQS consumer**                                                                                                                                          |
-| `dimension_scores` written by the rollup; `libs/scoring` stays pure           | It needs no AWS changes at all                                                                                                                                                                              |
-| `NEXT_PUBLIC_*` supplied as Docker **build args**                             | Inlined by `next build`; a runtime env var can never reach the client                                                                                                                                       |
-| Node 20 everywhere                                                            | On Node 24, `next build` fails with a null React dispatcher three layers from the cause                                                                                                                     |
+| Property                                                                        | Note                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Brand-scoped routes enforce `brandEntityId`                                     | Via `requireBrandAccess`. **It is opt-in per route and nothing fails when a new route omits it** — that is how `GET /brands/:id` kept the hole until 2026-08-07. Add it to every new `/brands/:id...` route                                     |
+| User row and identity-provider claim are atomic                                 | §4.4. The Cognito trap                                                                                                                                                                                                                          |
+| `PATCH /admin/users/:id` reads the target first and 404s for a foreign tenant   | Not confirming a row's existence is deliberate                                                                                                                                                                                                  |
+| Cursor pagination has deterministic `ORDER BY` + composite keyset               | `(published_at, id)`; neither is a stable sort key alone                                                                                                                                                                                        |
+| Raw payloads written to object storage **before** the row insert                | So `raw_storage_ref` can never point at a missing object                                                                                                                                                                                        |
+| Queue/topic names come from the environment, never a constant                   | Gap #7                                                                                                                                                                                                                                          |
+| Worker failures classified permanent vs transient                               | So the DLQ can fire. **Do not swallow errors in the SQS consumer**                                                                                                                                                                              |
+| `dimension_scores` written by the rollup; `libs/scoring` stays pure             | It needs no AWS changes at all                                                                                                                                                                                                                  |
+| `NEXT_PUBLIC_*` supplied as Docker **build args**                               | Inlined by `next build`; a runtime env var can never reach the client                                                                                                                                                                           |
+| One Node major everywhere — Node 26 (`.nvmrc`, `engines`, CI, every Dockerfile) | Moved from 20 (EOL April 2026) on 2026-11-16, after `next build` was verified on Node 26.13.1. The Node 24 null-dispatcher failure (KNOWN-GAPS #17) does not occur on 26. Node 25+ ships without corepack: install `corepack@0.36.0` explicitly |
 
 Two traps that are not defects but have each cost real time:
 
@@ -736,9 +736,11 @@ the same way the real one will.
 
 **Three environment traps that have each burned time here:**
 
-- **`yarn` is not on `PATH`** in this environment; it resolves through `corepack yarn` (Yarn
-  4.9.2). Node on `PATH` may be v24 — fine for tests, **fatal for `next build`** (gap #17). Build
-  the web app in Docker (`node:20-alpine`) if your host Node is newer.
+- **`yarn` may not be on `PATH` at all.** Node 25+ no longer bundles corepack, so a fresh
+  Node 26 install has neither `yarn` nor `corepack`. Install once with
+  `npm install -g corepack@0.36.0 && corepack enable`; corepack then supplies Yarn 4.9.2 from
+  `packageManager`. The repo runs on Node 26 (2026-11-16); `next build` was verified on host Node
+  26.13.1, so the Docker-only web build workaround for gap #17 is no longer needed.
 - **Port 5432 and 8080 have both been found occupied** by unrelated applications on a developer
   machine. Always assert on the **body shape** of a health check, not the status code — an
   "API is up" check once hit a different app entirely and was only caught because a 403 body
