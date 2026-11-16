@@ -1,91 +1,21 @@
-import { runMigrations } from './migrate.js';
+import type { FastifyInstance } from 'fastify';
 import { getEnv } from '@project-signal/config';
-import Fastify from 'fastify';
-import sensible from '@fastify/sensible';
-import cors from '@fastify/cors';
-import swagger from '@fastify/swagger';
-import swaggerUi from '@fastify/swagger-ui';
-import authPlugin from './plugins/auth.js';
-import usersRoutes from './routes/users.js';
-import brandsRoutes from './routes/brands.js';
-import signalsRoutes from './routes/signals.js';
-import scoresRoutes from './routes/scores.js';
-import roadmapRoutes from './routes/roadmap.js';
-import crmRoutes from './routes/crm.js';
-import voiceRoutes from './routes/voice.js';
-import changeRoutes from './routes/change.js';
-import { integrationsRoutes } from './routes/integrations.js';
-import { aliasesRoutes } from './routes/aliases.js';
-import { adminRoutes } from './routes/admin.js';
-import backfillRoutes from './routes/backfill.js';
-import { assistantRoutes } from './routes/assistant.js';
-import { portfolioRoutes } from './routes/portfolio.js';
-import { scanRoutes } from './routes/scans.js';
-
-const HEALTH_SCHEMA = {
-  response: {
-    200: {
-      type: 'object',
-      properties: {
-        status: { type: 'string' },
-        service: { type: 'string' },
-      },
-    },
-  },
-};
-
-const app = Fastify({ logger: true });
+import { buildApp } from './app.js';
+import { runMigrations } from './migrate.js';
 
 const start = async () => {
+  let app: FastifyInstance | undefined;
   try {
-    await app.register(sensible);
-
-    const corsOrigins = getEnv().CORS_ORIGINS;
-    await app.register(cors, {
-      origin: corsOrigins ? corsOrigins.split(',').map((o) => o.trim()) : true,
-      methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
-    });
-
-    await app.register(swagger, {
-      openapi: {
-        info: { title: 'Project Signal API', version: '1.0.0' },
-        components: {
-          securitySchemes: {
-            BearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-          },
-        },
-      },
-    });
-
-    await app.register(swaggerUi, { routePrefix: '/docs' });
-
-    app.get('/health', { schema: HEALTH_SCHEMA }, async () => ({ status: 'ok', service: 'api' }));
-    app.get('/ready', { schema: HEALTH_SCHEMA }, async () => ({ status: 'ok', service: 'api' }));
-
-    await app.register(authPlugin);
-    await app.register(usersRoutes);
-    await app.register(brandsRoutes);
-    await app.register(signalsRoutes);
-    await app.register(scoresRoutes);
-    await app.register(changeRoutes);
-    await app.register(roadmapRoutes);
-    await app.register(crmRoutes);
-    await app.register(voiceRoutes);
-    await app.register(integrationsRoutes);
-    await app.register(aliasesRoutes);
-    await app.register(adminRoutes);
-    await app.register(backfillRoutes);
-    await app.register(assistantRoutes);
-    await app.register(portfolioRoutes);
-    await app.register(scanRoutes);
+    app = await buildApp({ logger: true });
 
     app.log.info('applying database migrations');
     await runMigrations();
 
     await app.listen({ port: getEnv().PORT, host: '0.0.0.0' });
   } catch (err) {
-    app.log.error(err);
+    // buildApp itself can fail (an invalid environment), before there is a logger to use.
+    if (app) app.log.error(err);
+    else console.error(err);
     process.exit(1);
   }
 };
