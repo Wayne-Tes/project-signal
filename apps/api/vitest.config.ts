@@ -19,10 +19,15 @@ export default defineConfig({
     watch: false,
     environment: 'node',
     include: ['test/**/*.test.ts'],
+    /* The real-Postgres suite has its own config and target (`test:integration`): it needs a
+       database, and the unit gate must stay runnable without one. */
+    exclude: ['test/integration/**', 'node_modules/**'],
     coverage: {
       provider: 'v8',
       include: ['src/**'],
-      exclude: [...coverageConfigDefaults.exclude, '**/main.ts'],
+      /* main.ts is process entry (listen, exit). app.ts is the production wiring, exercised end to
+         end — every plugin, against real Postgres — by test/integration, not by unit tests. */
+      exclude: [...coverageConfigDefaults.exclude, '**/main.ts', '**/app.ts'],
       thresholds: { lines: 80, branches: 80, functions: 80, statements: 80 },
     },
   },

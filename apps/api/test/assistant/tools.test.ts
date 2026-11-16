@@ -104,7 +104,9 @@ describe('runTool — authorisation', () => {
        thousand ids and the error message maps another tenant's data for you. */
     const notFound = vi.fn().mockResolvedValue({ statusCode: 404, json: () => ({}) });
     const forbidden = vi.fn().mockResolvedValue({ statusCode: 403, json: () => ({}) });
-    const a = await runTool(ctx(notFound), 'get_brand_score', { brandId: 'nope' });
+    const a = await runTool(ctx(notFound), 'get_brand_score', {
+      brandId: '00000000-0000-4000-8000-00000000dead',
+    });
     const b = await runTool(ctx(forbidden), 'get_brand_score', { brandId: 'theirs' });
     expect(a.data).toEqual(b.data);
   });
@@ -133,10 +135,32 @@ describe('runTool — argument handling', () => {
     expect((inject.mock.calls[0]?.[0] as { url: string }).url).toContain('limit=1');
   });
 
+  /** The `from` date `days` back from now, as the route expects it. */
+  const fromFor = (days: number) =>
+    new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  it('turns the requested window into the from date the route actually reads', async () => {
+    /* The route declares from/to, not days. `?days=N` was silently dropped, so every request got
+       the default 90 days whatever the model asked for. */
+    const inject = okInject({ scores: [] });
+    await runTool(ctx(inject), 'get_dimension_scores', { brandId: 'b1', days: 30 });
+    const url = (inject.mock.calls[0]?.[0] as { url: string }).url;
+    expect(url).toContain(`from=${fromFor(30)}`);
+    expect(url).not.toContain('days=');
+  });
+
   it('caps the dimension history window', async () => {
     const inject = okInject({ scores: [] });
     await runTool(ctx(inject), 'get_dimension_scores', { brandId: 'b1', days: 99999 });
-    expect((inject.mock.calls[0]?.[0] as { url: string }).url).toContain('days=365');
+    expect((inject.mock.calls[0]?.[0] as { url: string }).url).toContain(`from=${fromFor(365)}`);
+  });
+
+  it('defaults to one half-life, and floors a nonsensical window', async () => {
+    const inject = okInject({ scores: [] });
+    await runTool(ctx(inject), 'get_dimension_scores', { brandId: 'b1' });
+    await runTool(ctx(inject), 'get_dimension_scores', { brandId: 'b1', days: -4 });
+    expect((inject.mock.calls[0]?.[0] as { url: string }).url).toContain(`from=${fromFor(90)}`);
+    expect((inject.mock.calls[1]?.[0] as { url: string }).url).toContain(`from=${fromFor(1)}`);
   });
 
   it('url-encodes a brand id rather than interpolating it raw', async () => {
@@ -174,7 +198,9 @@ describe('runTool — argument handling', () => {
 describe('runTool — help search', () => {
   it('answers from the corpus without touching the API', async () => {
     const inject = okInject({});
-    const result = await runTool(ctx(inject), 'search_help', { query: 'how is the index calculated' });
+    const result = await runTool(ctx(inject), 'search_help', {
+      query: 'how is the index calculated',
+    });
     expect(inject).not.toHaveBeenCalled();
     expect(result.ok).toBe(true);
     const articles = (result.data as { articles: { slug: string }[] }).articles;
@@ -191,7 +217,9 @@ describe('runTool — help search', () => {
   });
 
   it('returns an empty list rather than a wrong article for an unrelated query', async () => {
-    const result = await runTool(ctx(okInject({})), 'search_help', { query: 'kubernetes ingress sidecar' });
+    const result = await runTool(ctx(okInject({})), 'search_help', {
+      query: 'kubernetes ingress sidecar',
+    });
     expect((result.data as { articles: unknown[] }).articles).toEqual([]);
   });
 });

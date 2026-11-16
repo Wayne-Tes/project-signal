@@ -2,6 +2,14 @@ import type { FastifyPluginAsync } from 'fastify';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { conversationMessages, conversations, db } from '@project-signal/db';
 import { ask, type ChatMessage } from '../assistant/agent.js';
+import { ID_PARAMS, UUID } from '../lib/http.js';
+
+/**
+ * Per-user ceiling on assistant questions. Each one is up to seven paid model round-trips
+ * (MAX_TURNS plus the final answer, in assistant/agent.ts), so an unbounded endpoint is an
+ * unbounded bill — and a stuck client in a retry loop would be indistinguishable from abuse.
+ */
+export const ASSISTANT_RATE_LIMIT = { max: 10, timeWindow: '1 minute' } as const;
 
 /**
  * The assistant endpoint, and the conversation history behind it.
@@ -117,7 +125,7 @@ export const assistantRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         security: [{ BearerAuth: [] }],
         description: 'One conversation and its turns.',
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
       },
     },
     async (request, reply) => {
@@ -155,11 +163,12 @@ export const assistantRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         security: [{ BearerAuth: [] }],
         description: 'Rename a conversation.',
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         body: {
           type: 'object',
           required: ['title'],
-          properties: { title: { type: 'string', minLength: 1, maxLength: 200 } },
+          additionalProperties: false,
+          properties: { title: { type: 'string', minLength: 1, maxLength: 200, pattern: '\\S' } },
         },
       },
     },
@@ -189,7 +198,7 @@ export const assistantRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         security: [{ BearerAuth: [] }],
         description: 'Delete a conversation and its turns.',
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
       },
     },
     async (request, reply) => {
@@ -219,6 +228,7 @@ export const assistantRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Body: AssistantBody }>(
     '/assistant/messages',
     {
+      config: { rateLimit: ASSISTANT_RATE_LIMIT },
       schema: {
         security: [{ BearerAuth: [] }],
         description:
@@ -226,6 +236,7 @@ export const assistantRoutes: FastifyPluginAsync = async (fastify) => {
         body: {
           type: 'object',
           required: ['messages'],
+          additionalProperties: false,
           properties: {
             messages: {
               type: 'array',
@@ -234,15 +245,20 @@ export const assistantRoutes: FastifyPluginAsync = async (fastify) => {
               items: {
                 type: 'object',
                 required: ['role', 'content'],
+                additionalProperties: false,
                 properties: {
                   role: { type: 'string', enum: ['user', 'assistant'] },
                   content: { type: 'string', minLength: 1, maxLength: MAX_MESSAGE_CHARS },
                 },
               },
             },
-            view: { type: 'string', maxLength: 64 },
-            brandId: { type: 'string', maxLength: 64 },
-            conversationId: { type: 'string', maxLength: 64 },
+            /* Both become part of the model's context, so both are constrained to the shape they
+               legitimately have: a view is a short slug from the UI's own navigation, a brand id is
+               a uuid. Free text here was a prompt-injection channel straight into the system
+               prompt. */
+            view: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,31}$' },
+            brandId: UUID,
+            conversationId: UUID,
           },
         },
         response: {
@@ -297,7 +313,10 @@ export const assistantRoutes: FastifyPluginAsync = async (fastify) => {
               .orderBy(asc(conversationMessages.createdAt))
           )
             .slice(-HISTORY_TURNS)
-            .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }))
+            .map((m) => ({
+              role: m.role === 'assistant' ? 'assistant' : 'user',
+              content: m.content,
+            }))
         : [];
 
       try {
@@ -308,55 +327,58 @@ export const assistantRoutes: FastifyPluginAsync = async (fastify) => {
 
         /* Persist only after a successful answer. Writing the question first would leave a
            conversation containing a question and no reply whenever the model failed, which
-           reads to the user as the assistant having ignored them. */
-        if (!conversation) {
-          const [created] = await db
-            .get()
-            .insert(conversations)
-            .values({
-              tenantId: request.user.tenantId,
-              userId: request.user.uid,
-              title: titleFrom(question.content),
-            })
-            .returning();
-          conversation = created ?? null;
-        } else {
-          await db
-            .get()
-            .update(conversations)
-            .set({ updatedAt: new Date() })
-            .where(
-              and(
-                eq(conversations.id, conversation.id),
-                eq(conversations.tenantId, request.user.tenantId),
-                eq(conversations.userId, request.user.uid),
-              ),
-            );
-        }
+           reads to the user as the assistant having ignored them.
 
-        if (conversation) {
-          await db
-            .get()
-            .insert(conversationMessages)
-            .values([
-              {
-                conversationId: conversation.id,
+           One transaction: the conversation row and its two turns land together or not at all.
+           As three separate statements, a failure on the message insert left an empty
+           conversation in the list — a title with nothing behind it. */
+        const existing = conversation;
+        conversation = await db.get().transaction(async (tx) => {
+          let target = existing;
+          if (!target) {
+            const [created] = await tx
+              .insert(conversations)
+              .values({
                 tenantId: request.user.tenantId,
-                role: 'user',
-                content: question.content,
-              },
-              {
-                conversationId: conversation.id,
-                tenantId: request.user.tenantId,
-                role: 'assistant',
-                content: result.answer,
-                /* Stored so a revisited conversation still shows what the answer rested on.
+                userId: request.user.uid,
+                title: titleFrom(question.content),
+              })
+              .returning();
+            target = created ?? null;
+          } else {
+            await tx
+              .update(conversations)
+              .set({ updatedAt: new Date() })
+              .where(
+                and(
+                  eq(conversations.id, target.id),
+                  eq(conversations.tenantId, request.user.tenantId),
+                  eq(conversations.userId, request.user.uid),
+                ),
+              );
+          }
+          if (!target) return null;
+
+          await tx.insert(conversationMessages).values([
+            {
+              conversationId: target.id,
+              tenantId: request.user.tenantId,
+              role: 'user',
+              content: question.content,
+            },
+            {
+              conversationId: target.id,
+              tenantId: request.user.tenantId,
+              role: 'assistant',
+              content: result.answer,
+              /* Stored so a revisited conversation still shows what the answer rested on.
                    History without citations is history you cannot check. */
-                citations: result.citations,
-                steps: result.steps,
-              },
-            ]);
-        }
+              citations: result.citations,
+              steps: result.steps,
+            },
+          ]);
+          return target;
+        });
 
         return reply.send({
           conversationId: conversation?.id,

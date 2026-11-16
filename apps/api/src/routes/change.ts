@@ -9,6 +9,7 @@ import {
 import type { SentimentLabel } from '@project-signal/shared-types';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { requireBrandAccess } from '../plugins/auth.js';
+import { ID_PARAMS } from '../lib/http.js';
 
 /**
  * What changed — the endpoint behind "what is new this week, and are we making it better".
@@ -111,7 +112,7 @@ const changeRoutes: FastifyPluginAsync = async (fastify) => {
         security: [{ BearerAuth: [] }],
         description:
           'What changed over the last `days`, against the equal-length period before it: topics never seen before, topics more and less discussed, topics whose sentiment moved, and the same movement per source.',
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         querystring: {
           type: 'object',
           properties: {

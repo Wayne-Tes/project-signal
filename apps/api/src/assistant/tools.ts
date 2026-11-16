@@ -99,7 +99,7 @@ export const ASSISTANT_TOOLS: ToolSpec[] = [
         brandId: BRAND_ID,
         days: {
           type: 'integer',
-          description: 'How many days of history. Defaults to 90 — one half-life.',
+          description: 'How many days of history, 1 to 365. Defaults to 90 — one half-life.',
         },
       },
       required: ['brandId'],
@@ -154,8 +154,15 @@ function routeFor(name: string, input: Record<string, JsonValue>): string | unde
       return id && `/brands/${id}/score`;
     case 'get_dimension_scores': {
       if (!id) return undefined;
-      const days = typeof input['days'] === 'number' ? Math.min(input['days'], 365) : 90;
-      return `/brands/${id}/dimension-scores?days=${days}`;
+      /* The route takes `from`/`to` dates, not `days`. This used to send `?days=N`, which the
+         route does not declare, so it was dropped and every request returned the default 90 days
+         whatever the model asked for — the tool's own parameter had no effect. */
+      const days =
+        typeof input['days'] === 'number' && Number.isFinite(input['days'])
+          ? Math.min(Math.max(Math.floor(input['days']), 1), 365)
+          : 90;
+      const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      return `/brands/${id}/dimension-scores?from=${from}`;
     }
     case 'get_brand_impact':
       return id && `/brands/${id}/brand-impact`;
@@ -169,7 +176,8 @@ function routeFor(name: string, input: Record<string, JsonValue>): string | unde
       if (!id) return undefined;
       /* Capped independently of what the model asks for. An unbounded page would blow the
          context window and cost, and the model has no way to know how large a signal is. */
-      const limit = typeof input['limit'] === 'number' ? Math.min(Math.max(input['limit'], 1), 20) : 10;
+      const limit =
+        typeof input['limit'] === 'number' ? Math.min(Math.max(input['limit'], 1), 20) : 10;
       return `/brands/${id}/signals?limit=${limit}`;
     }
     default:
@@ -211,12 +219,14 @@ export async function runTool(
         /* The body is sent whole. Articles are short by design, and sending a snippet would
            make the model reason about a fragment and then cite the article as though it had
            read it. */
-        articles: hits.map((h: { article: { slug: string; title: string; summary: string; body: string } }) => ({
-          slug: h.article.slug,
-          title: h.article.title,
-          summary: h.article.summary,
-          body: h.article.body,
-        })),
+        articles: hits.map(
+          (h: { article: { slug: string; title: string; summary: string; body: string } }) => ({
+            slug: h.article.slug,
+            title: h.article.title,
+            summary: h.article.summary,
+            body: h.article.body,
+          }),
+        ),
       },
     };
   }

@@ -4,20 +4,22 @@ import { buildTestApp, DEFAULT_OWNER, DEFAULT_PINNED_USER } from '../helpers/app
 /**
  * `DELETE /brands/:id`.
  *
- * Seven tables reference `brand_entities.id`, and one of them is `users.brand_entity_id` — an
+ * Eight tables reference `brand_entities.id`, and one of them is `users.brand_entity_id` — an
  * AUTHORISATION scope, not a display field. A cascading delete there would silently widen what a
  * person can see. So the route refuses whenever anything real is attached, and these tests exist
  * to prove each refusal actually fires: a guard that is never exercised is a guard that quietly
  * stops working the first time someone reorders the checks.
  *
- * The counts run as a `Promise.all`, so the mock has to serve five results in a fixed order —
- * children, signals, scores, mentions, users. Each test puts the non-zero count in one position
+ * The counts run as a `Promise.all`, so the mock has to serve six results in a fixed order —
+ * children, signals, scores, mentions, users, tracked actions. Each test puts the non-zero count in one position
  * and asserts the message names the right thing.
  */
 
 /** Rows served, in order, to successive awaited queries. */
 let _queue: unknown[][] = [];
 const _deletes: string[] = [];
+/** How many deletes had run when each transaction opened. */
+const _transactions: number[] = [];
 
 vi.mock('@project-signal/db', () => {
   /** A fresh chain per call, so five concurrent Promise.all queries do not share a cursor. */
@@ -41,7 +43,14 @@ vi.mock('@project-signal/db', () => {
     _deletes.push(table?._name ?? 'unknown');
     return makeChain();
   });
-  root['then'] = (res: unknown, rej?: unknown) => Promise.resolve([]).then(res as never, rej as never);
+  root['then'] = (res: unknown, rej?: unknown) =>
+    Promise.resolve([]).then(res as never, rej as never);
+  /* The deletes run inside a transaction; `tx` exposes the same builder. Recorded so a test can
+     prove they are inside one. */
+  root['transaction'] = vi.fn(async (fn: (tx: unknown) => unknown) => {
+    _transactions.push(_deletes.length);
+    return fn(root);
+  });
 
   const table = (name: string) =>
     new Proxy({ _name: name } as Record<string, unknown>, {
@@ -58,6 +67,7 @@ vi.mock('@project-signal/db', () => {
     signalMentions: table('signal_mentions'),
     signals: table('signals'),
     sourceConfigs: table('source_configs'),
+    trackedActions: table('tracked_actions'),
     users: table('users'),
     tenants: table('tenants'),
     sentimentResults: table('sentiment_results'),
@@ -68,20 +78,30 @@ vi.mock('@project-signal/db', () => {
 
 import brandsRoutes from '../../src/routes/brands.js';
 
-/** The entity lookup, then five dependency counts, all clear. */
+/** The entity lookup, then six dependency counts, all clear. */
 function nothingAttached(): void {
-  _queue = [[{ id: 'brand-9' }], [{ n: 0 }], [{ n: 0 }], [{ n: 0 }], [{ n: 0 }], [{ n: 0 }]];
+  _queue = [
+    [{ id: 'b9999999-9999-4999-8999-999999999999' }],
+    [{ n: 0 }],
+    [{ n: 0 }],
+    [{ n: 0 }],
+    [{ n: 0 }],
+    [{ n: 0 }],
+    [{ n: 0 }],
+  ];
 }
 
-/** As above, but with `n` rows in the `position`-th dependency check (0-based). */
+/** As above, but with `n` rows in the `position`-th dependency check (0-based). Order:
+    children, signals, scores, mentions, users, tracked actions. */
 function attached(position: number, n = 3): void {
-  const counts = [0, 0, 0, 0, 0].map((_, i) => [{ n: i === position ? n : 0 }]);
-  _queue = [[{ id: 'brand-9' }], ...counts];
+  const counts = [0, 0, 0, 0, 0, 0].map((_, i) => [{ n: i === position ? n : 0 }]);
+  _queue = [[{ id: 'b9999999-9999-4999-8999-999999999999' }], ...counts];
 }
 
 beforeEach(() => {
   _queue = [];
   _deletes.length = 0;
+  _transactions.length = 0;
   vi.clearAllMocks();
 });
 
@@ -89,7 +109,10 @@ describe('DELETE /brands/:id', () => {
   it('deletes an entity that has nothing attached', async () => {
     nothingAttached();
     const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-9' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b9999999-9999-4999-8999-999999999999',
+    });
 
     expect(res.statusCode).toBe(204);
     expect(res.body).toBe('');
@@ -101,7 +124,7 @@ describe('DELETE /brands/:id', () => {
        a foreign-key violation, so the delete would fail outright. */
     nothingAttached();
     const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
-    await app.inject({ method: 'DELETE', url: '/brands/brand-9' });
+    await app.inject({ method: 'DELETE', url: '/brands/b9999999-9999-4999-8999-999999999999' });
 
     expect(_deletes).toEqual(['scan_runs', 'source_configs', 'brand_aliases', 'brand_entities']);
   });
@@ -111,15 +134,52 @@ describe('DELETE /brands/:id', () => {
        referencing it, and Postgres rejects the statement. */
     nothingAttached();
     const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
-    await app.inject({ method: 'DELETE', url: '/brands/brand-9' });
+    await app.inject({ method: 'DELETE', url: '/brands/b9999999-9999-4999-8999-999999999999' });
 
     expect(_deletes[_deletes.length - 1]).toBe('brand_entities');
+  });
+
+  it('runs every delete inside ONE transaction, so a failure cannot leave it half-done', async () => {
+    /* The regression: four independent statements. A reference the blockers missed made the
+       last one fail after the first three had committed — the brand survived, minus its feeds
+       and aliases. */
+    nothingAttached();
+    const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
+    await app.inject({ method: 'DELETE', url: '/brands/b9999999-9999-4999-8999-999999999999' });
+
+    expect(_transactions, 'one transaction, opened before the first delete').toEqual([0]);
+    expect(_deletes).toHaveLength(4);
+  });
+
+  it('refuses when actions have been committed against it on the roadmap', async () => {
+    /* tracked_actions references the brand with no ON DELETE action, and was missing from the
+       blockers — so this case passed every check and then failed on the foreign key. */
+    attached(5);
+    const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b9999999-9999-4999-8999-999999999999',
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).message).toMatch(/committed against it on the roadmap/i);
+    expect(_deletes).toEqual([]);
+  });
+
+  it('rejects a malformed id at the schema, before any query', async () => {
+    const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
+    const res = await app.inject({ method: 'DELETE', url: '/brands/not-a-uuid' });
+    expect(res.statusCode).toBe(400);
+    expect(_deletes).toEqual([]);
   });
 
   it('refuses when it still has products underneath it', async () => {
     attached(0);
     const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-9' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b9999999-9999-4999-8999-999999999999',
+    });
 
     expect(res.statusCode).toBe(409);
     expect(JSON.parse(res.body).message).toMatch(/products or sub-brands/i);
@@ -132,7 +192,10 @@ describe('DELETE /brands/:id', () => {
        history the user wanted to keep. The message has to say so. */
     attached(1);
     const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-9' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b9999999-9999-4999-8999-999999999999',
+    });
 
     expect(res.statusCode).toBe(409);
     expect(JSON.parse(res.body).message).toMatch(/rename it instead/i);
@@ -142,7 +205,10 @@ describe('DELETE /brands/:id', () => {
   it('refuses when it has been scored', async () => {
     attached(2);
     const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-9' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b9999999-9999-4999-8999-999999999999',
+    });
 
     expect(res.statusCode).toBe(409);
     expect(JSON.parse(res.body).message).toMatch(/been scored/i);
@@ -151,7 +217,10 @@ describe('DELETE /brands/:id', () => {
   it('refuses when it is mentioned in collected signals', async () => {
     attached(3);
     const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-9' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b9999999-9999-4999-8999-999999999999',
+    });
 
     expect(res.statusCode).toBe(409);
     expect(JSON.parse(res.body).message).toMatch(/mentioned/i);
@@ -163,7 +232,10 @@ describe('DELETE /brands/:id', () => {
        would stop constraining anyone. */
     attached(4);
     const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-9' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b9999999-9999-4999-8999-999999999999',
+    });
 
     expect(res.statusCode).toBe(409);
     expect(JSON.parse(res.body).message).toMatch(/user is assigned/i);
@@ -171,9 +243,19 @@ describe('DELETE /brands/:id', () => {
   });
 
   it('reports the FIRST blocker when several apply', async () => {
-    _queue = [[{ id: 'brand-9' }], [{ n: 2 }], [{ n: 90 }], [{ n: 0 }], [{ n: 0 }], [{ n: 0 }]];
+    _queue = [
+      [{ id: 'b9999999-9999-4999-8999-999999999999' }],
+      [{ n: 2 }],
+      [{ n: 90 }],
+      [{ n: 0 }],
+      [{ n: 0 }],
+      [{ n: 0 }],
+    ];
     const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-9' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b9999999-9999-4999-8999-999999999999',
+    });
 
     expect(JSON.parse(res.body).message).toMatch(/products or sub-brands/i);
   });
@@ -183,7 +265,10 @@ describe('DELETE /brands/:id', () => {
        into a way to enumerate other tenants' brands. */
     _queue = [[]];
     const app = await buildTestApp(brandsRoutes, DEFAULT_OWNER);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/someone-elses' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/f0000000-0000-4000-8000-00000000f0e1',
+    });
 
     expect(res.statusCode).toBe(404);
     expect(_deletes).toEqual([]);
@@ -192,7 +277,10 @@ describe('DELETE /brands/:id', () => {
   it('refuses a plain user, who may not delete anything', async () => {
     nothingAttached();
     const app = await buildTestApp(brandsRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-1' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b1111111-1111-4111-8111-111111111111',
+    });
 
     expect(res.statusCode).toBe(403);
     expect(_deletes).toEqual([]);

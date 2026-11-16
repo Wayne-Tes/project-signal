@@ -18,7 +18,11 @@ describe('buildCitations', () => {
   it('cannot cite a tool that was never called', () => {
     /* The structural guarantee, stated as a test. */
     const citations = buildCitations([
-      { name: 'search_help', input: {}, data: { articles: [{ slug: 'a', title: 'A', summary: 's', body: 'b' }] } },
+      {
+        name: 'search_help',
+        input: {},
+        data: { articles: [{ slug: 'a', title: 'A', summary: 's', body: 'b' }] },
+      },
     ]);
     expect(citations.every((c) => c.kind === 'help')).toBe(true);
   });
@@ -28,7 +32,12 @@ describe('buildCitations', () => {
       {
         name: 'get_brand_impact',
         input: { brandId: 'b1' },
-        data: { clusters: [{ topic: 'Delivery delays', volume: 62, damage: 8.4 }, { topic: 'Pricing', volume: 12, damage: 2.1 }] },
+        data: {
+          clusters: [
+            { topic: 'Delivery delays', volume: 62, damage: 8.4 },
+            { topic: 'Pricing', volume: 12, damage: 2.1 },
+          ],
+        },
       },
     ]);
     expect(citations.map((c) => c.id)).toEqual(['S1', 'S2']);
@@ -48,7 +57,11 @@ describe('buildCitations', () => {
       {
         name: 'search_help',
         input: {},
-        data: { articles: [{ slug: 'how-recency-works', title: 'How recency works', summary: 'Decay.', body: 'x' }] },
+        data: {
+          articles: [
+            { slug: 'how-recency-works', title: 'How recency works', summary: 'Decay.', body: 'x' },
+          ],
+        },
       },
     ]);
     expect(citation).toMatchObject({ kind: 'help', href: '/help/how-recency-works' });
@@ -85,7 +98,11 @@ describe('buildCitations', () => {
     const scores = [];
     for (let day = 1; day <= 30; day += 1) {
       for (const dimension of ['trust', 'quality', 'service', 'value', 'experience']) {
-        scores.push({ dimension, score: 50 + day, date: `2026-07-${String(day).padStart(2, '0')}` });
+        scores.push({
+          dimension,
+          score: 50 + day,
+          date: `2026-07-${String(day).padStart(2, '0')}`,
+        });
       }
     }
     const citations = buildCitations([
@@ -105,7 +122,12 @@ describe('buildCitations', () => {
         input: { brandId: 'b1' },
         data: {
           signals: [
-            { id: 'sig-1', source: 'rss', publishedAt: '2026-08-01T10:00:00.000Z', sourceUrl: 'https://example.com/a' },
+            {
+              id: 'f1111111-1111-4111-8111-111111111111',
+              source: 'rss',
+              publishedAt: '2026-08-01T10:00:00.000Z',
+              sourceUrl: 'https://example.com/a',
+            },
           ],
         },
       },
@@ -118,7 +140,15 @@ describe('buildCitations', () => {
       {
         name: 'get_signals',
         input: { brandId: 'b1' },
-        data: { signals: [{ id: 'ac85dc3d-e6ea-473c-803f-eac99157a0ec', source: 'rss', publishedAt: '2026-08-01T10:00:00.000Z' }] },
+        data: {
+          signals: [
+            {
+              id: 'ac85dc3d-e6ea-473c-803f-eac99157a0ec',
+              source: 'rss',
+              publishedAt: '2026-08-01T10:00:00.000Z',
+            },
+          ],
+        },
       },
     ]);
     expect(citation?.title).toBe('rss · 2026-08-01');
@@ -129,7 +159,14 @@ describe('buildCitations', () => {
       {
         name: 'get_signals',
         input: { brandId: 'b1' },
-        data: { signals: [{ source: 'rss' }, null, 'nonsense', { id: 'ok', source: 'rss', publishedAt: '2026-08-01' }] },
+        data: {
+          signals: [
+            { source: 'rss' },
+            null,
+            'nonsense',
+            { id: 'ok', source: 'rss', publishedAt: '2026-08-01' },
+          ],
+        },
       },
     ]);
     expect(citations).toHaveLength(1);

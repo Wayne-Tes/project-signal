@@ -3,6 +3,7 @@ import { attributedTo, db, signals, sentimentResults, territoryFilter } from '@p
 import { and, desc, eq, gt, lt, or, count, avg, sql, type SQL } from 'drizzle-orm';
 import { DIMENSIONS } from '@project-signal/scoring';
 import { requireBrandAccess } from '../plugins/auth.js';
+import { ID_PARAMS } from '../lib/http.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -16,9 +17,9 @@ const SENTIMENT_PERIOD_DAYS = 30;
  * returned `items: [{}, {}]` — every field silently removed. Declaring the columns is what
  * makes the payload non-empty, so keep this in sync with `libs/db/src/schema/signals.ts`.
  *
- * The denormalised `sentiment_*` / `model_version` columns are deliberately omitted: nothing
- * writes them (KNOWN-GAPS #11) and exposing them here would tacitly adopt them before that
- * decision is made. Sentiment is read from `sentiment_results` via the summary endpoint.
+ * Sentiment comes from `sentiment_results`, joined per row below. (`signals` once carried
+ * denormalised `sentiment_*` / `model_version` columns that nothing wrote; migration 0005 dropped
+ * them — KNOWN-GAPS #11.)
  */
 const SIGNAL_SCHEMA = {
   type: 'object',
@@ -154,7 +155,7 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         querystring: {
           type: 'object',
           properties: {
@@ -320,7 +321,7 @@ const signalsRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         response: {
           200: {
             type: 'object',

@@ -27,6 +27,11 @@
       "executor": "nx:run-commands",
       "options": { "command": "yarn seed", "cwd": "apps/api" }
     },
+    "test:integration": {
+      "executor": "nx:run-commands",
+      "options": { "command": "yarn test:integration", "cwd": "apps/api" },
+      "cache": false
+    },
     "docker-build": {
       "executor": "nx:run-commands",
       "options": {

@@ -20,7 +20,9 @@
 import { db, signals, sourceConfigs } from '@project-signal/db';
 import { and, count, eq, max } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { requireRole } from '../plugins/auth.js';
+import { requireBrandAccess, requireRole } from '../plugins/auth.js';
+import { ID_PARAMS, UUID } from '../lib/http.js';
+import { brandInTenant } from '../lib/tenancy.js';
 import {
   COLLECTING_SOURCES,
   isCollectingSource,
@@ -54,6 +56,48 @@ interface UpdateIntegrationBody {
   label?: string;
 }
 
+const INTEGRATION_PARAMS = {
+  type: 'object',
+  required: ['id', 'configId'],
+  properties: { id: UUID, configId: UUID },
+} as const;
+
+/* `config` is adapter-specific (a feed URL, a place id, a channel id…) and validated by the
+   collector that reads it, so its keys are open — but it must be an object, and the request
+   around it is closed. The previous routes had no schema at all: a non-string `label` reached
+   `label.trim()` and threw, turning a client mistake into a 500. */
+const CONFIG = { type: 'object', maxProperties: 20 } as const;
+const LABEL = { type: 'string', maxLength: 200 } as const;
+const TERRITORY = { type: 'string', maxLength: 32 } as const;
+
+const CREATE_BODY = {
+  type: 'object',
+  required: ['source', 'config'],
+  additionalProperties: false,
+  properties: {
+    source: { type: 'string', minLength: 1, maxLength: 64 },
+    config: CONFIG,
+    label: LABEL,
+    isEnabled: { type: 'boolean' },
+    territory: TERRITORY,
+  },
+} as const;
+
+const UPDATE_BODY = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    config: CONFIG,
+    label: LABEL,
+    isEnabled: { type: 'boolean' },
+    territory: TERRITORY,
+  },
+} as const;
+
+/* requireBrandAccess for uniformity with every other `/brands/:id…` route; the role check is
+   what actually restricts these to administrators. */
+const GUARDS = [requireBrandAccess, requireRole('admin', 'owner')];
+
 // ---------------------------------------------------------------------------
 // Route plugin — register with fastify.register(integrationsRoutes)
 // ---------------------------------------------------------------------------
@@ -65,24 +109,26 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
    * GET /brands/:id/integrations
    * List all source_configs for the given brand (tenant-scoped).
    */
-  fastify.get<{ Params: BrandParams }>('/brands/:id/integrations', {
-    preHandler: requireRole('admin', 'owner'),
-  }, async (request, reply) => {
-    const tenantId = request.user.tenantId;
-    const { id: brandEntityId } = request.params;
+  fastify.get<{ Params: BrandParams }>(
+    '/brands/:id/integrations',
+    {
+      preHandler: GUARDS,
+      schema: { params: ID_PARAMS },
+    },
+    async (request, reply) => {
+      const tenantId = request.user.tenantId;
+      const { id: brandEntityId } = request.params;
 
-    const rows = await database
-      .select()
-      .from(sourceConfigs)
-      .where(
-        and(
-          eq(sourceConfigs.tenantId, tenantId),
-          eq(sourceConfigs.brandEntityId, brandEntityId),
-        ),
-      );
+      const rows = await database
+        .select()
+        .from(sourceConfigs)
+        .where(
+          and(eq(sourceConfigs.tenantId, tenantId), eq(sourceConfigs.brandEntityId, brandEntityId)),
+        );
 
-    return reply.status(200).send({ status: 'ok', data: rows });
-  });
+      return reply.status(200).send({ status: 'ok', data: rows });
+    },
+  );
 
   /**
    * POST /brands/:id/integrations
@@ -91,15 +137,11 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
    */
   fastify.post<{ Params: BrandParams; Body: CreateIntegrationBody }>(
     '/brands/:id/integrations',
-    { preHandler: requireRole('admin', 'owner') },
+    { preHandler: GUARDS, schema: { params: ID_PARAMS, body: CREATE_BODY } },
     async (request, reply) => {
       const tenantId = request.user.tenantId;
       const { id: brandEntityId } = request.params;
       const { source, config, label, isEnabled = true, territory } = request.body;
-
-      if (!source || typeof source !== 'string') {
-        return reply.status(400).send({ status: 'error', error: 'source is required' });
-      }
       /* Reject a source with no collector rather than storing a configuration the pipeline can
          never honour.
 
@@ -114,10 +156,6 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
           error: `No collector exists for source '${source}'. Available: ${COLLECTING_SOURCES.join(', ')}.`,
         });
       }
-      if (!config || typeof config !== 'object') {
-        return reply.status(400).send({ status: 'error', error: 'config must be an object' });
-      }
-
       /* Refused rather than stored, for the same reason a source with no collector is refused
          (KNOWN-GAPS #24): a feed filed under the wrong territory produces reporting that is
          confidently wrong, and nobody ever finds it. `normaliseTerritory` corrects the spellings
@@ -131,6 +169,14 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
           status: 'error',
           error: `Unrecognised territory '${territory}'. Use an ISO 3166-1 alpha-2 code, GLOBAL, or unknown. Valid: ${TERRITORIES.join(', ')}.`,
         });
+      }
+
+      /* The brand must be the caller's. The insert stamps the CALLER's tenant with the URL's
+         brand id; without this check an admin could point a feed at another tenant's brand by
+         pasting its id, and collection would then write signals against it. After input
+         validation, so a malformed request is a 400 without touching the database. */
+      if (!(await brandInTenant(tenantId, brandEntityId))) {
+        return reply.status(404).send({ status: 'error', error: 'brand not found' });
       }
 
       /* An EXACT duplicate is refused, a different one of the same type is not.
@@ -184,7 +230,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
    */
   fastify.patch<{ Params: IntegrationParams; Body: UpdateIntegrationBody }>(
     '/brands/:id/integrations/:configId',
-    { preHandler: requireRole('admin', 'owner') },
+    { preHandler: GUARDS, schema: { params: INTEGRATION_PARAMS, body: UPDATE_BODY } },
     async (request, reply) => {
       const tenantId = request.user.tenantId;
       const { id: brandEntityId, configId } = request.params;
@@ -255,7 +301,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
    */
   fastify.delete<{ Params: IntegrationParams }>(
     '/brands/:id/integrations/:configId',
-    { preHandler: requireRole('admin', 'owner') },
+    { preHandler: GUARDS, schema: { params: INTEGRATION_PARAMS } },
     async (request, reply) => {
       const tenantId = request.user.tenantId;
       const { id: brandEntityId, configId } = request.params;
@@ -297,7 +343,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
    */
   fastify.get<{ Params: BrandParams }>(
     '/brands/:id/integrations/stats',
-    { preHandler: requireRole('admin', 'owner') },
+    { preHandler: GUARDS, schema: { params: ID_PARAMS } },
     async (request, reply) => {
       const tenantId = request.user.tenantId;
       const { id: brandEntityId } = request.params;
@@ -316,10 +362,7 @@ export async function integrationsRoutes(fastify: FastifyInstance): Promise<void
         .from(sourceConfigs)
         .leftJoin(signals, eq(signals.sourceConfigId, sourceConfigs.id))
         .where(
-          and(
-            eq(sourceConfigs.tenantId, tenantId),
-            eq(sourceConfigs.brandEntityId, brandEntityId),
-          ),
+          and(eq(sourceConfigs.tenantId, tenantId), eq(sourceConfigs.brandEntityId, brandEntityId)),
         )
         .groupBy(
           sourceConfigs.id,

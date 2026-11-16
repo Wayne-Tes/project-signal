@@ -34,7 +34,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const signal = (over: Record<string, unknown> = {}) => {
   const at = new Date(Date.now() - DAY);
   return {
-    signalId: 'sig-1',
+    signalId: 'f1111111-1111-4111-8111-111111111111',
     publishedAt: at,
     ingestedAt: at,
     source: 'rss',
@@ -57,7 +57,10 @@ describe('GET /brands/:id/whats-new', () => {
     _queue.push([signal()]); // the window read
     _queue.push([]); // first-seen read
     const app = await buildTestApp(changeRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/whats-new' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/whats-new',
+    });
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
@@ -72,7 +75,10 @@ describe('GET /brands/:id/whats-new', () => {
     _queue.push([signal()]);
     _queue.push([]);
     const app = await buildTestApp(changeRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/whats-new' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/whats-new',
+    });
 
     /* `▲ +0` against a comparison point that never existed is a defect this codebase has already
        shipped once, on the dimension bars. `nullable: true` in the response schema is what lets
@@ -87,7 +93,7 @@ describe('GET /brands/:id/whats-new', () => {
     const app = await buildTestApp(changeRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'GET',
-      url: '/brands/brand-1/whats-new?days=30&basis=published',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/whats-new?days=30&basis=published',
     });
 
     expect(res.statusCode).toBe(200);
@@ -96,13 +102,19 @@ describe('GET /brands/:id/whats-new', () => {
 
   it('refuses a window longer than the maximum', async () => {
     const app = await buildTestApp(changeRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/whats-new?days=400' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/whats-new?days=400',
+    });
     expect(res.statusCode).toBe(400);
   });
 
   it('refuses an unrecognised basis rather than silently defaulting', async () => {
     const app = await buildTestApp(changeRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/whats-new?basis=guessed' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/whats-new?basis=guessed',
+    });
     expect(res.statusCode).toBe(400);
   });
 
@@ -113,7 +125,10 @@ describe('GET /brands/:id/whats-new', () => {
    */
   it('is brand-scoped', async () => {
     const app = await buildTestApp(changeRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/whats-new' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/whats-new',
+    });
     expect(res.statusCode).toBe(403);
   });
 });
@@ -127,7 +142,9 @@ describe('GET /brands/:id/whats-new', () => {
 describe('the first-seen query', () => {
   const dialect = new PgDialect();
 
-  async function renderFirstSeen(url = '/brands/brand-1/whats-new'): Promise<string> {
+  async function renderFirstSeen(
+    url = '/brands/b1111111-1111-4111-8111-111111111111/whats-new',
+  ): Promise<string> {
     _queue.push([]);
     _queue.push([]);
     const app = await buildTestApp(changeRoutes, DEFAULT_ADMIN);
@@ -158,12 +175,16 @@ describe('the first-seen query', () => {
   });
 
   it('reads the publication date when the basis is published', async () => {
-    const sql = await renderFirstSeen('/brands/brand-1/whats-new?basis=published');
+    const sql = await renderFirstSeen(
+      '/brands/b1111111-1111-4111-8111-111111111111/whats-new?basis=published',
+    );
     expect(sql).toContain('published_at');
   });
 
   it('reads the ingestion date when the basis is ingested', async () => {
-    const sql = await renderFirstSeen('/brands/brand-1/whats-new?basis=ingested');
+    const sql = await renderFirstSeen(
+      '/brands/b1111111-1111-4111-8111-111111111111/whats-new?basis=ingested',
+    );
     expect(sql).toContain('ingested_at');
   });
 

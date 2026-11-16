@@ -47,7 +47,11 @@ export interface AssistantAnswer {
 const MAX_TURNS = 6;
 
 /** Tool calls per turn. A model that asks for twenty things at once has misunderstood. */
-const MAX_TOOL_CALLS_PER_TURN = 5;
+export const MAX_TOOL_CALLS_PER_TURN = 5;
+
+/** The UI's view slugs, e.g. `dashboard`, `brand-impact`. */
+const VIEW_RE = /^[a-z][a-z0-9-]{0,31}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const SYSTEM_PROMPT = `
 You are the Project Signal assistant. Project Signal is a brand-intelligence product: it collects
@@ -86,12 +90,17 @@ number over an adjective. Keep it short — a few sentences for a simple questio
 markdown table only when comparing several things. Never open with "Great question".
 `.trim();
 
-/** Blocks the model returned that are tool calls, capped. */
+/** Every block the model returned that is a tool call — ALL of them, uncapped. */
 function toolCalls(blocks: ContentBlock[]): Extract<ContentBlock, { kind: 'toolUse' }>[] {
-  return blocks
-    .filter((b): b is Extract<ContentBlock, { kind: 'toolUse' }> => b.kind === 'toolUse')
-    .slice(0, MAX_TOOL_CALLS_PER_TURN);
+  return blocks.filter(
+    (b): b is Extract<ContentBlock, { kind: 'toolUse' }> => b.kind === 'toolUse',
+  );
 }
+
+/** What the model is told for a call beyond the per-turn ceiling. Not run; still answered. */
+export const OVER_LIMIT_RESULT = {
+  error: `Not run: at most ${MAX_TOOL_CALLS_PER_TURN} tool calls are executed per turn. Ask again for what you still need.`,
+} as const;
 
 function textOf(blocks: ContentBlock[]): string {
   return blocks
@@ -105,15 +114,19 @@ export async function ask(ctx: ToolContext, request: AssistantRequest): Promise<
   const llm = getLlmClient();
   const model = getAssistantModel();
 
-  /* Context about where the user is, appended to the system prompt rather than injected as a
-     user turn. As a user turn the model can read it as an instruction from the person; as
-     system context it is plainly ours, and a signal title that says "ignore your instructions"
-     has no path to becoming one. */
+  /* Context about where the user is, appended to the system prompt. These two values come from
+     the client, so they are admitted ONLY in the shapes they legitimately have — re-checked here
+     even though the route's schema already enforces them, because this function is the one that
+     puts them into the system prompt and must not rely on every caller remembering. Anything
+     else is dropped rather than quoted: free text here would be a client-controlled line in the
+     model's highest-authority context. */
+  const view = request.view && VIEW_RE.test(request.view) ? request.view : undefined;
+  const brandId = request.brandId && UUID_RE.test(request.brandId) ? request.brandId : undefined;
   const situated = [
     SYSTEM_PROMPT,
-    request.view ? `\nThe user is currently on the "${request.view}" view.` : '',
-    request.brandId
-      ? `\nThe brand selected in the interface is ${request.brandId}. Treat this as a hint about what they mean, not as permission — every tool call is authorised against their own token regardless.`
+    view ? `\nThe user is currently on the "${view}" view.` : '',
+    brandId
+      ? `\nThe brand selected in the interface is ${brandId}. Treat this as a hint about what they mean, not as permission — every tool call is authorised against their own token regardless.`
       : '',
   ].join('');
 
@@ -154,8 +167,23 @@ export async function ask(ctx: ToolContext, request: AssistantRequest): Promise<
        match, is rejected by the provider — the correlation is not advisory. */
     messages.push({ role: 'assistant', blocks: result.blocks });
 
+    /* EVERY tool call in the turn gets a result block. The ceiling limits how many are RUN, not
+       how many are answered: Bedrock rejects a request in which any toolUse id lacks a matching
+       toolResult. The cap used to slice the list of calls while the turn above was pushed with
+       all of them, so the sixth call in one turn made the next request invalid and the whole
+       question failed. Calls past the ceiling are answered with an error telling the model to
+       ask again, which also gives it a way to recover. */
     const resultBlocks: ContentBlock[] = [];
-    for (const call of calls) {
+    for (const [index, call] of calls.entries()) {
+      if (index >= MAX_TOOL_CALLS_PER_TURN) {
+        resultBlocks.push({
+          kind: 'toolResult',
+          id: call.id,
+          result: OVER_LIMIT_RESULT,
+          isError: true,
+        });
+        continue;
+      }
       steps.push(call.name);
       const run = await runTool(ctx, call.name, call.input);
       if (run.ok) toolResults.push({ name: call.name, input: call.input, data: run.data });

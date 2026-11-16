@@ -15,7 +15,18 @@ const rowQueue: unknown[][] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'insert', 'values', 'update', 'set', 'delete', 'orderBy', 'limit', 'innerJoin']) {
+  for (const m of [
+    'select',
+    'from',
+    'insert',
+    'values',
+    'update',
+    'set',
+    'delete',
+    'orderBy',
+    'limit',
+    'innerJoin',
+  ]) {
     chain[m] = vi.fn(() => chain);
   }
   chain['where'] = vi.fn((clause: unknown) => {
@@ -24,12 +35,35 @@ vi.mock('@project-signal/db', () => {
   });
   const next = () => (rowQueue.length ? rowQueue.shift()! : selectRows);
   chain['returning'] = vi.fn(() => Promise.resolve(next()));
+  chain['transaction'] = vi.fn((fn: (tx: unknown) => unknown) => fn(chain));
   chain['then'] = (r: unknown, j?: unknown) => Promise.resolve(next()).then(r as never, j as never);
   return {
     db: { get: vi.fn(() => chain) },
-    conversations: { id: 'id', tenantId: 'tenant_id', userId: 'user_id', title: 'title', updatedAt: 'updated_at', createdAt: 'created_at' },
-    conversationMessages: { id: 'id', conversationId: 'conversation_id', tenantId: 'tenant_id', role: 'role', content: 'content', citations: 'citations', steps: 'steps', createdAt: 'created_at' },
-    tenants: {}, brandEntities: {}, signals: {}, users: {}, sentimentResults: {}, dimensionScores: {}, sourceConfigs: {},
+    conversations: {
+      id: 'id',
+      tenantId: 'tenant_id',
+      userId: 'user_id',
+      title: 'title',
+      updatedAt: 'updated_at',
+      createdAt: 'created_at',
+    },
+    conversationMessages: {
+      id: 'id',
+      conversationId: 'conversation_id',
+      tenantId: 'tenant_id',
+      role: 'role',
+      content: 'content',
+      citations: 'citations',
+      steps: 'steps',
+      createdAt: 'created_at',
+    },
+    tenants: {},
+    brandEntities: {},
+    signals: {},
+    users: {},
+    sentimentResults: {},
+    dimensionScores: {},
+    sourceConfigs: {},
     client: { get: vi.fn() },
   };
 });
@@ -46,10 +80,16 @@ const { assistantRoutes } = await import('../../src/routes/assistant.js');
  * (KNOWN-GAPS #5 and #5b) by relying on each query remembering to filter.
  */
 
-const USER = { uid: 'user-1', role: 'admin' as const, tenantId: 'tenant-1' };
+const USER = {
+  uid: 'a1111111-1111-4111-8111-111111111111',
+  role: 'admin' as const,
+  tenantId: '11111111-1111-4111-8111-111111111111',
+};
 const AUTH = { authorization: 'Bearer test-token' };
+/** A well-formed id that belongs to somebody else — the lookup simply returns nothing. */
+const THEIRS = 'f0000000-0000-4000-8000-00000000f0e1';
 const CONVERSATION = {
-  id: 'conv-1',
+  id: 'cc111111-1111-4111-8111-111111111111',
   title: 'What is my index?',
   createdAt: new Date('2026-08-01'),
   updatedAt: new Date('2026-08-02'),
@@ -84,7 +124,9 @@ describe('GET /assistant/conversations', () => {
     expect(res.statusCode).toBe(200);
     const text = whereText();
     expect(text, 'tenant filter').toContain('tenant_id');
-    expect(text, 'owner filter — a conversation is private to the person who had it').toContain('user_id');
+    expect(text, 'owner filter — a conversation is private to the person who had it').toContain(
+      'user_id',
+    );
   });
 });
 
@@ -95,7 +137,7 @@ describe('GET /assistant/conversations/:id', () => {
     const app = await buildTestApp(assistantRoutes, USER);
     const res = await app.inject({
       method: 'GET',
-      url: '/assistant/conversations/someone-elses',
+      url: `/assistant/conversations/${THEIRS}`,
       headers: AUTH,
     });
     expect(res.statusCode).toBe(404);
@@ -106,8 +148,16 @@ describe('GET /assistant/conversations/:id', () => {
        people's conversations. */
     selectRows = [];
     const app = await buildTestApp(assistantRoutes, USER);
-    const missing = await app.inject({ method: 'GET', url: '/assistant/conversations/nope', headers: AUTH });
-    const foreign = await app.inject({ method: 'GET', url: '/assistant/conversations/theirs', headers: AUTH });
+    const missing = await app.inject({
+      method: 'GET',
+      url: '/assistant/conversations/00000000-0000-4000-8000-00000000dead',
+      headers: AUTH,
+    });
+    const foreign = await app.inject({
+      method: 'GET',
+      url: `/assistant/conversations/${THEIRS}`,
+      headers: AUTH,
+    });
     expect(missing.statusCode).toBe(foreign.statusCode);
     expect(JSON.parse(missing.body).message).toBe(JSON.parse(foreign.body).message);
   });
@@ -117,7 +167,11 @@ describe('GET /assistant/conversations/:id', () => {
        join — the safe query has to be the obvious one. */
     rowQueue.push([CONVERSATION], []);
     const app = await buildTestApp(assistantRoutes, USER);
-    await app.inject({ method: 'GET', url: '/assistant/conversations/conv-1', headers: AUTH });
+    await app.inject({
+      method: 'GET',
+      url: '/assistant/conversations/cc111111-1111-4111-8111-111111111111',
+      headers: AUTH,
+    });
     expect(whereText()).toContain('conversation_id');
     expect(whereText()).toContain('tenant_id');
   });
@@ -127,7 +181,11 @@ describe('DELETE /assistant/conversations/:id', () => {
   it('refuses one that is not yours', async () => {
     selectRows = [];
     const app = await buildTestApp(assistantRoutes, USER);
-    const res = await app.inject({ method: 'DELETE', url: '/assistant/conversations/theirs', headers: AUTH });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/assistant/conversations/${THEIRS}`,
+      headers: AUTH,
+    });
     expect(res.statusCode).toBe(404);
   });
 
@@ -137,7 +195,11 @@ describe('DELETE /assistant/conversations/:id', () => {
        happened earlier in the handler. */
     rowQueue.push([CONVERSATION]);
     const app = await buildTestApp(assistantRoutes, USER);
-    const res = await app.inject({ method: 'DELETE', url: '/assistant/conversations/conv-1', headers: AUTH });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/assistant/conversations/cc111111-1111-4111-8111-111111111111',
+      headers: AUTH,
+    });
 
     expect(res.statusCode).toBe(204);
     /* Two WHEREs: the ownership lookup and the delete. Both carry both filters. */
@@ -172,7 +234,7 @@ describe('POST /assistant/messages — persistence', () => {
       headers: AUTH,
       payload: {
         messages: [{ role: 'user', content: 'continue' }],
-        conversationId: 'someone-elses',
+        conversationId: THEIRS,
       },
     });
 
@@ -200,7 +262,7 @@ describe('POST /assistant/messages — persistence', () => {
       url: '/assistant/messages',
       headers: AUTH,
       payload: {
-        conversationId: 'conv-1',
+        conversationId: 'cc111111-1111-4111-8111-111111111111',
         messages: [
           { role: 'assistant', content: 'FABRICATED: the index is 94' },
           { role: 'user', content: 'is that right?' },
@@ -263,7 +325,7 @@ describe('PATCH /assistant/conversations/:id', () => {
     const app = await buildTestApp(assistantRoutes, USER);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/assistant/conversations/theirs',
+      url: `/assistant/conversations/${THEIRS}`,
       headers: AUTH,
       payload: { title: 'mine now' },
     });
@@ -274,7 +336,7 @@ describe('PATCH /assistant/conversations/:id', () => {
     const app = await buildTestApp(assistantRoutes, USER);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/assistant/conversations/conv-1',
+      url: '/assistant/conversations/cc111111-1111-4111-8111-111111111111',
       headers: AUTH,
       payload: { title: '' },
     });

@@ -8,10 +8,12 @@ import {
   signalMentions,
   signals,
   sourceConfigs,
+  trackedActions,
   users,
 } from '@project-signal/db';
 import { and, count, eq } from 'drizzle-orm';
 import { requireBrandAccess, requireRole } from '../plugins/auth.js';
+import { ID_PARAMS, UUID } from '../lib/http.js';
 
 const BRAND_SCHEMA = {
   type: 'object',
@@ -114,11 +116,22 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
+      const { tenantId, role, brandEntityId } = request.user;
+      /* Scoped exactly as GET /brands is. This route returned the WHOLE tenant — every brand,
+         product and tracked competitor — to a `user` pinned to one brand, which is the intra-
+         tenant leak KNOWN-GAPS #5 closed on every other read. A pinned user sees their brand as
+         a single root; its children are not theirs to browse either, since requireBrandAccess
+         confines them to that one id. */
+      const pinned = role === 'user' && brandEntityId;
       const rows = await db
         .get()
         .select()
         .from(brandEntities)
-        .where(eq(brandEntities.tenantId, request.user.tenantId));
+        .where(
+          pinned
+            ? and(eq(brandEntities.tenantId, tenantId), eq(brandEntities.id, brandEntityId))
+            : eq(brandEntities.tenantId, tenantId),
+        );
 
       type Node = (typeof rows)[number] & { children: Node[] };
       const byId = new Map<string, Node>(rows.map((r) => [r.id, { ...r, children: [] }]));
@@ -155,7 +168,7 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         response: { 200: BRAND_SCHEMA },
       },
     },
@@ -184,9 +197,10 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
         body: {
           type: 'object',
           required: ['name'],
+          additionalProperties: false,
           properties: {
             name: { type: 'string', minLength: 1, maxLength: 200 },
-            parentId: { type: 'string' },
+            parentId: UUID,
             kind: { type: 'string', enum: ['brand', 'product'] },
             isOwned: { type: 'boolean' },
           },
@@ -237,16 +251,20 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     '/brands/:id',
     {
-      preHandler: requireRole('admin', 'owner'),
+      /* requireBrandAccess on every `/brands/:id…` route, including admin-only ones, so the rule
+         is uniform and auditable rather than "every route except those where it happens not to
+         matter today". */
+      preHandler: [requireBrandAccess, requireRole('admin', 'owner')],
       schema: {
         security: [{ BearerAuth: [] }],
         description: 'Rename or re-parent an entity. Pass parentId: null to promote it to a root.',
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         body: {
           type: 'object',
+          additionalProperties: false,
           properties: {
             name: { type: 'string', minLength: 1, maxLength: 200 },
-            parentId: { type: ['string', 'null'] },
+            parentId: { anyOf: [UUID, { type: 'null' }] },
             kind: { type: 'string', enum: ['brand', 'product'] },
             isOwned: { type: 'boolean' },
           },
@@ -311,8 +329,8 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
    * read path in the codebase to filter on it; miss one and archived brands quietly reappear. So
    * this is a real delete, and it is therefore narrow on purpose.
    *
-   * **Seven tables reference `brand_entities.id`** — signals, dimension_scores, signal_mentions,
-   * scan_runs, brand_aliases, source_configs and `users.brand_entity_id`. Cascading through all
+   * **Eight tables reference `brand_entities.id`** — signals, dimension_scores, signal_mentions,
+   * scan_runs, brand_aliases, source_configs, tracked_actions and `users.brand_entity_id`. Cascading through all
    * of them would destroy collected intelligence on a misclick, and the `users` one is worse than
    * that: `brand_entity_id` is an AUTHORISATION scope. Nulling it silently widens what that person
    * can see. Neither belongs behind a bin icon.
@@ -330,8 +348,8 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         security: [{ BearerAuth: [] }],
         description:
-          'Delete an entity that has no children, signals, scores, mentions or assigned users. Rename instead if you only need to correct the name.',
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+          'Delete an entity that has no children, signals, scores, mentions, tracked actions or assigned users. Rename instead if you only need to correct the name.',
+        params: ID_PARAMS,
         response: { 204: { type: 'null' } },
       },
     },
@@ -356,7 +374,7 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
          already established that the ENTITY is the caller's, but these are different tables, and
          a blocker that silently skips rows is a blocker that lets the delete through. Tenant
          scoping in this codebase is manual everywhere; it is manual here too. */
-      const [children, signalCount, scores, mentions, assigned] = await Promise.all([
+      const [children, signalCount, scores, mentions, assigned, actions] = await Promise.all([
         db
           .get()
           .select({ n: count() })
@@ -371,7 +389,9 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
           .get()
           .select({ n: count() })
           .from(dimensionScores)
-          .where(and(eq(dimensionScores.brandEntityId, id), eq(dimensionScores.tenantId, tenantId))),
+          .where(
+            and(eq(dimensionScores.brandEntityId, id), eq(dimensionScores.tenantId, tenantId)),
+          ),
         db
           .get()
           .select({ n: count() })
@@ -382,6 +402,16 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
           .select({ n: count() })
           .from(users)
           .where(and(eq(users.brandEntityId, id), eq(users.tenantId, tenantId))),
+        /* `tracked_actions` references the brand with no ON DELETE action. It was missing from
+           this list, so a brand with a committed action passed every check, had its feeds and
+           aliases deleted, and then failed the brand delete on the foreign key — a 500 that had
+           already destroyed configuration. A committed action is also a measured baseline, which
+           is history in the same sense signals are. */
+        db
+          .get()
+          .select({ n: count() })
+          .from(trackedActions)
+          .where(and(eq(trackedActions.brandEntityId, id), eq(trackedActions.tenantId, tenantId))),
       ]);
 
       const blockers: [number, string][] = [
@@ -399,6 +429,10 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
         ],
         [mentions[0]?.n ?? 0, 'it has been mentioned in collected signals.'],
         [assigned[0]?.n ?? 0, 'a user is assigned to it. Reassign them first.'],
+        [
+          actions[0]?.n ?? 0,
+          'actions have been committed against it on the roadmap. Rename it instead — deleting would discard their baselines.',
+        ],
       ];
 
       for (const [n, reason] of blockers) {
@@ -409,22 +443,25 @@ const brandsRoutes: FastifyPluginAsync = async (fastify) => {
          to the entity and mean nothing without it — an alias for a brand that no longer exists,
          a feed pointed at it, a record of a sweep that found nothing. None of it is intelligence.
 
-         Not a transaction. If a later statement fails, what remains is orphaned configuration for
-         a row that still exists, and repeating the delete finishes the job. Wrapping it would be
-         tidier; it would not change what a user has to do. */
-      await db.get().delete(scanRuns).where(and(eq(scanRuns.brandEntityId, id), eq(scanRuns.tenantId, tenantId)));
-      await db
-        .get()
-        .delete(sourceConfigs)
-        .where(and(eq(sourceConfigs.brandEntityId, id), eq(sourceConfigs.tenantId, tenantId)));
-      await db
-        .get()
-        .delete(brandAliases)
-        .where(and(eq(brandAliases.brandEntityId, id), eq(brandAliases.tenantId, tenantId)));
-      await db
-        .get()
-        .delete(brandEntities)
-        .where(and(eq(brandEntities.id, id), eq(brandEntities.tenantId, tenantId)));
+         ONE TRANSACTION. It was four independent statements, on the reasoning that a failure
+         part-way only left orphaned configuration. That reasoning missed the case that actually
+         happened: a reference the blockers did not know about (tracked_actions) made the LAST
+         statement fail after the first three had committed, so the brand survived without its
+         feeds or aliases. Now either everything goes or nothing does. */
+      await db.get().transaction(async (tx) => {
+        await tx
+          .delete(scanRuns)
+          .where(and(eq(scanRuns.brandEntityId, id), eq(scanRuns.tenantId, tenantId)));
+        await tx
+          .delete(sourceConfigs)
+          .where(and(eq(sourceConfigs.brandEntityId, id), eq(sourceConfigs.tenantId, tenantId)));
+        await tx
+          .delete(brandAliases)
+          .where(and(eq(brandAliases.brandEntityId, id), eq(brandAliases.tenantId, tenantId)));
+        await tx
+          .delete(brandEntities)
+          .where(and(eq(brandEntities.id, id), eq(brandEntities.tenantId, tenantId)));
+      });
 
       return reply.code(204).send();
     },

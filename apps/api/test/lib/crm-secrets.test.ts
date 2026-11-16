@@ -26,6 +26,14 @@ class FakeResourceExistsException extends Error {
   }
 }
 
+/** Secrets Manager's refusal inside a deleted secret's recovery window. */
+class FakeInvalidRequestException extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidRequestException';
+  }
+}
+
 vi.mock('@aws-sdk/client-secrets-manager', () => {
   const record = (name: string) =>
     vi.fn((input: unknown) => {
@@ -38,7 +46,9 @@ vi.mock('@aws-sdk/client-secrets-manager', () => {
     PutSecretValueCommand: record('Put'),
     GetSecretValueCommand: record('Get'),
     DeleteSecretCommand: record('Delete'),
+    RestoreSecretCommand: record('Restore'),
     ResourceExistsException: FakeResourceExistsException,
+    InvalidRequestException: FakeInvalidRequestException,
   };
 });
 
@@ -66,12 +76,15 @@ beforeEach(() => {
   seen.length = 0;
   delete process.env['AWS_ENDPOINT_URL'];
   delete process.env['CRM_SECRET_PREFIX'];
+  delete process.env['RESOURCE_TAGS'];
 });
 
 describe('crmSecretName', () => {
   it('is predictable, so an operator can find a secret without a database lookup', async () => {
     const { crmSecretName } = await load();
-    expect(crmSecretName('tenant-1', 'hubspot')).toBe('psignal-dev-crm/tenant-1/hubspot');
+    expect(crmSecretName('11111111-1111-4111-8111-111111111111', 'hubspot')).toBe(
+      'psignal-dev-crm/11111111-1111-4111-8111-111111111111/hubspot',
+    );
   });
 
   it('honours CRM_SECRET_PREFIX, which is how the task role policy stays prefix-scoped', async () => {
@@ -79,7 +92,9 @@ describe('crmSecretName', () => {
        different prefix is not merely misfiled — it is outside the policy, so every call 403s. */
     process.env['CRM_SECRET_PREFIX'] = 'psignal-prod-crm';
     const { crmSecretName } = await load();
-    expect(crmSecretName('tenant-1', 'salesforce')).toBe('psignal-prod-crm/tenant-1/salesforce');
+    expect(crmSecretName('11111111-1111-4111-8111-111111111111', 'salesforce')).toBe(
+      'psignal-prod-crm/11111111-1111-4111-8111-111111111111/salesforce',
+    );
   });
 });
 
@@ -88,17 +103,94 @@ describe('writeTokens', () => {
     mockSend.mockResolvedValue({ ARN: 'arn:aws:secretsmanager:eu-west-2:1:secret:x' });
     const { writeTokens } = await load();
 
-    const arn = await writeTokens('tenant-1', 'hubspot', TOKENS);
+    const written = await writeTokens('11111111-1111-4111-8111-111111111111', 'hubspot', TOKENS);
 
-    expect(arn).toBe('arn:aws:secretsmanager:eu-west-2:1:secret:x');
+    expect(written).toEqual({ arn: 'arn:aws:secretsmanager:eu-west-2:1:secret:x', created: true });
     expect(seen).toHaveLength(1);
     expect(seen[0]?.name).toBe('Create');
+  });
+
+  it('tags the secret, so the tag-based teardown inventory can see it', async () => {
+    /* These secrets are never in Terraform state. Untagged, 99-teardown.sh — which inventories
+       the shared account by the Project tag — could not find them at all. */
+    process.env['RESOURCE_TAGS'] = JSON.stringify({
+      Project: 'project-signal',
+      Environment: 'dev',
+      Owner: 'owner@example.com',
+      ManagedBy: 'terraform',
+    });
+    mockSend.mockResolvedValue({ ARN: 'arn:x' });
+    const { writeTokens } = await load();
+    await writeTokens('t', 'hubspot', TOKENS);
+
+    const input = seen[0]?.input as { Tags: { Key: string; Value: string }[] };
+    expect(input.Tags).toEqual(
+      expect.arrayContaining([
+        { Key: 'Project', Value: 'project-signal' },
+        { Key: 'Environment', Value: 'dev' },
+        { Key: 'Owner', Value: 'owner@example.com' },
+        // Overridden: no Terraform module owns a runtime-created secret.
+        { Key: 'ManagedBy', Value: 'api' },
+      ]),
+    );
+  });
+
+  it('always carries the Project tag, even with no RESOURCE_TAGS configured', async () => {
+    const { secretTags } = await load();
+    expect(secretTags()).toEqual([
+      { Key: 'Project', Value: 'project-signal' },
+      { Key: 'ManagedBy', Value: 'api' },
+    ]);
+  });
+
+  it('ignores a malformed RESOURCE_TAGS rather than failing to store the secret', async () => {
+    process.env['RESOURCE_TAGS'] = '{not json';
+    let mod = await load();
+    expect(mod.secretTags()).toContainEqual({ Key: 'Project', Value: 'project-signal' });
+    vi.resetModules();
+    process.env['RESOURCE_TAGS'] = '["a"]';
+    mod = await load();
+    expect(mod.secretTags()).toHaveLength(2);
+    vi.resetModules();
+    process.env['RESOURCE_TAGS'] = '{"Project":"p","Bad":1}';
+    mod = await load();
+    expect(mod.secretTags()).toEqual([
+      { Key: 'Project', Value: 'p' },
+      { Key: 'ManagedBy', Value: 'api' },
+    ]);
+  });
+
+  it('restores a secret still inside its recovery window, then writes it — reconnect after disconnect', async () => {
+    /* Disconnect schedules deletion with a 7-day window, and inside it Secrets Manager refuses
+       BOTH CreateSecret and PutSecretValue for the name. Reconnecting within a week used to 500. */
+    mockSend
+      .mockRejectedValueOnce(
+        new FakeInvalidRequestException(
+          "You can't create this secret because a secret with this name is already scheduled for deletion.",
+        ),
+      )
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ ARN: 'arn:restored' });
+    const { writeTokens } = await load();
+
+    expect(await writeTokens('t', 'hubspot', TOKENS)).toEqual({
+      arn: 'arn:restored',
+      created: true,
+    });
+    expect(seen.map((s) => s.name)).toEqual(['Create', 'Restore', 'Put']);
+  });
+
+  it('rethrows an InvalidRequestException that is not about scheduled deletion', async () => {
+    mockSend.mockRejectedValueOnce(new FakeInvalidRequestException('something else entirely'));
+    const { writeTokens } = await load();
+    await expect(writeTokens('t', 'hubspot', TOKENS)).rejects.toThrow('something else entirely');
+    expect(seen.map((s) => s.name)).toEqual(['Create']);
   });
 
   it('serialises every token field, so a refresh after restart is possible', async () => {
     mockSend.mockResolvedValue({ ARN: 'arn:x' });
     const { writeTokens } = await load();
-    await writeTokens('tenant-1', 'hubspot', TOKENS);
+    await writeTokens('11111111-1111-4111-8111-111111111111', 'hubspot', TOKENS);
 
     const input = seen[0]?.input as { SecretString: string };
     expect(JSON.parse(input.SecretString)).toEqual(TOKENS);
@@ -112,7 +204,12 @@ describe('writeTokens', () => {
       .mockResolvedValueOnce({ ARN: 'arn:existing' });
     const { writeTokens } = await load();
 
-    expect(await writeTokens('tenant-1', 'hubspot', TOKENS)).toBe('arn:existing');
+    // `created: false` — an existing connection already relies on this secret, so a failed row
+    // insert must not delete it.
+    expect(await writeTokens('11111111-1111-4111-8111-111111111111', 'hubspot', TOKENS)).toEqual({
+      arn: 'arn:existing',
+      created: false,
+    });
     expect(seen.map((s) => s.name)).toEqual(['Create', 'Put']);
   });
 
@@ -122,9 +219,9 @@ describe('writeTokens', () => {
     mockSend.mockRejectedValueOnce(new Error('AccessDeniedException'));
     const { writeTokens } = await load();
 
-    await expect(writeTokens('tenant-1', 'hubspot', TOKENS)).rejects.toThrow(
-      'AccessDeniedException',
-    );
+    await expect(
+      writeTokens('11111111-1111-4111-8111-111111111111', 'hubspot', TOKENS),
+    ).rejects.toThrow('AccessDeniedException');
     expect(seen.map((s) => s.name)).toEqual(['Create']);
   });
 

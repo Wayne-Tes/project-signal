@@ -3,6 +3,8 @@ import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import { db, scanRuns } from '@project-signal/db';
 import { getPublisher } from '@project-signal/messaging';
 import { requireBrandAccess, requireRole } from '../plugins/auth.js';
+import { ID_PARAMS } from '../lib/http.js';
+import { brandInTenant } from '../lib/tenancy.js';
 
 /**
  * On-demand scanning.
@@ -57,7 +59,7 @@ export const scanRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         security: [{ BearerAuth: [] }],
         description: 'Recent scan runs for this brand, newest first.',
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         response: { 200: { type: 'array', items: RUN_SCHEMA } },
       },
     },
@@ -90,13 +92,40 @@ export const scanRoutes: FastifyPluginAsync = async (fastify) => {
         security: [{ BearerAuth: [] }],
         description:
           'Queue a collection run for this brand. Returns the run record; poll /brands/:id/scans for progress.',
-        params: { type: 'object', properties: { id: { type: 'string' } } },
-        response: { 202: RUN_SCHEMA },
+        params: ID_PARAMS,
+        response: {
+          202: RUN_SCHEMA,
+          /* Declared, because fast-json-stringify strips every undeclared field: the in-flight
+             run this 409 returns — so the UI can show its progress — was being serialised away,
+             leaving `{}` where the run should be. */
+          409: {
+            type: 'object',
+            properties: {
+              status: { type: 'string' },
+              error: { type: 'string' },
+              run: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  status: { type: 'string' },
+                  startedAt: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
       },
     },
     async (request, reply) => {
       const tenantId = request.user.tenantId;
       const brandEntityId = request.params.id;
+
+      /* The brand must be the caller's. requireBrandAccess does not constrain an admin, and the
+         run row and queue message carry the CALLER's tenant with the URL's brand id — so without
+         this an admin could queue collection against another tenant's brand. */
+      if (!(await brandInTenant(tenantId, brandEntityId))) {
+        return reply.notFound('Brand not found');
+      }
 
       /* Debounce. Checked before anything is written, so a double-click cannot create two runs
          and two queue messages. This is a read-then-write and therefore racy under genuinely

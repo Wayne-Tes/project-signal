@@ -53,8 +53,8 @@ import signalsRoutes from '../../src/routes/signals.js';
 const now = new Date();
 const signal = (id: string) => ({
   id,
-  tenantId: 'tenant-1',
-  brandEntityId: 'brand-1',
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  brandEntityId: 'b1111111-1111-4111-8111-111111111111',
   source: 'google_reviews',
   sourceUrl: 'https://maps.google.com/review/1',
   rawStorageRef: 's3://bucket/1',
@@ -72,7 +72,10 @@ describe('GET /brands/:id/signals', () => {
   it('returns signals for a brand', async () => {
     _dbRows = [signal('s1'), signal('s2')];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals',
+    });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.items).toHaveLength(2);
@@ -85,13 +88,16 @@ describe('GET /brands/:id/signals', () => {
   it('serialises signal fields rather than empty objects', async () => {
     _dbRows = [signal('s1')];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals',
+    });
 
     const [item] = JSON.parse(res.body).items;
     expect(item).toMatchObject({
       id: 's1',
-      tenantId: 'tenant-1',
-      brandEntityId: 'brand-1',
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      brandEntityId: 'b1111111-1111-4111-8111-111111111111',
       source: 'google_reviews',
       sourceUrl: 'https://maps.google.com/review/1',
       rawStorageRef: 's3://bucket/1',
@@ -104,7 +110,10 @@ describe('GET /brands/:id/signals', () => {
     const items = Array.from({ length: 51 }, (_, i) => signal(`s${i}`));
     _dbRows = items;
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals?limit=50' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals?limit=50',
+    });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.items).toHaveLength(50);
@@ -114,7 +123,10 @@ describe('GET /brands/:id/signals', () => {
   it('returns empty items when brand has no signals', async () => {
     _dbRows = [];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals',
+    });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({ items: [], nextCursor: null });
   });
@@ -124,7 +136,10 @@ describe('GET /brands/:id/signals', () => {
   it('orders by published_at then id so the keyset is deterministic', async () => {
     _dbRows = [signal('s1')];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+    await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals',
+    });
 
     const { db } = await import('@project-signal/db');
     expect(
@@ -136,7 +151,10 @@ describe('GET /brands/:id/signals', () => {
     const items = Array.from({ length: 51 }, (_, i) => signal(`s${i}`));
     _dbRows = items;
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals?limit=50' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals?limit=50',
+    });
 
     const { nextCursor } = JSON.parse(res.body);
     const decoded = Buffer.from(nextCursor, 'base64url').toString('utf8');
@@ -148,7 +166,7 @@ describe('GET /brands/:id/signals', () => {
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'GET',
-      url: '/brands/brand-1/signals?cursor=not-a-real-cursor',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals?cursor=not-a-real-cursor',
     });
     expect(res.statusCode).toBe(400);
   });
@@ -175,14 +193,20 @@ describe('brand-scoped authorisation', () => {
             ]
           : [];
       const app = await buildTestApp(signalsRoutes, DEFAULT_PINNED_USER);
-      const res = await app.inject({ method: 'GET', url: `/brands/brand-1/${route}` });
+      const res = await app.inject({
+        method: 'GET',
+        url: `/brands/b1111111-1111-4111-8111-111111111111/${route}`,
+      });
       expect(res.statusCode).toBe(200);
     });
 
     it(`forbids a pinned user from reading another brand's ${route}`, async () => {
       _dbRows = [];
       const app = await buildTestApp(signalsRoutes, DEFAULT_PINNED_USER);
-      const res = await app.inject({ method: 'GET', url: `/brands/brand-2/${route}` });
+      const res = await app.inject({
+        method: 'GET',
+        url: `/brands/b2222222-2222-4222-8222-222222222222/${route}`,
+      });
       expect(res.statusCode).toBe(403);
     });
 
@@ -201,7 +225,10 @@ describe('brand-scoped authorisation', () => {
             ]
           : [];
       const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-      const res = await app.inject({ method: 'GET', url: `/brands/brand-2/${route}` });
+      const res = await app.inject({
+        method: 'GET',
+        url: `/brands/b2222222-2222-4222-8222-222222222222/${route}`,
+      });
       expect(res.statusCode).toBe(200);
     });
   }
@@ -220,7 +247,10 @@ describe('GET /brands/:id/sentiment-summary', () => {
       },
     ];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/sentiment-summary' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/sentiment-summary',
+    });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.totalCount).toBe(10);
@@ -241,7 +271,10 @@ describe('GET /brands/:id/sentiment-summary', () => {
       },
     ];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/sentiment-summary' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/sentiment-summary',
+    });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.totalCount).toBe(0);
@@ -279,7 +312,10 @@ describe('the evidence a signal carries', () => {
   it('returns the text, the author and the rating', async () => {
     _dbRows = [scored];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals',
+    });
 
     expect(res.statusCode).toBe(200);
     expect(res.json().items[0]).toMatchObject({
@@ -295,7 +331,10 @@ describe('the evidence a signal carries', () => {
        source — a manager reads it here, then follows the link to reply or see context. */
     _dbRows = [scored];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals',
+    });
 
     expect(res.json().items[0].sourceUrl).toBe('https://maps.google.com/review/1');
   });
@@ -306,7 +345,10 @@ describe('the evidence a signal carries', () => {
        "what was said" stays distinguishable from "what we concluded". */
     _dbRows = [scored];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals',
+    });
 
     expect(res.json().items[0].sentiment).toEqual({
       label: 'negative',
@@ -323,7 +365,10 @@ describe('the evidence a signal carries', () => {
        and the UI renders the two differently. */
     _dbRows = [{ ...signal('s-2'), content: 'Not yet scored', label: null }];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals',
+    });
 
     expect(res.json().items).toHaveLength(1);
     expect(res.json().items[0].sentiment).toBeNull();
@@ -335,7 +380,10 @@ describe('the evidence a signal carries', () => {
        it can say "not yet recovered" rather than implying the source said nothing. */
     _dbRows = [{ ...signal('s-3'), content: null }];
     const app = await buildTestApp(signalsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/signals' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/signals',
+    });
 
     expect(res.json().items[0].content).toBeNull();
   });

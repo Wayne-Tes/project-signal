@@ -4,6 +4,7 @@ import { CRM_PROVIDERS, isCrmProvider } from '@project-signal/shared-types';
 import { and, eq } from 'drizzle-orm';
 import { requireRole } from '../plugins/auth.js';
 import { deleteTokens, writeTokens, type CrmTokens } from '../lib/crm-secrets.js';
+import { ID_PARAMS } from '../lib/http.js';
 
 /**
  * CRM connections — the plumbing, deliberately stopping short of a connector.
@@ -105,13 +106,21 @@ const crmRoutes: FastifyPluginAsync = async (fastify) => {
           'Stores CRM OAuth tokens in Secrets Manager and records the connection. The tokens are never stored in Postgres and never returned.',
         body: {
           type: 'object',
+          additionalProperties: false,
           properties: {
-            provider: { type: 'string' },
-            instanceUrl: { type: 'string' },
-            accessToken: { type: 'string', minLength: 1 },
-            refreshToken: { type: 'string', minLength: 1 },
-            expiresAt: { type: 'integer' },
-            scopes: { type: 'array', items: { type: 'string' } },
+            provider: { type: 'string', maxLength: 32 },
+            /* HTTPS only. This is the host the future sync will send the tenant's OAuth token to;
+               an `http://` or arbitrary-scheme value would hand that token to anyone on the path,
+               or to an internal address. Validated now so a bad value can never be stored. */
+            instanceUrl: { type: 'string', format: 'uri', pattern: '^https://', maxLength: 512 },
+            accessToken: { type: 'string', minLength: 1, maxLength: 8192 },
+            refreshToken: { type: 'string', minLength: 1, maxLength: 8192 },
+            expiresAt: { type: 'integer', minimum: 0 },
+            scopes: {
+              type: 'array',
+              maxItems: 100,
+              items: { type: 'string', maxLength: 256 },
+            },
           },
           required: ['provider', 'accessToken', 'refreshToken', 'expiresAt'],
         },
@@ -163,37 +172,58 @@ const crmRoutes: FastifyPluginAsync = async (fastify) => {
 
       /* The secret is written BEFORE the row, so `secret_arn` can never point at a secret that
          does not exist — the same ordering, for the same reason, as raw payloads before signals. */
-      const secretArn = await writeTokens(tenantId, body.provider, tokens);
+      const { arn: secretArn, created } = await writeTokens(tenantId, body.provider, tokens);
 
-      const [row] = await db
-        .get()
-        .insert(crmConnections)
-        .values({
-          tenantId,
-          provider: body.provider,
-          instanceUrl: body.instanceUrl?.trim() || null,
-          secretArn,
-          scopes: body.scopes ?? [],
-          connectedBy: request.user.uid,
-          status: 'active',
-        })
-        /* Reconnecting after a revoked grant must succeed rather than collide with the unique
-           constraint. The secret was already overwritten above, so the ARN is current. */
-        .onConflictDoUpdate({
-          target: [crmConnections.tenantId, crmConnections.provider],
-          set: {
+      /* The converse window: secret written, row insert failed. A secret this call CREATED is then
+         an orphan holding a live credential that no connection references, so it is scheduled for
+         deletion before the error propagates. One that already existed is left alone — an
+         existing connection still points at it. */
+      const instanceUrl = body.instanceUrl?.trim() || null;
+      let row: typeof crmConnections.$inferSelect | undefined;
+      try {
+        [row] = await db
+          .get()
+          .insert(crmConnections)
+          .values({
+            tenantId,
+            provider: body.provider,
+            instanceUrl,
             secretArn,
-            instanceUrl: body.instanceUrl?.trim() || null,
             scopes: body.scopes ?? [],
             connectedBy: request.user.uid,
             status: 'active',
-            lastError: null,
-            updatedAt: new Date(),
-          },
-        })
-        .returning();
+          })
+          /* Reconnecting after a revoked grant must succeed rather than collide with the unique
+             constraint. The secret was already overwritten above, so the ARN is current. */
+          .onConflictDoUpdate({
+            target: [crmConnections.tenantId, crmConnections.provider],
+            set: {
+              secretArn,
+              instanceUrl,
+              scopes: body.scopes ?? [],
+              connectedBy: request.user.uid,
+              status: 'active',
+              lastError: null,
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+      } catch (err) {
+        if (created) {
+          try {
+            await deleteTokens(secretArn);
+          } catch (cleanupErr) {
+            request.log.error(
+              { err: cleanupErr, secretArn },
+              'CRM secret orphaned after a failed connection insert',
+            );
+          }
+        }
+        throw err;
+      }
 
-      return reply.status(201).send(toWire(row!));
+      if (!row) return reply.internalServerError('The connection could not be recorded.');
+      return reply.status(201).send(toWire(row));
     },
   );
 
@@ -210,7 +240,7 @@ const crmRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireRole('admin', 'owner'),
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
       },
     },
     async (request, reply) => {
@@ -220,9 +250,7 @@ const crmRoutes: FastifyPluginAsync = async (fastify) => {
         .get()
         .delete(crmConnections)
         /* Id AND tenant. The id alone would let one tenant disconnect another's CRM. */
-        .where(
-          and(eq(crmConnections.id, id), eq(crmConnections.tenantId, request.user.tenantId)),
-        )
+        .where(and(eq(crmConnections.id, id), eq(crmConnections.tenantId, request.user.tenantId)))
         .returning();
 
       if (!row) return reply.notFound('Connection not found');

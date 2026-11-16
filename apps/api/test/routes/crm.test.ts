@@ -31,12 +31,12 @@ import crmRoutes from '../../src/routes/crm.js';
 
 const now = new Date();
 const row = (over: Record<string, unknown> = {}) => ({
-  id: 'conn-1',
+  id: 'd1111111-1111-4111-8111-111111111111',
   provider: 'hubspot',
   instanceUrl: null,
   secretArn: 'arn:aws:secretsmanager:eu-west-2:1:secret:psignal-dev-crm/t/hubspot',
   scopes: ['crm.objects.companies.read'],
-  connectedBy: 'user-1',
+  connectedBy: 'a1111111-1111-4111-8111-111111111111',
   status: 'active',
   lastSyncedAt: null,
   lastAttemptedAt: null,
@@ -58,7 +58,10 @@ beforeEach(() => {
   _rows = [];
   _written.length = 0;
   vi.clearAllMocks();
-  mockWrite.mockResolvedValue('arn:aws:secretsmanager:eu-west-2:1:secret:psignal-dev-crm/t/hubspot');
+  mockWrite.mockResolvedValue({
+    arn: 'arn:aws:secretsmanager:eu-west-2:1:secret:psignal-dev-crm/t/hubspot',
+    created: true,
+  });
   mockDelete.mockResolvedValue(undefined);
 });
 
@@ -146,7 +149,10 @@ describe('DELETE /crm/connections/:id', () => {
   it('removes the row and schedules the secret for deletion', async () => {
     _rows = [row()];
     const app = await buildTestApp(crmRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'DELETE', url: '/crm/connections/conn-1' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/crm/connections/d1111111-1111-4111-8111-111111111111',
+    });
 
     expect(res.statusCode).toBe(204);
     expect(mockDelete).toHaveBeenCalledWith(row().secretArn);
@@ -160,15 +166,96 @@ describe('DELETE /crm/connections/:id', () => {
     _rows = [row()];
     mockDelete.mockRejectedValue(new Error('AccessDenied'));
     const app = await buildTestApp(crmRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'DELETE', url: '/crm/connections/conn-1' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/crm/connections/d1111111-1111-4111-8111-111111111111',
+    });
     expect(res.statusCode).toBe(204);
   });
 
   it('404s for a connection that is not this tenant’s', async () => {
     _rows = [];
     const app = await buildTestApp(crmRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'DELETE', url: '/crm/connections/someone-else' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/crm/connections/f0000000-0000-4000-8000-00000000f0e1',
+    });
     expect(res.statusCode).toBe(404);
+  });
+
+  it('rejects a malformed id at the schema', async () => {
+    const app = await buildTestApp(crmRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'DELETE', url: '/crm/connections/someone-else' });
+    expect(res.statusCode).toBe(400);
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /crm/connections — hardening', () => {
+  it.each([
+    ['plain http', 'http://acme.my.salesforce.com'],
+    ['another scheme', 'file:///etc/passwd'],
+    ['not a URL', 'acme.my.salesforce.com'],
+  ])('refuses an instance URL that is %s', async (_label, instanceUrl) => {
+    /* The future sync sends the tenant's OAuth token to this host. Anything but https would hand
+       it to whoever is on the path, or to an internal address. */
+    const app = await buildTestApp(crmRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/crm/connections',
+      payload: { ...body, provider: 'salesforce', instanceUrl },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockWrite).not.toHaveBeenCalled();
+  });
+
+  it('schedules a NEWLY created secret for deletion when the row insert fails', async () => {
+    /* Otherwise the secret is an orphan: a live credential no connection references. */
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as unknown as { returning: ReturnType<typeof vi.fn> };
+    chain.returning.mockRejectedValueOnce(new Error('insert failed'));
+    const app = await buildTestApp(crmRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'POST', url: '/crm/connections', payload: body });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).not.toContain('insert failed');
+    expect(mockDelete).toHaveBeenCalledWith(
+      'arn:aws:secretsmanager:eu-west-2:1:secret:psignal-dev-crm/t/hubspot',
+    );
+  });
+
+  it('leaves an EXISTING secret alone when the insert fails — a connection still uses it', async () => {
+    mockWrite.mockResolvedValueOnce({ arn: 'arn:existing', created: false });
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as unknown as { returning: ReturnType<typeof vi.fn> };
+    chain.returning.mockRejectedValueOnce(new Error('insert failed'));
+    const app = await buildTestApp(crmRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'POST', url: '/crm/connections', payload: body });
+
+    expect(res.statusCode).toBe(500);
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it('still fails with the insert error when the cleanup also fails', async () => {
+    mockDelete.mockRejectedValueOnce(new Error('cleanup failed'));
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as unknown as { returning: ReturnType<typeof vi.fn> };
+    chain.returning.mockRejectedValueOnce(new Error('insert failed'));
+    const app = await buildTestApp(crmRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'POST', url: '/crm/connections', payload: body });
+    expect(res.statusCode).toBe(500);
+  });
+
+  it('strips undeclared body fields such as a tenant id', async () => {
+    _rows = [row()];
+    const app = await buildTestApp(crmRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/crm/connections',
+      payload: { ...body, tenantId: '22222222-2222-4222-8222-222222222222' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(_written.at(-1)).toMatchObject({ tenantId: DEFAULT_ADMIN.tenantId });
   });
 });
 

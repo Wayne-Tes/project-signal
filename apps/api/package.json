@@ -9,6 +9,7 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "generate": "drizzle-kit generate",
     "seed": "tsx --env-file-if-exists=../../.env scripts/seed.ts",
     "bootstrap-owner": "tsx --env-file-if-exists=../../.env scripts/bootstrap-owner.ts"

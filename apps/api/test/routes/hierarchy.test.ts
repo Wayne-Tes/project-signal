@@ -7,7 +7,18 @@ const rowQueue: unknown[][] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'insert', 'values', 'update', 'set', 'delete', 'orderBy', 'limit', 'innerJoin']) {
+  for (const m of [
+    'select',
+    'from',
+    'insert',
+    'values',
+    'update',
+    'set',
+    'delete',
+    'orderBy',
+    'limit',
+    'innerJoin',
+  ]) {
     chain[m] = vi.fn(() => chain);
   }
   chain['where'] = vi.fn((c: unknown) => {
@@ -20,12 +31,24 @@ vi.mock('@project-signal/db', () => {
   return {
     db: { get: vi.fn(() => chain) },
     brandEntities: {
-      id: 'id', tenantId: 'tenant_id', name: 'name', slug: 'slug',
-      parentId: 'parent_id', kind: 'kind', isOwned: 'is_owned',
+      id: 'id',
+      tenantId: 'tenant_id',
+      name: 'name',
+      slug: 'slug',
+      parentId: 'parent_id',
+      kind: 'kind',
+      isOwned: 'is_owned',
     },
-    tenants: {}, signals: {}, users: {}, sentimentResults: {},
-    dimensionScores: {}, sourceConfigs: {}, brandAliases: {},
-    conversations: {}, conversationMessages: {}, client: { get: vi.fn() },
+    tenants: {},
+    signals: {},
+    users: {},
+    sentimentResults: {},
+    dimensionScores: {},
+    sourceConfigs: {},
+    brandAliases: {},
+    conversations: {},
+    conversationMessages: {},
+    client: { get: vi.fn() },
   };
 });
 
@@ -42,8 +65,24 @@ const { wouldCreateCycle, slugify } = await import('../../src/routes/brands.js')
  */
 
 const AUTH = { authorization: 'Bearer t' };
-const ROOT = { id: 'b-tes', tenantId: 'tenant-1', name: 'Tes', slug: 'tes', parentId: null, kind: 'brand', isOwned: true };
-const CHILD = { id: 'p-assess', tenantId: 'tenant-1', name: 'Tes Assess', slug: 'tes-assess', parentId: 'b-tes', kind: 'product', isOwned: true };
+const ROOT = {
+  id: 'b0000000-0000-4000-8000-0000000000e5',
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  name: 'Tes',
+  slug: 'tes',
+  parentId: null,
+  kind: 'brand',
+  isOwned: true,
+};
+const CHILD = {
+  id: 'a5500000-0000-4000-8000-0000000000a5',
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  name: 'Tes Assess',
+  slug: 'tes-assess',
+  parentId: 'b0000000-0000-4000-8000-0000000000e5',
+  kind: 'product',
+  isOwned: true,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -68,27 +107,46 @@ describe('slugify', () => {
 
 describe('wouldCreateCycle', () => {
   it('refuses an entity as its own parent', async () => {
-    expect(await wouldCreateCycle('tenant-1', 'a', 'a')).toBe(true);
+    expect(await wouldCreateCycle('11111111-1111-4111-8111-111111111111', 'a', 'a')).toBe(true);
   });
 
   it('refuses a parent that is already a descendant', async () => {
     /* Re-parenting Tes under Tes Assess. The walk from Tes Assess upward reaches Tes, so the
        edge would close a loop. */
-    rowQueue.push([{ parentId: 'b-tes' }]);
-    expect(await wouldCreateCycle('tenant-1', 'b-tes', 'p-assess')).toBe(true);
+    rowQueue.push([{ parentId: 'b0000000-0000-4000-8000-0000000000e5' }]);
+    expect(
+      await wouldCreateCycle(
+        '11111111-1111-4111-8111-111111111111',
+        'b0000000-0000-4000-8000-0000000000e5',
+        'a5500000-0000-4000-8000-0000000000a5',
+      ),
+    ).toBe(true);
   });
 
   it('allows an unrelated parent', async () => {
     rowQueue.push([{ parentId: null }]);
-    expect(await wouldCreateCycle('tenant-1', 'p-assess', 'b-other')).toBe(false);
+    expect(
+      await wouldCreateCycle(
+        '11111111-1111-4111-8111-111111111111',
+        'a5500000-0000-4000-8000-0000000000a5',
+        'b-other',
+      ),
+    ).toBe(false);
   });
 
   it('terminates on data that is ALREADY cyclic', async () => {
     /* The belt-and-braces case. If corrupt data reaches the table by some other path, the walk
        that would have detected it must still finish — otherwise the guard hangs the very request
        that was trying to protect the tree. Every lookup here returns a parent, forever. */
-    for (let i = 0; i < 40; i += 1) rowQueue.push([{ parentId: 'loop' }]);
-    await expect(wouldCreateCycle('tenant-1', 'x', 'loop')).resolves.toBe(true);
+    for (let i = 0; i < 40; i += 1)
+      rowQueue.push([{ parentId: '1000b000-0000-4000-8000-000000000001' }]);
+    await expect(
+      wouldCreateCycle(
+        '11111111-1111-4111-8111-111111111111',
+        'x',
+        '1000b000-0000-4000-8000-000000000001',
+      ),
+    ).resolves.toBe(true);
   });
 });
 
@@ -101,24 +159,26 @@ describe('GET /brands/tree', () => {
     expect(res.statusCode).toBe(200);
     const tree = JSON.parse(res.body);
     expect(tree).toHaveLength(1);
-    expect(tree[0].id).toBe('b-tes');
-    expect(tree[0].children[0].id).toBe('p-assess');
+    expect(tree[0].id).toBe('b0000000-0000-4000-8000-0000000000e5');
+    expect(tree[0].children[0].id).toBe('a5500000-0000-4000-8000-0000000000a5');
   });
 
   it('surfaces an orphan as a root rather than dropping it', async () => {
     /* A child whose parent is missing — or belongs to another tenant, so the tenant-filtered
        query never returned it — must remain visible. Vanishing would hide a real data fault
        behind an empty space in the UI. */
-    rows = [{ ...CHILD, parentId: 'gone' }];
+    rows = [{ ...CHILD, parentId: '60e00000-0000-4000-8000-000000000060' }];
     const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
-    const tree = JSON.parse((await app.inject({ method: 'GET', url: '/brands/tree', headers: AUTH })).body);
+    const tree = JSON.parse(
+      (await app.inject({ method: 'GET', url: '/brands/tree', headers: AUTH })).body,
+    );
     expect(tree).toHaveLength(1);
-    expect(tree[0].id).toBe('p-assess');
+    expect(tree[0].id).toBe('a5500000-0000-4000-8000-0000000000a5');
   });
 
   it('does not hang on a self-parented row', async () => {
     /* The tree builder must terminate on corrupt data regardless of what the write path allows. */
-    rows = [{ ...ROOT, parentId: 'b-tes' }];
+    rows = [{ ...ROOT, parentId: 'b0000000-0000-4000-8000-0000000000e5' }];
     const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({ method: 'GET', url: '/brands/tree', headers: AUTH });
     expect(res.statusCode).toBe(200);
@@ -131,17 +191,37 @@ describe('GET /brands/tree', () => {
     await app.inject({ method: 'GET', url: '/brands/tree', headers: AUTH });
     expect(JSON.stringify(whereCalls)).toContain('tenant_id');
   });
+
+  it('confines a pinned user to their own brand, as GET /brands does', async () => {
+    /* The intra-tenant leak: this route returned every brand, product and tracked competitor in
+       the tenant to a `user` pinned to one brand. The query must now carry the pin. */
+    rows = [ROOT];
+    const app = await buildTestApp(brandsRoutes, DEFAULT_PINNED_USER);
+    const res = await app.inject({ method: 'GET', url: '/brands/tree', headers: AUTH });
+    expect(res.statusCode).toBe(200);
+    const where = JSON.stringify(whereCalls);
+    expect(where).toContain('tenant_id');
+    expect(where).toContain(DEFAULT_PINNED_USER.brandEntityId!);
+  });
+
+  it('does not narrow an admin to any pin', async () => {
+    rows = [ROOT, CHILD];
+    const app = await buildTestApp(brandsRoutes, { ...DEFAULT_ADMIN, brandEntityId: CHILD.id });
+    const res = await app.inject({ method: 'GET', url: '/brands/tree', headers: AUTH });
+    expect(JSON.parse(res.body)[0].children).toHaveLength(1);
+    expect(JSON.stringify(whereCalls)).not.toContain(CHILD.id);
+  });
 });
 
 describe('POST /brands', () => {
   it('creates a product beneath a parent, defaulting kind', async () => {
-    rowQueue.push([{ id: 'b-tes' }], [CHILD]);
+    rowQueue.push([{ id: 'b0000000-0000-4000-8000-0000000000e5' }], [CHILD]);
     const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
       url: '/brands',
       headers: AUTH,
-      payload: { name: 'Tes Assess', parentId: 'b-tes' },
+      payload: { name: 'Tes Assess', parentId: 'b0000000-0000-4000-8000-0000000000e5' },
     });
     expect(res.statusCode).toBe(201);
     expect(JSON.parse(res.body).kind).toBe('product');
@@ -157,7 +237,7 @@ describe('POST /brands', () => {
       method: 'POST',
       url: '/brands',
       headers: AUTH,
-      payload: { name: 'Sneaky', parentId: 'other-tenants-brand' },
+      payload: { name: 'Sneaky', parentId: 'f0000000-0000-4000-8000-00000000f0e2' },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -175,20 +255,29 @@ describe('POST /brands', () => {
 
   it('rejects an empty name', async () => {
     const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'POST', url: '/brands', headers: AUTH, payload: { name: '' } });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/brands',
+      headers: AUTH,
+      payload: { name: '' },
+    });
     expect(res.statusCode).toBe(400);
   });
 });
 
 describe('PATCH /brands/:id', () => {
   it('refuses a re-parent that would create a cycle', async () => {
-    rowQueue.push([{ id: 'b-tes' }], [{ id: 'p-assess' }], [{ parentId: 'b-tes' }]);
+    rowQueue.push(
+      [{ id: 'b0000000-0000-4000-8000-0000000000e5' }],
+      [{ id: 'a5500000-0000-4000-8000-0000000000a5' }],
+      [{ parentId: 'b0000000-0000-4000-8000-0000000000e5' }],
+    );
     const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/b-tes',
+      url: '/brands/b0000000-0000-4000-8000-0000000000e5',
       headers: AUTH,
-      payload: { parentId: 'p-assess' },
+      payload: { parentId: 'a5500000-0000-4000-8000-0000000000a5' },
     });
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body).message).toMatch(/own ancestor/i);
@@ -197,11 +286,14 @@ describe('PATCH /brands/:id', () => {
   it('distinguishes "not supplied" from "promote to root"', async () => {
     /* `undefined` and `null` must not collapse: if they did, a product could never be detached
        from its parent. */
-    rowQueue.push([{ id: 'p-assess' }], [{ ...CHILD, parentId: null, kind: 'brand' }]);
+    rowQueue.push(
+      [{ id: 'a5500000-0000-4000-8000-0000000000a5' }],
+      [{ ...CHILD, parentId: null, kind: 'brand' }],
+    );
     const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/p-assess',
+      url: '/brands/a5500000-0000-4000-8000-0000000000a5',
       headers: AUTH,
       payload: { parentId: null },
     });
@@ -212,11 +304,14 @@ describe('PATCH /brands/:id', () => {
   it('renames, and regenerates the slug to match', async () => {
     /* A renamed entity whose slug still says "class-chart" is a link that lies about what it
        points at. The slug is derived, so it moves with the name. */
-    rowQueue.push([{ id: 'p1' }], [{ ...CHILD, name: 'Class Charts', slug: 'class-charts' }]);
+    rowQueue.push(
+      [{ id: 'a1000000-0000-4000-8000-0000000000a1' }],
+      [{ ...CHILD, name: 'Class Charts', slug: 'class-charts' }],
+    );
     const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/p1',
+      url: '/brands/a1000000-0000-4000-8000-0000000000a1',
       headers: AUTH,
       payload: { name: 'Class Charts' },
     });
@@ -226,11 +321,11 @@ describe('PATCH /brands/:id', () => {
   });
 
   it('trims a name rather than storing the whitespace', async () => {
-    rowQueue.push([{ id: 'p1' }], [CHILD]);
+    rowQueue.push([{ id: 'a1000000-0000-4000-8000-0000000000a1' }], [CHILD]);
     const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/p1',
+      url: '/brands/a1000000-0000-4000-8000-0000000000a1',
       headers: AUTH,
       payload: { name: '  Class Charts  ' },
     });
@@ -242,7 +337,7 @@ describe('PATCH /brands/:id', () => {
     const app = await buildTestApp(brandsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/theirs',
+      url: '/brands/f0000000-0000-4000-8000-00000000f0e1',
       headers: AUTH,
       payload: { name: 'Mine now' },
     });

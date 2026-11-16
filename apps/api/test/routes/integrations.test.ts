@@ -24,9 +24,19 @@ const _written: Record<string, unknown>[] = [];
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
   for (const m of [
-    'select', 'from', 'where', 'insert', 'update', 'set',
-    'innerJoin', 'leftJoin', 'groupBy', 'limit', 'offset',
-    'onConflictDoUpdate', 'onConflictDoNothing',
+    'select',
+    'from',
+    'where',
+    'insert',
+    'update',
+    'set',
+    'innerJoin',
+    'leftJoin',
+    'groupBy',
+    'limit',
+    'offset',
+    'onConflictDoUpdate',
+    'onConflictDoNothing',
   ]) {
     chain[m] = vi.fn(() => chain);
   }
@@ -45,8 +55,14 @@ vi.mock('@project-signal/db', () => {
   chain['transaction'] = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(chain));
   return {
     db: { get: vi.fn(() => chain) },
-    tenants: {}, brandEntities: {}, signals: {}, users: {},
-    sentimentResults: {}, dimensionScores: {}, sourceConfigs: {}, client: { get: vi.fn() },
+    tenants: {},
+    brandEntities: {},
+    signals: {},
+    users: {},
+    sentimentResults: {},
+    dimensionScores: {},
+    sourceConfigs: {},
+    client: { get: vi.fn() },
   };
 });
 
@@ -56,9 +72,9 @@ const now = new Date();
 
 function feed(over: Record<string, unknown> = {}) {
   return {
-    id: 'cfg-1',
-    tenantId: 'tenant-1',
-    brandEntityId: 'brand-1',
+    id: 'c1111111-1111-4111-8111-111111111111',
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    brandEntityId: 'b1111111-1111-4111-8111-111111111111',
     source: 'rss',
     label: null,
     isEnabled: true,
@@ -70,10 +86,11 @@ function feed(over: Record<string, unknown> = {}) {
   };
 }
 
-/** POST reads existing feeds first, then inserts. Two queued results, in that order. */
+/** POST confirms the brand is the caller's, reads existing feeds, then inserts — three queued
+    results, in that order. */
 function postSequence(existing: unknown[], created: unknown) {
   _dbRowQueue.length = 0;
-  _dbRowQueue.push(existing, [created]);
+  _dbRowQueue.push([{ id: 'b1111111-1111-4111-8111-111111111111' }], existing, [created]);
 }
 
 beforeEach(() => {
@@ -86,9 +103,18 @@ beforeEach(() => {
 
 describe('GET /brands/:id/integrations', () => {
   it('returns every configured feed', async () => {
-    _dbRows = [feed(), feed({ id: 'cfg-2', config: { feedUrl: 'https://b.example/feed.xml' } })];
+    _dbRows = [
+      feed(),
+      feed({
+        id: 'c2222222-2222-4222-8222-222222222222',
+        config: { feedUrl: 'https://b.example/feed.xml' },
+      }),
+    ];
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/integrations' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
+    });
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
@@ -97,7 +123,10 @@ describe('GET /brands/:id/integrations', () => {
 
   it('is refused to a plain user', async () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/integrations' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
+    });
     expect(res.statusCode).toBe(403);
   });
 });
@@ -107,13 +136,21 @@ describe('POST /brands/:id/integrations', () => {
     /* The whole point. Two Google News searches — one per product — on the same brand. This was
        impossible: the second silently replaced the first. */
     postSequence(
-      [{ id: 'cfg-1', config: { feedUrl: 'https://news.google.com/rss/search?q=%22Tes+Global%22' } }],
-      feed({ id: 'cfg-2', config: { feedUrl: 'https://news.google.com/rss/search?q=%22Tes+MyConcern%22' } }),
+      [
+        {
+          id: 'c1111111-1111-4111-8111-111111111111',
+          config: { feedUrl: 'https://news.google.com/rss/search?q=%22Tes+Global%22' },
+        },
+      ],
+      feed({
+        id: 'c2222222-2222-4222-8222-222222222222',
+        config: { feedUrl: 'https://news.google.com/rss/search?q=%22Tes+MyConcern%22' },
+      }),
     );
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
       payload: {
         source: 'rss',
         config: { feedUrl: 'https://news.google.com/rss/search?q=%22Tes+MyConcern%22' },
@@ -121,7 +158,7 @@ describe('POST /brands/:id/integrations', () => {
     });
 
     expect(res.statusCode).toBe(201);
-    expect(JSON.parse(res.body).data.id).toBe('cfg-2');
+    expect(JSON.parse(res.body).data.id).toBe('c2222222-2222-4222-8222-222222222222');
   });
 
   it('returns 201, not 200 — this is no longer an upsert', async () => {
@@ -129,7 +166,7 @@ describe('POST /brands/:id/integrations', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
       payload: { source: 'rss', config: { feedUrl: 'https://a.example/feed.xml' } },
     });
     expect(res.statusCode).toBe(201);
@@ -140,7 +177,7 @@ describe('POST /brands/:id/integrations', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
       payload: {
         source: 'rss',
         label: 'Google News — MyConcern',
@@ -153,11 +190,19 @@ describe('POST /brands/:id/integrations', () => {
   it('refuses an EXACT duplicate, and says so', async () => {
     /* A double-click, not a second feed. Collecting the same URL twice doubles that feed's cost
        for nothing. */
-    postSequence([{ id: 'cfg-1', config: { feedUrl: 'https://a.example/feed.xml' } }], feed());
+    postSequence(
+      [
+        {
+          id: 'c1111111-1111-4111-8111-111111111111',
+          config: { feedUrl: 'https://a.example/feed.xml' },
+        },
+      ],
+      feed(),
+    );
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
       payload: { source: 'rss', config: { feedUrl: 'https://a.example/feed.xml' } },
     });
 
@@ -168,11 +213,19 @@ describe('POST /brands/:id/integrations', () => {
   it('treats key order as irrelevant when detecting a duplicate', async () => {
     /* `{appId, country}` and `{country, appId}` are the same feed. A JSON.stringify comparison
        would call them different and let the duplicate through. */
-    postSequence([{ id: 'cfg-1', config: { country: 'gb', appId: '284882215' } }], feed());
+    postSequence(
+      [
+        {
+          id: 'c1111111-1111-4111-8111-111111111111',
+          config: { country: 'gb', appId: '284882215' },
+        },
+      ],
+      feed(),
+    );
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
       payload: { source: 'app_store', config: { appId: '284882215', country: 'gb' } },
     });
 
@@ -184,7 +237,7 @@ describe('POST /brands/:id/integrations', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
       payload: { source: 'reddit', config: { query: '"Tes MyConcern"', subreddit: 'TeachingUK' } },
     });
 
@@ -195,7 +248,7 @@ describe('POST /brands/:id/integrations', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
       payload: { source: 'trustpilot', config: { x: 'y' } },
     });
 
@@ -207,10 +260,58 @@ describe('POST /brands/:id/integrations', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
       payload: { source: 'rss' },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("404s — and writes nothing — for a brand outside the caller's tenant", async () => {
+    /* Without this an admin could point a feed at another tenant's brand by pasting its id, and
+       collection would then write signals against that brand. */
+    _dbRowQueue.push([]);
+    const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/brands/f0000000-0000-4000-8000-00000000f0e2/integrations',
+      payload: { source: 'rss', config: { feedUrl: 'https://a.example/feed.xml' } },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(_written).toHaveLength(0);
+  });
+
+  it('turns a non-string label into a 400, where it used to throw a 500', async () => {
+    /* No schema existed: `label.trim()` on a number threw inside the handler. */
+    const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
+      payload: {
+        source: 'rss',
+        config: { feedUrl: 'https://a.example/feed.xml' },
+        label: { x: 1 },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('never lets the body choose the tenant or brand it is written under', async () => {
+    postSequence([], feed());
+    const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
+    await app.inject({
+      method: 'POST',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
+      payload: {
+        source: 'rss',
+        config: { feedUrl: 'https://a.example/x.xml' },
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        brandEntityId: 'f0000000-0000-4000-8000-00000000f0e2',
+      },
+    });
+    expect(_written.at(-1)).toMatchObject({
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      brandEntityId: 'b1111111-1111-4111-8111-111111111111',
+    });
   });
 });
 
@@ -227,7 +328,7 @@ describe('territory on a feed', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
       payload: { source: 'rss', config: { feedUrl: 'https://example.test/f.xml' } },
     });
 
@@ -242,8 +343,12 @@ describe('territory on a feed', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
-      payload: { source: 'rss', config: { feedUrl: 'https://example.test/g.xml' }, territory: 'UK' },
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
+      payload: {
+        source: 'rss',
+        config: { feedUrl: 'https://example.test/g.xml' },
+        territory: 'UK',
+      },
     });
 
     expect(res.statusCode).toBe(201);
@@ -255,8 +360,12 @@ describe('territory on a feed', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
-      payload: { source: 'rss', config: { feedUrl: 'https://example.test/h.xml' }, territory: 'EMEA' },
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
+      payload: {
+        source: 'rss',
+        config: { feedUrl: 'https://example.test/h.xml' },
+        territory: 'EMEA',
+      },
     });
 
     expect(res.statusCode).toBe(400);
@@ -270,8 +379,12 @@ describe('territory on a feed', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'POST',
-      url: '/brands/brand-1/integrations',
-      payload: { source: 'rss', config: { feedUrl: 'https://example.test/i.xml' }, territory: 'Global?' },
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations',
+      payload: {
+        source: 'rss',
+        config: { feedUrl: 'https://example.test/i.xml' },
+        territory: 'Global?',
+      },
     });
 
     expect(res.statusCode).toBe(400);
@@ -284,7 +397,7 @@ describe('PATCH /brands/:id/integrations/:configId', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/integrations/cfg-1',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations/c1111111-1111-4111-8111-111111111111',
       payload: { isEnabled: false },
     });
 
@@ -297,7 +410,7 @@ describe('PATCH /brands/:id/integrations/:configId', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/integrations/cfg-1',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations/c1111111-1111-4111-8111-111111111111',
       payload: { label: 'Renamed' },
     });
     expect(JSON.parse(res.body).data.label).toBe('Renamed');
@@ -308,7 +421,7 @@ describe('PATCH /brands/:id/integrations/:configId', () => {
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/integrations/nope',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations/00000000-0000-4000-8000-00000000dead',
       payload: { isEnabled: true },
     });
     expect(res.statusCode).toBe(404);
@@ -323,7 +436,10 @@ describe('DELETE /brands/:id/integrations/:configId', () => {
        Nothing collected is lost: `signals.source_config_id` is ON DELETE SET NULL. */
     _dbRows = [feed()];
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-1/integrations/cfg-1' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations/c1111111-1111-4111-8111-111111111111',
+    });
 
     expect(res.statusCode).toBe(200);
     expect(_ops).toContain('delete');
@@ -332,14 +448,20 @@ describe('DELETE /brands/:id/integrations/:configId', () => {
   it('404s for a feed that is not there', async () => {
     _dbRows = [];
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-1/integrations/nope' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations/00000000-0000-4000-8000-00000000dead',
+    });
     expect(res.statusCode).toBe(404);
   });
 
   it('is refused to a plain user', async () => {
     _dbRows = [feed()];
     const app = await buildTestApp(integrationsRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'DELETE', url: '/brands/brand-1/integrations/cfg-1' });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations/c1111111-1111-4111-8111-111111111111',
+    });
 
     expect(res.statusCode).toBe(403);
     expect(_ops).toEqual([]);
@@ -349,27 +471,61 @@ describe('DELETE /brands/:id/integrations/:configId', () => {
 describe('GET /brands/:id/integrations/stats', () => {
   it('reports what each feed has actually produced', async () => {
     _dbRows = [
-      { id: 'cfg-1', source: 'rss', label: 'Tes Global', isEnabled: true, lastFetchedAt: now, signalCount: 412, latestSignalAt: now },
-      { id: 'cfg-2', source: 'rss', label: 'Tes MyConcern', isEnabled: true, lastFetchedAt: now, signalCount: 0, latestSignalAt: null },
+      {
+        id: 'c1111111-1111-4111-8111-111111111111',
+        source: 'rss',
+        label: 'Tes Global',
+        isEnabled: true,
+        lastFetchedAt: now,
+        signalCount: 412,
+        latestSignalAt: now,
+      },
+      {
+        id: 'c2222222-2222-4222-8222-222222222222',
+        source: 'rss',
+        label: 'Tes MyConcern',
+        isEnabled: true,
+        lastFetchedAt: now,
+        signalCount: 0,
+        latestSignalAt: null,
+      },
     ];
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/integrations/stats' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations/stats',
+    });
 
     expect(res.statusCode).toBe(200);
     const rows = JSON.parse(res.body).data;
     /* The zero row is the important one. A feed that has collected nothing is the whole reason
        this endpoint exists — a dead feed and a quiet market look identical without it — and an
        inner join would have dropped it. */
-    expect(rows.find((r: { id: string }) => r.id === 'cfg-2').signalCount).toBe(0);
+    expect(
+      rows.find((r: { id: string }) => r.id === 'c2222222-2222-4222-8222-222222222222').signalCount,
+    ).toBe(0);
   });
 
   it('does not get swallowed by the :configId route', async () => {
     /* `/integrations/stats` and `/integrations/:configId` overlap. Fastify gives static segments
        priority, so this works — but it works by a router rule, not by anything visible in the
        file, and reordering the registrations would look harmless. */
-    _dbRows = [{ id: 'cfg-1', source: 'rss', label: null, isEnabled: true, lastFetchedAt: null, signalCount: 3, latestSignalAt: null }];
+    _dbRows = [
+      {
+        id: 'c1111111-1111-4111-8111-111111111111',
+        source: 'rss',
+        label: null,
+        isEnabled: true,
+        lastFetchedAt: null,
+        signalCount: 3,
+        latestSignalAt: null,
+      },
+    ];
     const app = await buildTestApp(integrationsRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/integrations/stats' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/integrations/stats',
+    });
 
     expect(JSON.parse(res.body).data[0]).toHaveProperty('signalCount');
   });

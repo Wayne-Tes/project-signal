@@ -1,8 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { db, users } from '@project-signal/db';
 import { and, eq } from 'drizzle-orm';
-import { requireRole, type UserRole } from '../plugins/auth.js';
+import { requireRole, USER_ROLES, type UserRole } from '../plugins/auth.js';
 import { setUserClaims } from '../lib/claims.js';
+import { ID_PARAMS, UUID } from '../lib/http.js';
+import { brandInTenant } from '../lib/tenancy.js';
 
 /**
  * Roles an `admin` may assign. An admin provisions their own tenant's users but cannot mint
@@ -33,12 +35,13 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
         body: {
           type: 'object',
           required: ['firebaseUid', 'email', 'role', 'tenantId'],
+          additionalProperties: false,
           properties: {
-            firebaseUid: { type: 'string' },
-            email: { type: 'string' },
-            role: { type: 'string', enum: ['owner', 'admin', 'user'] },
-            tenantId: { type: 'string' },
-            brandEntityId: { type: 'string' },
+            firebaseUid: { type: 'string', minLength: 1, maxLength: 128 },
+            email: { type: 'string', maxLength: 320 },
+            role: { type: 'string', enum: [...USER_ROLES] },
+            tenantId: UUID,
+            brandEntityId: UUID,
           },
         },
         response: { 201: USER_SCHEMA },
@@ -65,8 +68,14 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      if (body.brandEntityId && !(await brandInTenant(body.tenantId, body.brandEntityId))) {
+        return reply.badRequest(
+          'That brand does not belong to the tenant the user is being created in.',
+        );
+      }
+
       // Row and claims are written together: the claims call sits inside the transaction, so
-      // a Firebase failure rolls the row back rather than leaving an orphan the user cannot
+      // a Cognito failure rolls the row back rather than leaving an orphan the user cannot
       // authenticate as (KNOWN-GAPS #18).
       const user = await db.get().transaction(async (tx) => {
         const [created] = await tx
@@ -98,15 +107,21 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireRole('owner', 'admin'),
       schema: {
         security: [{ BearerAuth: [] }],
-        params: {
-          type: 'object',
-          properties: { id: { type: 'string' } },
-        },
+        params: ID_PARAMS,
         body: {
           type: 'object',
+          /* THE MASS-ASSIGNMENT FIX, part one. Without `additionalProperties: false` the body
+             schema constrained only the two keys it named and let everything else through — and
+             the handler spread the body straight into the UPDATE. An admin could PATCH their own
+             row with `{ tenantId: <another tenant> }` and the claims call below would then mint
+             them admin claims in that tenant; `{ firebaseUid: <someone's sub> }` overwrote
+             another identity's claims. Fastify strips undeclared keys once this is set. */
+          additionalProperties: false,
           properties: {
-            role: { type: 'string', enum: ['owner', 'admin', 'user'] },
-            brandEntityId: { type: 'string' },
+            role: { type: 'string', enum: [...USER_ROLES] },
+            /* `null` clears the pin. It used to be string-only, so once pinned a user could never
+               be returned to tenant-wide access through the API. */
+            brandEntityId: { anyOf: [UUID, { type: 'null' }] },
           },
         },
         response: { 200: USER_SCHEMA },
@@ -114,7 +129,7 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const { id } = request.params as { id: string };
-      const body = request.body as { role?: UserRole; brandEntityId?: string };
+      const body = request.body as { role?: UserRole; brandEntityId?: string | null };
 
       // Read the target first: the previous implementation updated on `id` alone, with no
       // tenant filter, so an admin in tenant A could modify a user in tenant B — and could set
@@ -133,10 +148,22 @@ const usersRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      if (body.brandEntityId && !(await brandInTenant(target.tenantId, body.brandEntityId))) {
+        return reply.badRequest('That brand does not belong to this user’s tenant.');
+      }
+
+      /* THE MASS-ASSIGNMENT FIX, part two: the update names its columns. The schema above
+         already strips anything undeclared, but the write must not depend on one schema keyword
+         being remembered — a future field added to the body would otherwise flow straight into
+         the row. Tenant, identity and timestamps are never client-writable here. */
+      const patch: Partial<typeof users.$inferInsert> = { updatedAt: new Date() };
+      if (body.role !== undefined) patch.role = body.role;
+      if (body.brandEntityId !== undefined) patch.brandEntityId = body.brandEntityId;
+
       const updated = await db.get().transaction(async (tx) => {
         const [row] = await tx
           .update(users)
-          .set({ ...body, updatedAt: new Date() })
+          .set(patch)
           .where(and(eq(users.id, id), eq(users.tenantId, target.tenantId)))
           .returning();
 
