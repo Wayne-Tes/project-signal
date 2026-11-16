@@ -10,6 +10,15 @@ variable "aws_account_id" {
     condition     = can(regex("^[0-9]{12}$", var.aws_account_id))
     error_message = "aws_account_id must be exactly 12 digits."
   }
+
+  # The sandbox rule (CLAUDE.md) as a hard constant. `allowed_account_ids` in versions.tf takes
+  # its value FROM this variable, so without this check a `-var aws_account_id=...` or a different
+  # tfvars file would silently move the allowed account along with it. Changing this literal is a
+  # reviewed decision to target another account, never a flag someone passes in a hurry.
+  validation {
+    condition     = var.aws_account_id == "290304998906"
+    error_message = "This repository may only target the TES sandbox account 290304998906 (tesai-dev-sandbox). See CLAUDE.md and infra-aws/CONVENTIONS.md §0."
+  }
 }
 
 variable "aws_region" {
@@ -68,10 +77,10 @@ variable "monthly_budget_usd" {
     `monthly_tesai-dev-sandbox` already covers the account and must not be touched
     (docs/HANDOVER.md §3.3).
 
-    Sizing note: ECS Fargate does not scale to zero, unlike the Cloud Run design this replaces.
-    A NAT gateway is ~$32/mo on its own before a byte crosses it, which is why Phase 2 should
-    prefer VPC endpoints. Set this above realistic steady state but low enough to be a genuine
-    alarm rather than decoration.
+    Sizing note: ECS Fargate does not scale to zero, unlike the Cloud Run design this replaces,
+    and the stack runs one NAT gateway (~$33/mo before a byte crosses it — see nat.tf for why a
+    NAT rather than VPC endpoints). The arithmetic is in envs/dev.stack.tfvars. Set this above
+    realistic steady state but low enough to be a genuine alarm rather than decoration.
   EOT
   type        = number
 
@@ -203,6 +212,60 @@ variable "image_tag" {
   validation {
     condition     = length(var.image_tag) > 0
     error_message = "image_tag must not be empty — see the note above about silent rollbacks."
+  }
+}
+
+# ── Lifecycle of stateful resources ─────────────────────────────────────────────────────────
+
+variable "allow_force_destroy" {
+  description = <<-EOT
+    Lets `terraform destroy` remove NON-EMPTY ECR repositories and S3 buckets (ECR force_delete,
+    S3 force_destroy). Without it, 99-teardown.sh --execute fails on the first repository that
+    holds an image and the first versioned bucket that holds an object — i.e. always.
+
+    TRUE ONLY where the contents are reproducible: dev re-ingests raw payloads and rebuilds images
+    from git. FALSE anywhere the raw bucket is an audit trail someone relies on — there the
+    contents must be exported deliberately before a destroy, never deleted as a side effect.
+  EOT
+  type        = bool
+}
+
+variable "protect_stateful_resources" {
+  description = <<-EOT
+    Deletion protection on the Cognito user pool. Destroying the pool deletes every user and
+    every `sub` the users table keys on, so in any environment holding real users this must be
+    TRUE. Dev sets it FALSE for the same reason db_deletion_protection is false there: the
+    teardown script must genuinely tear down, and dev users are re-creatable.
+  EOT
+  type        = bool
+}
+
+variable "rds_log_groups_existing" {
+  description = "Which RDS log export groups (`postgresql`, `upgrade`) ALREADY exist in the account and must be adopted by import rather than created. Verify with the describe-log-groups command in logs.tf immediately before applying — never assume."
+  type        = list(string)
+
+  validation {
+    condition     = alltrue([for g in var.rds_log_groups_existing : contains(["postgresql", "upgrade"], g)])
+    error_message = "rds_log_groups_existing may contain only \"postgresql\" and/or \"upgrade\"."
+  }
+}
+
+# ── Edge ────────────────────────────────────────────────────────────────────────────────────
+
+variable "certificate_arn" {
+  description = <<-EOT
+    ACM certificate ARN (same region as the ALB) for HTTPS. NULL means HTTP only — the state today,
+    because an ALB's own *.elb.amazonaws.com name cannot carry a certificate and no domain has
+    been chosen (docs/OWNER-ACTIONS.md, hostname item). When set, the ALB gains a 443 listener
+    with a TLS 1.3/1.2 policy, every API rule moves to it, and port 80 becomes a permanent
+    redirect to HTTPS — so Cognito tokens never cross the internet in cleartext.
+  EOT
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.certificate_arn == null || can(regex("^arn:aws:acm:[a-z0-9-]+:[0-9]{12}:certificate/", var.certificate_arn))
+    error_message = "certificate_arn must be null or an ACM certificate ARN."
   }
 }
 
