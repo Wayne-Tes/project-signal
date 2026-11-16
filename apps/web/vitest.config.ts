@@ -41,21 +41,18 @@ export default defineConfig({
     include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
     coverage: {
       provider: 'v8',
-      // Widened from `src/lib/brand-data.ts` as component tests arrive. Listed file by file
-      // rather than as `src/**` on purpose: an unqualified glob would drop overall coverage
-      // below the gate because of views that still need a running API to exercise, and the
-      // honest fix is to add files here as they gain real tests rather than to lower the bar.
-      include: [
-        'src/lib/brand-data.ts',
-        'src/design-system/cx.ts',
-        'src/design-system/personalisation.ts',
-        'src/features/help/Markdown.tsx',
-        'src/features/tour/Tour.tsx',
-        'src/lib/api.ts',
-        'src/lib/export-csv.ts',
-        'src/config/sources.ts',
-        'src/config/navigation.tsx',
-      ],
+      // ALL of src. This was a nine-file allowlist, so the 80% gate measured nine files and said
+      // nothing about the other fifty — auth, every view, the admin panels — which is where the
+      // defects were. Views are exercised against a mocked `apiFetch`, the same seam every other
+      // component test here uses.
+      //
+      // Excluded, each for a stated reason:
+      //  - `src/app/**`: Next.js route shells (layout, page) — a `<html>` document and a
+      //    `dynamic()` import, exercised by `next build` and the Playwright suite, not by jsdom.
+      //  - `*.d.ts`, `lib/types.ts`, `design-system/index.ts`: declarations and re-exports with no
+      //    executable statements of their own.
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/app/**', 'src/**/*.d.ts', 'src/lib/types.ts', 'src/design-system/index.ts'],
       thresholds: { lines: 80, branches: 80, functions: 80, statements: 80 },
     },
   },
