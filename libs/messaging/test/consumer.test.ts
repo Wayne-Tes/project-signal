@@ -6,6 +6,7 @@ vi.mock('@aws-sdk/client-sqs', () => ({
   SQSClient: vi.fn(() => ({ send: mockSend })),
   ReceiveMessageCommand: vi.fn((input) => ({ _type: 'receive', input })),
   DeleteMessageCommand: vi.fn((input) => ({ _type: 'delete', input })),
+  ChangeMessageVisibilityBatchCommand: vi.fn((input) => ({ _type: 'visibility', input })),
 }));
 
 const mockEnv: Record<string, string | undefined> = {
@@ -156,7 +157,11 @@ describe('SqsConsumer', () => {
     });
 
     const errors: string[] = [];
-    const c = new SqsConsumer({ queue: 'item', handle: async () => {}, onError: (_e, b) => errors.push(b) });
+    const c = new SqsConsumer({
+      queue: 'item',
+      handle: async () => {},
+      onError: (_e, b) => errors.push(b),
+    });
     c.start();
     await new Promise((r) => setTimeout(r, 30));
     expect(c.isRunning).toBe(true);
@@ -219,11 +224,108 @@ describe('SqsConsumer', () => {
     });
 
     let handled = 0;
-    const c = new SqsConsumer({ queue: 'item', handle: async () => { handled += 1; }, onError: () => {} });
+    const c = new SqsConsumer({
+      queue: 'item',
+      handle: async () => {
+        handled += 1;
+      },
+      onError: () => {},
+    });
     c.start();
     await new Promise((r) => setTimeout(r, 30));
     await c.stop();
 
     expect(handled).toBe(1);
+  });
+
+  it('extends visibility on the message in hand AND the rest of its batch while handling', async () => {
+    /* A scheduled sweep outlives the queue's visibility timeout. Without a heartbeat the message
+       is redelivered to a second consumer mid-run and the same sweep runs twice. Messages behind
+       it in the batch were received at the same moment, so their clocks are running too. */
+    receiveOnce([
+      { Body: 'long', ReceiptHandle: 'rh-1' },
+      { Body: 'next', ReceiptHandle: 'rh-2' },
+    ]);
+    const c = new SqsConsumer({
+      queue: 'item',
+      visibilityTimeoutSeconds: 120,
+      heartbeatIntervalMs: 10,
+      handle: async (body) => {
+        if (body === 'long') await new Promise((r) => setTimeout(r, 45));
+      },
+    });
+    c.start();
+    await new Promise((r) => setTimeout(r, 90));
+    await c.stop();
+
+    const beats = mockSend.mock.calls.map((x) => x[0]).filter((x) => x._type === 'visibility');
+    expect(beats.length).toBeGreaterThanOrEqual(2);
+    const first = beats[0].input;
+    expect(first.Entries.map((e: { ReceiptHandle: string }) => e.ReceiptHandle)).toEqual([
+      'rh-1',
+      'rh-2',
+    ]);
+    expect(first.Entries[0].VisibilityTimeout).toBe(120);
+  });
+
+  it('stops the heartbeat once the handler finishes', async () => {
+    receiveOnce([{ Body: 'quick', ReceiptHandle: 'rh-q' }]);
+    const c = new SqsConsumer({ queue: 'item', heartbeatIntervalMs: 10, handle: async () => {} });
+    c.start();
+    await new Promise((r) => setTimeout(r, 20));
+    await c.stop();
+    const before = mockSend.mock.calls.filter((x) => x[0]._type === 'visibility').length;
+    await new Promise((r) => setTimeout(r, 40));
+    const after = mockSend.mock.calls.filter((x) => x[0]._type === 'visibility').length;
+    expect(after).toBe(before);
+  });
+
+  it('reports a failed heartbeat without failing the handler', async () => {
+    let served = false;
+    mockSend.mockImplementation(async (cmd: { _type: string }) => {
+      if (cmd._type === 'receive') {
+        if (served) return { Messages: [] };
+        served = true;
+        return { Messages: [{ Body: 'slow', ReceiptHandle: 'rh-s' }] };
+      }
+      if (cmd._type === 'visibility') throw new Error('throttled');
+      return {};
+    });
+    const errors: string[] = [];
+    const c = new SqsConsumer({
+      queue: 'item',
+      heartbeatIntervalMs: 5,
+      handle: async () => {
+        await new Promise((r) => setTimeout(r, 25));
+      },
+      onError: (_e, b) => errors.push(b),
+    });
+    c.start();
+    await new Promise((r) => setTimeout(r, 60));
+    await c.stop();
+    expect(errors).toContain('<heartbeat>');
+    expect(deletes()).toHaveLength(1);
+  });
+
+  it('reports a failed delete through onError rather than the console', async () => {
+    let served = false;
+    mockSend.mockImplementation(async (cmd: { _type: string }) => {
+      if (cmd._type === 'receive') {
+        if (served) return { Messages: [] };
+        served = true;
+        return { Messages: [{ Body: 'x', ReceiptHandle: 'rh' }] };
+      }
+      throw new Error('delete failed');
+    });
+    const errors: string[] = [];
+    const c = new SqsConsumer({
+      queue: 'item',
+      handle: async () => {},
+      onError: (_e, b) => errors.push(b),
+    });
+    c.start();
+    await new Promise((r) => setTimeout(r, 30));
+    await c.stop();
+    expect(errors).toEqual(['<delete>']);
   });
 });

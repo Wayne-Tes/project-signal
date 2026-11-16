@@ -1,4 +1,5 @@
 import {
+  ChangeMessageVisibilityBatchCommand,
   DeleteMessageCommand,
   ReceiveMessageCommand,
   SQSClient,
@@ -67,6 +68,21 @@ export interface ConsumerOptions {
   errorBackoffMs?: number;
   /** Called for anything that escapes the handler, so a host can log it its own way. */
   onError?: (error: unknown, body: string) => void;
+  /**
+   * The visibility timeout to (re)claim while a batch is being handled, in seconds.
+   *
+   * A received message becomes visible again once the queue's visibility timeout elapses, whether
+   * or not its handler has finished. A scheduled sweep can outlive any fixed timeout — every Apify
+   * source polls for up to five minutes — so without a heartbeat a long-running message is handed
+   * to a second consumer while the first is still working on it, and the same sweep runs twice.
+   *
+   * While the handler runs, the consumer re-extends visibility on the message in hand AND on the
+   * rest of the batch still waiting behind it (they were received together, so their clocks
+   * started together). Defaults to 300, the deployed queues' timeout.
+   */
+  visibilityTimeoutSeconds?: number;
+  /** How often to extend visibility while handling. Defaults to a third of the timeout. */
+  heartbeatIntervalMs?: number;
 }
 
 export class SqsConsumer {
@@ -112,6 +128,8 @@ export class SqsConsumer {
       idleDelayMs = 0,
       errorBackoffMs = 5_000,
       onError = (err, body) => console.error(`Message failed, leaving for retry: ${body}`, err),
+      visibilityTimeoutSeconds = 300,
+      heartbeatIntervalMs = Math.max(1_000, Math.floor((visibilityTimeoutSeconds * 1000) / 3)),
     } = this.options;
 
     while (this.running) {
@@ -135,17 +153,25 @@ export class SqsConsumer {
         continue;
       }
 
-      for (const message of messages) {
+      for (let i = 0; i < messages.length; i++) {
         if (!this.running) break;
+        const message = messages[i] as Message;
         const body = message.Body ?? '';
+        /* The message in hand plus everything still queued behind it in this batch. */
+        const held = messages.slice(i);
+        const heartbeat = setInterval(() => {
+          void this.extendVisibility(url, held, visibilityTimeoutSeconds, onError);
+        }, heartbeatIntervalMs);
         try {
           await handle(body);
           /* Success. Delete, so it is not redelivered. */
-          await this.delete(url, message);
+          await this.delete(url, message, onError);
         } catch (err) {
           /* Left undeleted deliberately: it reappears after the visibility timeout and, after
              the redrive policy's attempts, lands in the DLQ. */
           onError(err, body);
+        } finally {
+          clearInterval(heartbeat);
         }
       }
 
@@ -164,7 +190,43 @@ export class SqsConsumer {
     }
   }
 
-  private async delete(url: string, message: Message): Promise<void> {
+  /**
+   * Re-claims the given messages for another `timeoutSeconds`.
+   *
+   * Best effort: a failed extension is reported, not thrown. The worst outcome is the one the
+   * heartbeat exists to prevent — a redelivery — and every handler here is idempotent against it,
+   * so failing the handler over a missed heartbeat would turn a possible duplicate into a
+   * certain retry.
+   */
+  private async extendVisibility(
+    url: string,
+    messages: Message[],
+    timeoutSeconds: number,
+    onError: (error: unknown, body: string) => void,
+  ): Promise<void> {
+    const entries = messages
+      .filter((m) => m.ReceiptHandle)
+      .slice(0, 10)
+      .map((m, i) => ({
+        Id: String(i),
+        ReceiptHandle: m.ReceiptHandle as string,
+        VisibilityTimeout: timeoutSeconds,
+      }));
+    if (entries.length === 0) return;
+    try {
+      await this.client.send(
+        new ChangeMessageVisibilityBatchCommand({ QueueUrl: url, Entries: entries }),
+      );
+    } catch (err) {
+      onError(err, '<heartbeat>');
+    }
+  }
+
+  private async delete(
+    url: string,
+    message: Message,
+    onError: (error: unknown, body: string) => void,
+  ): Promise<void> {
     if (!message.ReceiptHandle) return;
     try {
       await this.client.send(
@@ -174,7 +236,7 @@ export class SqsConsumer {
       /* The work is already done and committed. A failed delete means one redelivery and one
          duplicate attempt, which every handler here is idempotent against — far better than
          treating it as a processing failure and redoing the expensive part. */
-      console.error('Could not delete message after successful handling', err);
+      onError(err, '<delete>');
     }
   }
 }
