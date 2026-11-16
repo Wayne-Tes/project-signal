@@ -396,7 +396,11 @@ describe('topicsForDimension', () => {
     const clusters = clusterTopics(
       [
         ...Array.from({ length: 3 }, () =>
-          item({ topics: ['old news'], dimensions: ['trust'], publishedAt: daysBefore(4 * HALF_LIFE_DAYS) }),
+          item({
+            topics: ['old news'],
+            dimensions: ['trust'],
+            publishedAt: daysBefore(4 * HALF_LIFE_DAYS),
+          }),
         ),
         ...Array.from({ length: 2 }, () =>
           item({ topics: ['today'], dimensions: ['trust'], publishedAt: ASOF }),
@@ -404,7 +408,10 @@ describe('topicsForDimension', () => {
       ],
       ASOF,
     );
-    expect(topicsForDimension(clusters, 'trust').map((c) => c.topic)).toEqual(['today', 'old news']);
+    expect(topicsForDimension(clusters, 'trust').map((c) => c.topic)).toEqual([
+      'today',
+      'old news',
+    ]);
   });
 
   it('returns nothing when the dimension has no clusters at all', () => {
@@ -432,5 +439,102 @@ describe('topicsForDimension', () => {
     const before = clusters.map((c) => c.topic);
     topicsForDimension(clusters, 'trust');
     expect(clusters.map((c) => c.topic)).toEqual(before);
+  });
+});
+
+/**
+ * Damage pairs each item's negativity with THAT item's recency.
+ *
+ * It used to be volume × mean(negativity) × mean(recency), which mixes items: one old complaint
+ * supplied the negativity and one fresh compliment supplied the recency, and the cluster scored as
+ * recent damage though nothing recent was negative.
+ */
+describe('damage and strength are summed per item', () => {
+  it('does not let an old complaint borrow recency from a new compliment', () => {
+    const [cluster] = clusterTopics(
+      [
+        item({
+          signalId: 'old',
+          score: -1,
+          topics: ['fees'],
+          publishedAt: daysBefore(HALF_LIFE_DAYS * 2),
+        }),
+        item({ signalId: 'new', score: 1, topics: ['fees'], publishedAt: ASOF }),
+      ],
+      ASOF,
+    );
+    /* Per item: the complaint is 1 × 0.25 and the compliment contributes nothing to damage. */
+    expect(cluster!.damage).toBeCloseTo(0.25, 10);
+    /* The old formula said 2 × 0.5 × 0.625 = 0.625 — two and a half times too much. */
+    expect(cluster!.damage).not.toBeCloseTo(0.625, 3);
+    expect(cluster!.strength).toBeCloseTo(1, 10);
+  });
+
+  it('equals volume × negativity × recency when every item is alike, as the spec states', () => {
+    const items = [1, 2, 3, 4, 5].map((n) =>
+      item({ signalId: `s${n}`, score: -0.8, topics: ['fees'], publishedAt: daysBefore(1) }),
+    );
+    const [cluster] = clusterTopics(items, ASOF);
+    expect(cluster!.damage).toBeCloseTo(
+      cluster!.volume * cluster!.negativity * cluster!.recency,
+      10,
+    );
+  });
+});
+
+describe('topics are counted once per signal', () => {
+  it('collapses case, whitespace and repeats within one item', () => {
+    /* `summariseChange` already de-duplicated per signal; this did not, so the two views
+       reported different volumes for the same cluster. */
+    const [cluster] = clusterTopics(
+      [item({ score: -1, topics: ['Fees', ' fees ', 'fees'] })],
+      ASOF,
+    );
+    expect(cluster!.topic).toBe('fees');
+    expect(cluster!.volume).toBe(1);
+    expect(cluster!.damage).toBeCloseTo(1, 10);
+  });
+});
+
+describe('out-of-range model output is bounded before it is weighted', () => {
+  it('clamps an item score above 1 instead of letting it skew the dimension', () => {
+    /* Unclamped: (1.5 + -1) / 2 = 0.25 → 62.5. Clamped: (1 + -1) / 2 = 0 → 50. */
+    const r = scoreDimension(
+      [item({ signalId: 'a', score: 1.5 }), item({ signalId: 'b', score: -1 })],
+      'trust',
+      ASOF,
+    );
+    expect(r!.score).toBeCloseTo(50, 10);
+  });
+
+  it('treats a negative confidence as zero weight, not a negative one', () => {
+    /* A negative weight would flip the sign of the mean. */
+    const r = scoreDimension(
+      [
+        item({ signalId: 'a', score: 1, confidence: 1 }),
+        item({ signalId: 'b', score: -1, confidence: -0.5 }),
+      ],
+      'trust',
+      ASOF,
+    );
+    expect(r!.score).toBeCloseTo(100, 10);
+  });
+
+  it('ignores a non-finite score rather than poisoning the mean with NaN', () => {
+    const r = scoreDimension(
+      [
+        item({ signalId: 'a', score: Number.NaN, confidence: 0 }),
+        item({ signalId: 'b', score: Number.NaN, confidence: 0 }),
+      ],
+      'trust',
+      ASOF,
+    );
+    expect(r!.score).toBeCloseTo(50, 10);
+  });
+
+  it('clamps cluster sentiment too', () => {
+    const [cluster] = clusterTopics([item({ score: -3, topics: ['x'] })], ASOF);
+    expect(cluster!.sentiment).toBe(-1);
+    expect(cluster!.negativity).toBe(1);
   });
 });

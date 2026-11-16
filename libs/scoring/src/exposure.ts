@@ -1,11 +1,12 @@
 import { ARR_BAND_WEIGHT, type ArrBand } from '@project-signal/shared-types';
+import { normaliseTopic } from './types.js';
 
 /**
- * Ranking what customers say by what it puts at risk, rather than by how often it is said.
+ * Ranking what customers say by how much revenue is saying it, rather than by how often it is said.
  *
  * ## Why the rest of the product's ranking is wrong for this channel
  *
- * Every other view ranks by volume — `damage = volume × negativity × recency` — and for public
+ * Every other view ranks by volume — damage is summed per item over the cluster — and for public
  * signals that is right: a hundred people saying the same thing IS the finding.
  *
  * The CRM channel inverts it. One renewal-risk note from a 250k+ account is not one-fiftieth of
@@ -49,6 +50,15 @@ export interface ExposureRank {
  */
 const UNBANDED_WEIGHT = 1;
 
+/**
+ * Every theme customers raise privately, ranked by revenue exposure — WHATEVER ITS SENTIMENT.
+ *
+ * This is a ranking by reach, not a risk register: a subject the largest accounts praise ranks as
+ * high as one they complain about, because "what our biggest customers are talking about" is the
+ * question this channel answers. Sentiment is carried on every row and breaks ties (more negative
+ * first), so a reader — or a caller that wants only risks, by filtering `sentiment < 0` — can tell
+ * the two apart. It is never used to drop a row here.
+ */
 export function rankByExposure(items: readonly ExposureItem[]): ExposureRank[] {
   interface Bucket {
     accounts: Map<string, ArrBand | null>;
@@ -58,7 +68,7 @@ export function rankByExposure(items: readonly ExposureItem[]): ExposureRank[] {
   const byTopic = new Map<string, Bucket>();
 
   for (const item of items) {
-    const topic = item.topic.trim().toLowerCase();
+    const topic = normaliseTopic(item.topic);
     if (!topic) continue;
     /* Annotated rather than inferred: the fallback literal is not contextually typed by the Map's
        value type, so `scores` infers as `never[]` and the push below fails to compile. */
@@ -134,7 +144,7 @@ export function corroborate(
 ): Corroborated[] {
   const pub = new Map<string, number[]>();
   for (const item of publicItems) {
-    const topic = item.topic.trim().toLowerCase();
+    const topic = normaliseTopic(item.topic);
     if (!topic) continue;
     pub.set(topic, [...(pub.get(topic) ?? []), item.score]);
   }

@@ -21,6 +21,7 @@
  * `docs/PLAN-change-territory-and-actions.md` §2.1.
  */
 import type { SentimentLabel } from '@project-signal/shared-types';
+import { MS_PER_DAY, normaliseTopic } from './types.js';
 
 /**
  * Which date decides when something happened.
@@ -115,8 +116,6 @@ export interface ChangeSummary {
   bySource: SourceChange[];
 }
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 /** A signal collected more than this long after publication is a backfill, not news. */
 export const BACKFILL_THRESHOLD_DAYS = 7;
 
@@ -143,11 +142,6 @@ function basisDate(item: ChangeItem, basis: ChangeBasis): Date {
 function mean(values: readonly number[]): number | null {
   if (values.length === 0) return null;
   return values.reduce((a, b) => a + b, 0) / values.length;
-}
-
-/** Normalised the same way everywhere a topic is compared — the clusterer lowercases too. */
-function normaliseTopic(topic: string): string {
-  return topic.trim().toLowerCase();
 }
 
 /**

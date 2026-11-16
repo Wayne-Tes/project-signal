@@ -26,9 +26,14 @@
  */
 import type { Dimension } from '@project-signal/shared-types';
 import { compositeScore, scoreAllDimensions } from './score.js';
-import { DEFAULT_DIMENSION_WEIGHTS, HALF_LIFE_DAYS, type ScoredItem } from './types.js';
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
+import {
+  DEFAULT_DIMENSION_WEIGHTS,
+  HALF_LIFE_DAYS,
+  LOOKBACK_DAYS,
+  MS_PER_DAY,
+  normaliseTopic,
+  type ScoredItem,
+} from './types.js';
 
 /** Where a target came from. Shown to the user — a target with no provenance is just a number. */
 export type TargetSource = 'owner' | 'competitor-median' | 'competitor-best' | 'internal-best';
@@ -58,7 +63,10 @@ export interface Benchmarks {
  * be read differently from one derived from eight.
  */
 export function median(values: readonly number[]): number | null {
-  const sorted = values.filter((v) => Number.isFinite(v)).slice().sort((a, b) => a - b);
+  const sorted = values
+    .filter((v) => Number.isFinite(v))
+    .slice()
+    .sort((a, b) => a - b);
   if (sorted.length === 0) return null;
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
@@ -135,14 +143,14 @@ export function counterfactual(
   asOf: Date,
   weights: Readonly<Partial<Record<Dimension, number>>> = DEFAULT_DIMENSION_WEIGHTS,
 ): Counterfactual | null {
-  const key = topic.trim().toLowerCase();
+  const key = normaliseTopic(topic);
   const before = compositeScore(scoreAllDimensions(items, asOf), weights);
   if (before === null) return null;
 
   let affected = 0;
   const resolved = items.map((item) => {
     if (item.score >= 0) return item;
-    if (!item.topics.some((t) => t.trim().toLowerCase() === key)) return item;
+    if (!item.topics.some((t) => normaliseTopic(t) === key)) return item;
     affected += 1;
     return { ...item, score: 0 };
   });
@@ -172,11 +180,8 @@ export interface Projection {
 /** How far ahead a projection looks. Four half-lives; beyond that the assumption is fantasy. */
 export const PROJECTION_HORIZON_DAYS = HALF_LIFE_DAYS * 4;
 
-/**
- * The rollup's window. Items older than this are not scored at all — see `LOOKBACK_DAYS` in
- * `apps/ingestion/src/rollup.ts` and `BRAND_IMPACT_LOOKBACK_DAYS` in the API's scores route.
- */
-export const LOOKBACK_DAYS = HALF_LIFE_DAYS * 4;
+/* `LOOKBACK_DAYS` — the rollup's window, which the projection must share — is defined once in
+   types.ts and imported by both this file and apps/ingestion/src/rollup.ts. */
 
 /**
  * Where the index goes on its own, if nothing new arrives.

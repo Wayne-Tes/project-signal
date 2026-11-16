@@ -4,12 +4,14 @@ import {
   DEFAULT_DIMENSION_WEIGHTS,
   DIMENSIONS,
   HALF_LIFE_DAYS,
+  MS_PER_DAY,
+  boundedConfidence,
+  boundedScore,
+  normaliseTopic,
   type DimensionRollup,
   type ScoredItem,
   type TopicCluster,
 } from './types.js';
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
  * Exponential recency weight: `2 ^ (-age / halfLife)`.
@@ -52,8 +54,10 @@ export function scoreDimension(
   let weightedSum = 0;
   let weightTotal = 0;
   for (const item of relevant) {
-    const weight = recencyWeight(item.publishedAt, asOf, halfLifeDays) * item.confidence;
-    weightedSum += item.score * weight;
+    /* Bounded per item, not only at the end: see `boundedScore`. */
+    const weight =
+      recencyWeight(item.publishedAt, asOf, halfLifeDays) * boundedConfidence(item.confidence);
+    weightedSum += boundedScore(item.score) * weight;
     weightTotal += weight;
   }
 
@@ -62,7 +66,7 @@ export function scoreDimension(
   const mean =
     weightTotal > 0
       ? weightedSum / weightTotal
-      : relevant.reduce((acc, i) => acc + i.score, 0) / relevant.length;
+      : relevant.reduce((acc, i) => acc + boundedScore(i.score), 0) / relevant.length;
 
   return { dimension, score: toIndex(mean), signalCount: relevant.length };
 }
@@ -113,9 +117,15 @@ export function compositeScore(
 /**
  * Groups items by topic tag and scores each cluster's damage.
  *
- * Damage is the spec's `volume × negative sentiment × recency weight`. Negativity is the mean of
- * `max(0, -score)`, so positive items pull a cluster's negativity toward zero without ever
- * making damage negative. An item carrying several topics contributes to each.
+ * Damage is the spec's `volume × negative sentiment × recency weight`, taken PER ITEM and summed:
+ * Σ max(0, −scoreᵢ) × recencyᵢ. Pairing each item's negativity with that SAME item's recency is
+ * what makes the score mean "recent negativity" — see `TopicCluster.damage` for the defect the
+ * product of three means caused. Positive items contribute nothing to damage rather than
+ * cancelling it, so damage is never negative. An item carrying several topics contributes to each.
+ *
+ * Tags are de-duplicated WITHIN an item, so a signal tagged `["Fees", "fees"]` counts once —
+ * consistently with `summariseChange`, which already did this. Without it the two views
+ * reported different volumes for the same cluster.
  *
  * Sorted by damage, highest first.
  */
@@ -126,8 +136,7 @@ export function clusterTopics(
 ): TopicCluster[] {
   const byTopic = new Map<string, ScoredItem[]>();
   for (const item of items) {
-    for (const topic of item.topics) {
-      const key = topic.trim().toLowerCase();
+    for (const key of new Set(item.topics.map(normaliseTopic))) {
       if (!key) continue;
       const bucket = byTopic.get(key);
       if (bucket) bucket.push(item);
@@ -138,11 +147,28 @@ export function clusterTopics(
   const clusters: TopicCluster[] = [];
   for (const [topic, bucket] of byTopic) {
     const volume = bucket.length;
-    const negativity = bucket.reduce((acc, i) => acc + Math.max(0, -i.score), 0) / volume;
-    const positivity = bucket.reduce((acc, i) => acc + Math.max(0, i.score), 0) / volume;
-    const recency =
-      bucket.reduce((acc, i) => acc + recencyWeight(i.publishedAt, asOf, halfLifeDays), 0) / volume;
-    const sentiment = bucket.reduce((acc, i) => acc + i.score, 0) / volume;
+    let negSum = 0;
+    let posSum = 0;
+    let recSum = 0;
+    let sentSum = 0;
+    let damage = 0;
+    let strength = 0;
+    for (const i of bucket) {
+      const score = boundedScore(i.score);
+      const neg = Math.max(0, -score);
+      const pos = Math.max(0, score);
+      const rec = recencyWeight(i.publishedAt, asOf, halfLifeDays);
+      negSum += neg;
+      posSum += pos;
+      recSum += rec;
+      sentSum += score;
+      damage += neg * rec;
+      strength += pos * rec;
+    }
+    const negativity = negSum / volume;
+    const positivity = posSum / volume;
+    const recency = recSum / volume;
+    const sentiment = sentSum / volume;
 
     const dimCounts = new Map<Dimension, number>();
     for (const item of bucket) {
@@ -156,8 +182,8 @@ export function clusterTopics(
       negativity,
       positivity,
       recency,
-      damage: volume * negativity * recency,
-      strength: volume * positivity * recency,
+      damage,
+      strength,
       sentiment,
       dimensions,
     });
