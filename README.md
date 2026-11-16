@@ -41,17 +41,32 @@ corepack yarn install
 cp .env.example .env
 docker compose up -d
 
-# 3. Start all apps in watch mode
-corepack yarn dev
+# 3. Start each app in watch mode — API FIRST, with PORT=9080 (see "Local ports" below;
+#    `corepack yarn dev` binds api 8080, which is occupied on this machine)
+PORT=9080 corepack yarn nx run api:dev         # applies migrations on startup — boot before seeding
+corepack yarn nx run ingestion:dev             # 8081
+corepack yarn nx run sentiment-worker:dev      # 8082
+corepack yarn nx run report-worker:dev         # 8083
+corepack yarn nx run @project-signal/web:dev   # 3100 (the dev script's port)
 ```
+
+**Local ports (landed 2026-11-16).** On the owner's machine `3000`, `8080` and `8090` are held by
+unrelated applications, so local dev runs **web on 3100** and **API on 9080**; the workers keep
+8081–8083. The API's port is passed as a *per-process* `PORT` env var, never set in the root
+`.env` — that file is shared by all four backends, and the workers read `process.env.PORT` too,
+so a single `PORT` there makes them all fight for one socket (see the comment in `.env.example`).
+`corepack yarn dev` (one shared environment, api 8080) still works on a machine where 8080 is
+free. The web app reads `apps/web/.env.local`, not the root `.env`; copy `apps/web/.env.example`
+and fill the two `NEXT_PUBLIC_COGNITO_*` values from `terraform -chdir=infra-aws/stack output` —
+they have no fallback by design.
 
 **Migrations are applied by the API on startup** — there is no migrate step. Boot the API before
 seeding, or `yarn db:seed` fails with `relation "tenants" does not exist`.
 
 | Service               | Local URL                                                                        |
 | --------------------- | -------------------------------------------------------------------------------- |
-| web                   | http://localhost:3000                                                            |
-| api                   | http://localhost:8080 (Swagger UI at `/docs`)                                    |
+| web                   | http://localhost:3100                                                            |
+| api                   | http://localhost:9080 (Swagger UI at `/docs`)                                    |
 | ingestion             | http://localhost:8081                                                            |
 | sentiment-worker      | http://localhost:8082                                                            |
 | report-worker         | http://localhost:8083                                                            |
@@ -69,7 +84,7 @@ against a real model needs real AWS credentials.
 ### Running the pipeline locally
 
 ```bash
-# after `corepack yarn dev`, with the API booted and seeded:
+# after starting the apps (API first — see "Local ports"), with the API booted and seeded:
 corepack yarn db:seed
 SRC=$(docker compose exec -T postgres psql -U project_signal_app -d project_signal -t -A \
       -c "select id from source_configs where source='rss' and is_enabled=true limit 1")
@@ -87,7 +102,7 @@ curl it without an identity provider:
 
 ```bash
 # format: dev:<role>:<tenantId>[:<brandEntityId>] — colon-delimited, since UUIDs contain hyphens
-curl -H "Authorization: Bearer dev:owner:$TENANT_ID:$BRAND_ID" http://localhost:8080/brands
+curl -H "Authorization: Bearer dev:owner:$TENANT_ID:$BRAND_ID" http://localhost:9080/brands
 ```
 
 ### Changing the database schema

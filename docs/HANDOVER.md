@@ -723,7 +723,7 @@ sentiment-worker 15, storage 13, messaging 12, config 11, llm 10, report-worker 
 ```bash
 docker compose up -d                 # Postgres 16 (:5432) + LocalStack (:4566, s3+sqs)
 cp .env.example .env
-corepack yarn nx run api:dev         # MIGRATIONS APPLY ON API STARTUP — boot this before seeding
+PORT=9080 corepack yarn nx run api:dev  # api binds 9080 on this machine — 8080/8090 occupied (README "Local ports"). MIGRATIONS APPLY ON API STARTUP — boot this before seeding
 corepack yarn db:seed
 corepack yarn nx run ingestion:dev
 curl -X POST localhost:8081/ingest -H 'Content-Type: application/json' \
