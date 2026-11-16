@@ -8,20 +8,42 @@ import { expect, type Page } from '@playwright/test';
  * control or reads a real computed value.
  */
 
-/** Credentials for the e2e account. Never defaulted — see the throw below. */
-export function credentials(): { email: string; password: string } {
-  const email = process.env.E2E_EMAIL;
+/**
+ * Which sign-in the app under test uses.
+ *
+ * `local` drives the API's local-development sign-in (username + password, the build has
+ * NEXT_PUBLIC_AUTH_MODE=local). `cognito` drives the real pool. Set explicitly with
+ * E2E_AUTH_MODE; inferred as `local` when E2E_USERNAME is given, because that variable only
+ * exists for local mode.
+ */
+export function authMode(): 'local' | 'cognito' {
+  const explicit = process.env.E2E_AUTH_MODE;
+  if (explicit === 'local' || explicit === 'cognito') return explicit;
+  return process.env.E2E_USERNAME ? 'local' : 'cognito';
+}
+
+/**
+ * Credentials for the e2e account. Never defaulted — see the throw below.
+ *
+ * Local mode reads E2E_USERNAME (a seeded local account); Cognito mode reads E2E_EMAIL. Both read
+ * E2E_PASSWORD. The returned `identifier` is whichever applies.
+ */
+export function credentials(): { identifier: string; password: string } {
+  const identifier = authMode() === 'local' ? process.env.E2E_USERNAME : process.env.E2E_EMAIL;
   const password = process.env.E2E_PASSWORD;
-  if (!email || !password) {
+  if (!identifier || !password) {
     /* Failing loudly beats silently skipping. A suite that quietly no-ops when
        a variable is missing reports green while testing nothing, which is the
        failure mode this harness exists to prevent. */
     throw new Error(
-      'E2E_EMAIL and E2E_PASSWORD must be set. They are not committed: the e2e ' +
-        'user is created per environment. See apps/web/e2e/README.md.',
+      authMode() === 'local'
+        ? 'E2E_USERNAME and E2E_PASSWORD must be set for local mode. The local test accounts and ' +
+            'their password are in the root .env (LOCAL_AUTH_PASSWORD). See apps/web/e2e/README.md.'
+        : 'E2E_EMAIL and E2E_PASSWORD must be set. They are not committed: the e2e ' +
+            'user is created per environment. See apps/web/e2e/README.md.',
     );
   }
-  return { email, password };
+  return { identifier, password };
 }
 
 /**
@@ -46,14 +68,15 @@ export async function presetAppearance(
 
 /** Signs in and waits for the shell. Throws rather than returning a bad state. */
 export async function signIn(page: Page): Promise<void> {
-  const { email, password } = credentials();
+  const { identifier, password } = credentials();
   await page.goto('/');
 
   /* An already-authenticated context lands straight on the shell. */
   const nav = page.locator('nav[aria-label="Main"]');
   if (await nav.isVisible().catch(() => false)) return;
 
-  await page.locator('#email').fill(email);
+  /* One field id for both modes — its label is "Email" or "Username". */
+  await page.locator('#identifier').fill(identifier);
   await page.locator('#password').fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
   await expect(nav).toBeVisible({ timeout: 30_000 });
@@ -89,7 +112,10 @@ export function luminance(css: string): number {
 
 /** The computed background of the first match, resolved through custom properties. */
 export async function backgroundOf(page: Page, selector: string): Promise<string> {
-  return page.locator(selector).first().evaluate((el) => getComputedStyle(el).backgroundColor);
+  return page
+    .locator(selector)
+    .first()
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
 }
 
 /**

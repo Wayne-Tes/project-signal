@@ -22,10 +22,16 @@ import { defineConfig, devices } from '@playwright/test';
  * will never see. Add WebKit when there is a user on it, not before.
  */
 
-const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
+/* 3100, matching `next dev --port 3100` in package.json. It defaulted to 3000 while the dev
+   script had moved to 3100, so the default run waited 180s for a server on the wrong port. */
+const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3100';
 
 /** True when driving a deployed environment rather than a local dev server. */
-const isRemote = !baseURL.includes('localhost') && !baseURL.includes('127.0.0.1');
+const isRemote = !/localhost|127\.0\.0\.1/.test(baseURL);
+/** Set by e2e/run-docker.sh. Inside the container the app runs on the HOST and is reached through
+    a port forwarder, so there is no server for Playwright to start — and `yarn dev` inside a
+    Linux container against a Windows-installed node_modules would not work anyway. */
+const inContainer = process.env.E2E_IN_CONTAINER === '1';
 
 export default defineConfig({
   testDir: './e2e',
@@ -63,12 +69,13 @@ export default defineConfig({
 
   /* Only manage a server when driving localhost. Against a deployed URL there
      is nothing to start, and starting one would shadow the thing under test. */
-  webServer: isRemote
-    ? undefined
-    : {
-        command: 'yarn dev',
-        url: baseURL,
-        reuseExistingServer: true,
-        timeout: 180_000,
-      },
+  webServer:
+    isRemote || inContainer
+      ? undefined
+      : {
+          command: 'yarn dev',
+          url: baseURL,
+          reuseExistingServer: true,
+          timeout: 180_000,
+        },
 });

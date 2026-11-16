@@ -112,9 +112,26 @@ test('an action opens the evidence behind it', async ({ page }) => {
   const cards = page.locator('.ds-card, .card').filter({ has: page.locator('.rm-worth') });
   test.skip((await cards.count()) === 0, 'no actions ranked for this brand yet');
 
-  await cards.first().click();
+  /* Through the card's own "Read the signals" control. The whole card used to be one <button>
+     wrapping further buttons and links — invalid HTML, and a citation click also opened the
+     drill-down. The card is no longer clickable as a whole, by design. */
+  await cards
+    .first()
+    .getByRole('button', { name: /read the signals/i })
+    .click();
   /* Straight to the subject — no fabricated dimension step in the breadcrumb, because the
      roadmap does not know one. */
   await expect(page.locator('.drill-panel:not(.stacked)')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('.drill-panel.stacked')).toHaveCount(0);
+});
+
+test('a citation opens its source without also opening the drill-down', async ({ page }) => {
+  const cite = page.locator('a.rm-cite').first();
+  test.skip((await cite.count()) === 0, 'no cited play on this brand');
+  /* Every rendered citation href passed the safe-url check: http(s) only. */
+  expect(await cite.getAttribute('href')).toMatch(/^https?:\/\//);
+  const popup = page.waitForEvent('popup');
+  await cite.click();
+  await (await popup).close();
+  await expect(page.locator('.drill-panel')).toHaveCount(0);
 });
