@@ -21,9 +21,11 @@ export default defineConfig({
     include: ['test/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      // Deferred skeleton (reporting = Epic 12): only main.ts, nothing to gate yet.
+      // main.ts is the boot sequence only; the routes are in app.ts and are gated like every
+      // other project. This used to set no thresholds at all, so the gate passed with 0/0.
       include: ['src/**'],
       exclude: [...coverageConfigDefaults.exclude, '**/main.ts'],
+      thresholds: { lines: 80, branches: 80, functions: 80, statements: 80 },
     },
   },
 });
