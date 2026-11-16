@@ -30,16 +30,40 @@ import {
  *
  * Region and credentials resolve through the SDK's default chain — the ECS task role in a
  * deployed environment.
+ *
+ * **`AWS_ENDPOINT_URL` is deliberately NOT honoured here**, unlike the S3 and SQS clients. Locally
+ * it points at LocalStack, which does not emulate Bedrock, so following it would turn every
+ * scoring call into a connection error against an endpoint that cannot answer. Instead a developer
+ * names an AWS profile (`BEDROCK_AWS_PROFILE`, see libs/config) and this client — alone — uses that
+ * profile's credentials to reach the real service. Passing `profile` in the client config makes the
+ * SDK skip environment credentials, which locally are LocalStack's dummy `test` pair.
  */
+export interface BedrockClientOptions {
+  /** Named AWS profile for credentials. Unset in a deployed environment (task role). */
+  profile?: string;
+  /** Bedrock region. Unset means the SDK's own resolution (AWS_REGION). */
+  region?: string;
+}
+
 export class BedrockLlmClient implements LlmClient {
   private readonly client: BedrockRuntimeClient;
 
-  constructor() {
-    const endpoint = process.env['AWS_ENDPOINT_URL'];
-    this.client = new BedrockRuntimeClient(endpoint ? { endpoint } : {});
+  constructor(options: BedrockClientOptions = {}) {
+    this.client = new BedrockRuntimeClient({
+      ...(options.profile ? { profile: options.profile } : {}),
+      ...(options.region ? { region: options.region } : {}),
+    });
   }
 
-  async structured<T>({ model, prompt, name, description, schema }: StructuredRequest): Promise<T> {
+  async structured<T = unknown>({
+    model,
+    system,
+    prompt,
+    name,
+    description,
+    schema,
+    maxTokens = 1024,
+  }: StructuredRequest): Promise<T> {
     const res = await this.client.send(
       new ConverseCommand({
         // Newer models reject a bare model id with "on-demand throughput isn't supported" and
@@ -47,13 +71,25 @@ export class BedrockLlmClient implements LlmClient {
         // not rewrite it, because which profile is correct is a data-residency decision
         // (`eu.` keeps routing inside the EU, `global.` does not) and not one to make silently.
         modelId: model,
+        ...(system ? { system: [{ text: system }] } : {}),
         messages: [{ role: 'user', content: [{ text: prompt }] }],
         toolConfig: {
           tools: [{ toolSpec: { name, description, inputSchema: { json: schema } } }],
           toolChoice: { tool: { name } },
         },
+        /* A ceiling, so a runaway answer costs a bounded amount. Hitting it is checked below. */
+        inferenceConfig: { maxTokens },
       }),
     );
+
+    /* A tool call cut off at the output ceiling can still parse — as a PARTIAL object with
+       fields missing. That is worse than no answer, so it is refused here rather than handed to
+       a caller that might trust whatever fields did arrive. */
+    if (res.stopReason === 'max_tokens') {
+      throw new LlmResponseError(
+        `Model ${model} hit the ${maxTokens}-token output ceiling before finishing '${name}'`,
+      );
+    }
 
     const blocks = res.output?.message?.content ?? [];
     const call = blocks.find((b) => b.toolUse?.name === name);
@@ -64,6 +100,7 @@ export class BedrockLlmClient implements LlmClient {
         `Model ${model} returned no '${name}' tool call (stopReason: ${res.stopReason ?? 'unknown'})`,
       );
     }
+    /* Unchecked by design — see `LlmClient.structured`. The caller validates. */
     return call.toolUse.input as T;
   }
 

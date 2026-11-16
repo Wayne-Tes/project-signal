@@ -1,5 +1,11 @@
 /** Any value expressible in JSON. */
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
 
 /**
  * A JSON Schema describing the shape the model must return.
@@ -13,7 +19,17 @@ export type JsonSchema = { [key: string]: JsonValue };
 export interface StructuredRequest {
   /** Concrete model or inference-profile id, e.g. `eu.anthropic.claude-haiku-4-5-…`. */
   model: string;
+  /**
+   * Instructions, sent as the provider's SYSTEM prompt rather than in the user turn.
+   *
+   * Separating them is what lets a caller treat the user turn as untrusted data: text scraped
+   * from a review cannot then sit at the same level as the instructions that tell the model how
+   * to read it.
+   */
+  system?: string;
   prompt: string;
+  /** Output ceiling. Defaults to 1024 — a structured answer is small; a runaway one is a bug. */
+  maxTokens?: number;
   /** Names the shape being extracted. Surfaces to the model, so make it meaningful. */
   name: string;
   description: string;
@@ -94,14 +110,21 @@ export interface ConverseResult {
  * cannot accidentally force a single shape onto an open-ended answer.
  */
 export interface LlmClient {
-  /** Invokes `model` and returns a value conforming to `schema`. */
-  structured<T>(request: StructuredRequest): Promise<T>;
+  /**
+   * Invokes `model` with `schema` as a forced tool and returns the tool input.
+   *
+   * The schema is a REQUEST to the model, not a guarantee from it: the provider does not validate
+   * the arguments against it. `T` is therefore UNCHECKED — it defaults to `unknown`, and a caller
+   * that names a shape must still validate the value before trusting a single field.
+   */
+  structured<T = unknown>(request: StructuredRequest): Promise<T>;
   /** One round of a tool-using conversation. The caller owns the loop. */
   converse(request: ConverseRequest): Promise<ConverseResult>;
 }
 
 /**
- * Thrown when the provider returns something that cannot be read as the requested shape.
+ * Thrown when the provider returns something that cannot be read as the requested shape — no
+ * tool call, or a tool call cut off at the output ceiling.
  *
  * Distinct from a transport failure: the caller classifies this as permanent, because
  * re-sending the identical prompt produces the identical unusable answer.

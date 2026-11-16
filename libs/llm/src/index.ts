@@ -15,14 +15,23 @@ export type {
   ToolSpec,
 } from './types.js';
 export { LlmResponseError } from './types.js';
-export { BedrockLlmClient } from './bedrock.js';
+export { BedrockLlmClient, type BedrockClientOptions } from './bedrock.js';
 
 let _client: LlmClient | undefined;
 
-/** Returns the process-wide LLM client, memoised. */
+/**
+ * Returns the process-wide LLM client, memoised.
+ *
+ * `BEDROCK_AWS_PROFILE` / `BEDROCK_REGION` exist for local development only — see libs/config.
+ * Deployed, both are unset and the client uses the task role.
+ */
 export function getLlmClient(): LlmClient {
   if (!_client) {
-    _client = new BedrockLlmClient();
+    const env = getEnv();
+    _client = new BedrockLlmClient({
+      profile: env.BEDROCK_AWS_PROFILE,
+      region: env.BEDROCK_REGION,
+    });
   }
   return _client;
 }
