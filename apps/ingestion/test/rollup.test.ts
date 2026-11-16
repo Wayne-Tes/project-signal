@@ -188,4 +188,44 @@ describe('rollupDimensionScores', () => {
     const chain = db.get() as unknown as { onConflictDoUpdate: ReturnType<typeof vi.fn> };
     expect(chain.onConflictDoUpdate).toHaveBeenCalled();
   });
+
+  const at = (signalId: string, territory: string, score: number) => ({
+    signalId,
+    publishedAt: ASOF,
+    score,
+    confidence: 1,
+    label: score < 0 ? 'negative' : 'positive',
+    dimensions: ['trust'],
+    topics: [],
+    territory,
+  });
+
+  it('writes each territory from its own signals and the aggregate from all of them', async () => {
+    /* Two territories with opposite sentiment: each partition must see only its own signals, and
+       the 'all' row must see both — the aggregate cannot drift from its parts. */
+    _brands = [{ id: 'brand-1', tenantId: 'tenant-1' }];
+    _scored = [at('s1', 'GB', 1), at('s2', 'AU', -1), at('s3', 'GB', 1)];
+
+    await rollupDimensionScores(ASOF);
+
+    const byTerritory = Object.fromEntries(inserted.map((r) => [r['territory'], r]));
+    expect(byTerritory['GB']).toMatchObject({ signalCount: 2 });
+    expect(byTerritory['GB']!['score']).toBeCloseTo(100, 6);
+    expect(byTerritory['AU']).toMatchObject({ signalCount: 1 });
+    expect(byTerritory['AU']!['score']).toBeCloseTo(0, 6);
+    expect(byTerritory['all']).toMatchObject({ signalCount: 3 });
+  });
+
+  it('terminates, and does not double-count, when a signal carries the literal territory "all"', async () => {
+    /* The aggregate partition used to be the SAME array as the one being iterated, so pushing an
+       'all' signal onto its "own" partition grew the array under the loop and never ended. */
+    _brands = [{ id: 'brand-1', tenantId: 'tenant-1' }];
+    _scored = [at('s1', 'all', 1), at('s2', 'GB', -1)];
+
+    const result = await rollupDimensionScores(ASOF);
+
+    expect(result.rows).toBe(2);
+    const all = inserted.find((r) => r['territory'] === 'all');
+    expect(all).toMatchObject({ signalCount: 2 });
+  });
 });

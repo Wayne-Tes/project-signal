@@ -22,6 +22,8 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**'],
+      /* main.ts is the boot sequence only — a real socket, database ping and queue start. Every
+         route is in app.ts and every queue path in scanConsumer.ts, and both are covered. */
       exclude: [...coverageConfigDefaults.exclude, '**/main.ts'],
       thresholds: { lines: 80, branches: 80, functions: 80, statements: 80 },
     },

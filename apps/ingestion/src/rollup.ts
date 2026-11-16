@@ -1,25 +1,22 @@
+import { db, attributedTo, brandEntities, signals, sentimentResults } from '@project-signal/db';
 import {
-  db,
-  attributedTo,
-  brandEntities,
-  signals,
-  sentimentResults,
-} from '@project-signal/db';
-import { HALF_LIFE_DAYS, scoreAllDimensions, type ScoredItem } from '@project-signal/scoring';
+  LOOKBACK_DAYS,
+  MS_PER_DAY,
+  scoreAllDimensions,
+  type ScoredItem,
+} from '@project-signal/scoring';
 import { TERRITORY_ALL, type Dimension, type SentimentLabel } from '@project-signal/shared-types';
 import { and, eq, gte } from 'drizzle-orm';
 import { dimensionScores } from '@project-signal/db';
 
-/**
- * How far back the rollup reads.
+/*
+ * How far back the rollup reads: `LOOKBACK_DAYS` from @project-signal/scoring — four half-lives,
+ * shared with the projection so both describe the same window.
  *
- * The decay is a half-life, not a window, so contributions never reach zero — but past four
- * half-lives an item carries under 1/16th weight, and reading the entire history on every daily
- * run would grow without bound. Four half-lives is the cut-off.
+ * The rollup is scheduled HOURLY (infra-aws/stack/scheduler.tf). It writes one row per brand ×
+ * dimension × territory per calendar day and upserts, so the hourly runs refine today's row rather
+ * than adding to it.
  */
-const LOOKBACK_DAYS = HALF_LIFE_DAYS * 4;
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /** `date` columns are plain dates; normalise to YYYY-MM-DD in UTC. */
 function toDateKey(d: Date): string {
@@ -48,12 +45,10 @@ export async function rollupDimensionScores(
   const since = new Date(asOf.getTime() - LOOKBACK_DAYS * MS_PER_DAY);
   const date = toDateKey(asOf);
 
+  /* Dimension weights are NOT read here: the rollup stores per-dimension scores only, and the
+     composite that weights them is computed on read in the API. */
   const brands = await database
-    .select({
-      id: brandEntities.id,
-      tenantId: brandEntities.tenantId,
-      weights: brandEntities.dimensionWeights,
-    })
+    .select({ id: brandEntities.id, tenantId: brandEntities.tenantId })
     .from(brandEntities);
 
   let rows = 0;
@@ -97,10 +92,17 @@ export async function rollupDimensionScores(
      * present rather than from the full vocabulary — a brand with no Australian feed gets no
      * Australian rows, which is different from getting a row of zeroes.
      */
+    /* A COPY for the aggregate, never `items` itself. With the same array as both the aggregate
+       and the thing being iterated, a signal whose territory was literally 'all' would be pushed
+       onto the array under iteration, and the loop would never end. 'all' is kept out of
+       `signals.territory` by the shared vocabulary rather than by a database constraint, so the
+       rollup does not rely on that: such a row still counts towards the aggregate (it is a real
+       signal) but never forms a partition of its own. */
     const partitions = new Map<string, (ScoredItem & { territory: string })[]>([
-      [TERRITORY_ALL, items],
+      [TERRITORY_ALL, [...items]],
     ]);
     for (const item of items) {
+      if (item.territory === TERRITORY_ALL) continue;
       const bucket = partitions.get(item.territory);
       if (bucket) bucket.push(item);
       else partitions.set(item.territory, [item]);

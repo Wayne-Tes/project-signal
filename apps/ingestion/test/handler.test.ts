@@ -18,7 +18,7 @@ vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
   let _rows: unknown[] = [];
   const queue: unknown[][] = [];
-  ['select', 'from', 'insert', 'values', 'update', 'set', 'leftJoin', 'limit'].forEach(
+  ['select', 'from', 'insert', 'values', 'update', 'set', 'leftJoin', 'limit', 'orderBy'].forEach(
     (m) => {
       chain[m] = vi.fn(() => chain);
     },
@@ -392,7 +392,7 @@ describe('reconcilePendingSignals', () => {
     expect(mockPublish).not.toHaveBeenCalled();
   });
 
-  it('bounds the sweep so a large backlog cannot exceed the request timeout', async () => {
+  it('bounds the sweep so a large backlog cannot monopolise the consumer', async () => {
     const { db } = await import('@project-signal/db');
     const chain = db.get() as any;
     chain._queue.push([]);
@@ -400,6 +400,101 @@ describe('reconcilePendingSignals', () => {
     await reconcilePendingSignals(250);
 
     expect(chain.limit).toHaveBeenCalledWith(250);
+  });
+
+  it('drains oldest first, so a backlog larger than one batch makes progress', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([]);
+
+    await reconcilePendingSignals();
+
+    expect(chain.orderBy).toHaveBeenCalledOnce();
+    expect(references(chain.orderBy.mock.calls[0][0], 'signals', 'ingestedAt')).toBe(true);
+  });
+
+  it('only sweeps a bounded window and skips signals with no text to score', async () => {
+    /* Without the window a permanently unscoreable signal — acked by the worker, never given a
+       sentiment_results row — is re-sent to Bedrock every hour forever, and enough of them fill
+       the batch so genuinely lost signals never get through. Empty text is stored as NULL content
+       and can never score at all. */
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._wheres.length = 0;
+    chain._queue.push([]);
+
+    await reconcilePendingSignals(500, new Date('2026-11-16T12:00:00Z'));
+
+    const where = chain._wheres.at(-1);
+    expect(references(where, 'signals', 'ingestedAt')).toBe(true);
+    expect(references(where, 'signals', 'content')).toBe(true);
+    expect(references(where, 'sentiment_results', 'signalId')).toBe(true);
+  });
+});
+
+describe('a failure part-way through a batch', () => {
+  /* The defect: rows were inserted one by one and published only after the whole loop. One S3 or
+     database failure half-way through left every row already inserted unpublished, and a re-run
+     could not fix it — those rows then hit `onConflictDoNothing` and returned nothing to publish.
+     They sat unscored forever. */
+  const items = [
+    { externalId: 'a', url: 'https://e.com/a', text: 'first', publishedAt: now, metadata: {} },
+    { externalId: 'b', url: 'https://e.com/b', text: 'second', publishedAt: now, metadata: {} },
+  ];
+
+  it('has already published every row inserted before the failure', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValueOnce([{ id: 'sig-a' }]);
+    mockFetch.mockResolvedValue({ items });
+    mockToSignal.mockReturnValue({ brandEntityId: 'brand-1', tenantId: 'tenant-1', source: 'rss' });
+    mockPut
+      .mockResolvedValueOnce('s3://raw/a.json')
+      .mockRejectedValueOnce(new Error('bucket unavailable'));
+
+    await expect(handleIngestionJob('cfg-1')).rejects.toThrow('bucket unavailable');
+
+    expect(mockPublish).toHaveBeenCalledWith('item', 'sig-a');
+  });
+
+  it('records the failure on the feed, with how far it got', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValueOnce([{ id: 'sig-a' }]);
+    mockFetch.mockResolvedValue({ items });
+    mockToSignal.mockReturnValue({ brandEntityId: 'brand-1', tenantId: 'tenant-1', source: 'rss' });
+    mockPut
+      .mockResolvedValueOnce('s3://raw/a.json')
+      .mockRejectedValueOnce(new Error('bucket unavailable'));
+
+    await expect(handleIngestionJob('cfg-1')).rejects.toThrow();
+
+    const sets = chain.set.mock.calls.map((c: unknown[]) => c[0] as Record<string, unknown>);
+    const failure = sets.find((s: Record<string, unknown>) => typeof s['lastError'] === 'string');
+    expect(failure?.['lastError']).toBe('Stopped after 1 of 2 items: bucket unavailable');
+    /* And it must not then be overwritten by the success stamp. */
+    expect(sets.some((s: Record<string, unknown>) => s['lastFetchedAt'] instanceof Date)).toBe(
+      false,
+    );
+  });
+
+  it('records a publish failure the same way, leaving the row for the reconcile sweep', async () => {
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as any;
+    chain._queue.push([cfg], [brand], [{ latest: null }]);
+    chain.returning.mockResolvedValueOnce([{ id: 'sig-a' }]);
+    mockFetch.mockResolvedValue({ items: [items[0]] });
+    mockToSignal.mockReturnValue({ brandEntityId: 'brand-1', tenantId: 'tenant-1', source: 'rss' });
+    mockPublish.mockRejectedValueOnce(new Error('SQS down'));
+
+    await expect(handleIngestionJob('cfg-1')).rejects.toThrow('SQS down');
+
+    const sets = chain.set.mock.calls.map((c: unknown[]) => c[0] as Record<string, unknown>);
+    expect(
+      sets.find((s: Record<string, unknown>) => typeof s['lastError'] === 'string')?.['lastError'],
+    ).toBe('Stopped after 1 of 1 items: SQS down');
   });
 });
 
@@ -517,7 +612,10 @@ describe('one brand, several feeds of the same type', () => {
 
     await handleIngestionJob('cfg-a');
 
-    const inserted = chain.values.mock.calls.map((c: unknown[]) => c[0]) as Record<string, unknown>[];
+    const inserted = chain.values.mock.calls.map((c: unknown[]) => c[0]) as Record<
+      string,
+      unknown
+    >[];
     const signalRow = inserted.find((row) => row['rawStorageRef'] !== undefined);
     expect(signalRow?.['sourceConfigId']).toBe('cfg-a');
   });
@@ -630,6 +728,9 @@ describe('recording what happened to a feed', () => {
 
     const success = updates(chain).find((u) => u['lastFetchedAt'] instanceof Date);
     expect(success).toBeDefined();
-    expect(success?.['lastError'], 'a recovered feed must stop reporting its old failure').toBeNull();
+    expect(
+      success?.['lastError'],
+      'a recovered feed must stop reporting its old failure',
+    ).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { db, scanRuns, sourceConfigs } from '@project-signal/db';
 import { SqsConsumer } from '@project-signal/messaging';
-import { handleIngestionJob } from './handler.js';
+import { handleIngestionJob, reconcilePendingSignals } from './handler.js';
 import { rollupDimensionScores } from './rollup.js';
 
 /**
@@ -34,8 +34,16 @@ export interface ScanRequest {
  * no index: `dimension_scores` is written by the rollup, and until now no timer, queue or route
  * has invoked it in a deployed environment.
  */
+/**
+ * `reconcile` re-publishes signals whose SQS publish was lost (see `reconcilePendingSignals`).
+ * It existed only behind `POST /reconcile`, which nothing in AWS can reach, so the safety net was
+ * never triggered in a deployed environment.
+ */
+export const SCHEDULED_JOBS = ['scan-all', 'rollup', 'reconcile'] as const;
+export type ScheduledJobName = (typeof SCHEDULED_JOBS)[number];
+
 export interface ScheduledJob {
-  job: 'scan-all' | 'rollup';
+  job: ScheduledJobName;
 }
 
 export type QueueMessage = ScanRequest | ScheduledJob;
@@ -48,12 +56,21 @@ export function isScheduledJob(m: QueueMessage): m is ScheduledJob {
 export function parseScanRequest(body: string): QueueMessage {
   const parsed = JSON.parse(body) as Partial<ScanRequest & ScheduledJob>;
 
-  if (parsed.job === 'scan-all' || parsed.job === 'rollup') return { job: parsed.job };
+  if (
+    typeof parsed.job === 'string' &&
+    (SCHEDULED_JOBS as readonly string[]).includes(parsed.job)
+  ) {
+    return { job: parsed.job as ScheduledJobName };
+  }
 
   if (!parsed.scanRunId || !parsed.tenantId || !parsed.brandEntityId) {
     throw new Error(`Queue message missing required fields: ${body.slice(0, 160)}`);
   }
-  return { scanRunId: parsed.scanRunId, tenantId: parsed.tenantId, brandEntityId: parsed.brandEntityId };
+  return {
+    scanRunId: parsed.scanRunId,
+    tenantId: parsed.tenantId,
+    brandEntityId: parsed.brandEntityId,
+  };
 }
 
 /**
@@ -71,7 +88,10 @@ export async function scanAll(): Promise<number> {
   const database = db.get();
 
   const brands = await database
-    .selectDistinct({ tenantId: sourceConfigs.tenantId, brandEntityId: sourceConfigs.brandEntityId })
+    .selectDistinct({
+      tenantId: sourceConfigs.tenantId,
+      brandEntityId: sourceConfigs.brandEntityId,
+    })
     .from(sourceConfigs)
     .where(eq(sourceConfigs.isEnabled, true));
 
@@ -190,6 +210,9 @@ export function createScanConsumer(log: {
 }): SqsConsumer {
   return new SqsConsumer({
     queue: 'scan',
+    /* One message per receive. A scheduled sweep runs for many minutes; nine messages received
+       alongside it would sit invisible-but-unprocessed behind it the whole time. */
+    batchSize: 1,
     handle: async (body) => {
       let request: QueueMessage;
       try {
@@ -205,6 +228,11 @@ export function createScanConsumer(log: {
         if (request.job === 'rollup') {
           const result = await rollupDimensionScores();
           log.info({ result }, 'scheduled rollup finished');
+          return;
+        }
+        if (request.job === 'reconcile') {
+          const result = await reconcilePendingSignals();
+          log.info({ result }, 'scheduled reconcile finished');
           return;
         }
         const brands = await scanAll();

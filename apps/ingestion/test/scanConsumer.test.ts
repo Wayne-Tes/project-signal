@@ -1,8 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockJob = vi.fn();
-vi.mock('../src/handler.js', () => ({ handleIngestionJob: mockJob }));
-vi.mock('@project-signal/messaging', () => ({ SqsConsumer: vi.fn() }));
+const { mockJob, mockReconcile, mockRollup, consumerOptions } = vi.hoisted(() => ({
+  mockJob: vi.fn(),
+  mockReconcile: vi.fn(),
+  mockRollup: vi.fn(),
+  consumerOptions: [] as Record<string, unknown>[],
+}));
+vi.mock('../src/handler.js', () => ({
+  handleIngestionJob: mockJob,
+  reconcilePendingSignals: mockReconcile,
+}));
+vi.mock('../src/rollup.js', () => ({ rollupDimensionScores: mockRollup }));
+vi.mock('@project-signal/messaging', () => ({
+  SqsConsumer: vi.fn((opts: Record<string, unknown>) => {
+    consumerOptions.push(opts);
+    return { start: vi.fn(), stop: vi.fn() };
+  }),
+}));
 
 const setCalls: Record<string, unknown>[] = [];
 const rowQueue: unknown[][] = [];
@@ -10,7 +24,17 @@ let rows: unknown[] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'selectDistinct', 'from', 'where', 'insert', 'values', 'update', 'limit', 'orderBy']) {
+  for (const m of [
+    'select',
+    'selectDistinct',
+    'from',
+    'where',
+    'insert',
+    'values',
+    'update',
+    'limit',
+    'orderBy',
+  ]) {
     chain[m] = vi.fn(() => chain);
   }
   chain['set'] = vi.fn((v: Record<string, unknown>) => {
@@ -23,13 +47,24 @@ vi.mock('@project-signal/db', () => {
   return {
     db: { get: vi.fn(() => chain) },
     scanRuns: { id: 'id', tenantId: 'tenant_id' },
-    sourceConfigs: { id: 'id', tenantId: 'tenant_id', brandEntityId: 'brand_entity_id', isEnabled: 'is_enabled' },
-    brandEntities: {}, tenants: {}, signals: {}, sentimentResults: {}, dimensionScores: {},
-    brandAliases: {}, signalMentions: {}, client: { get: vi.fn() },
+    sourceConfigs: {
+      id: 'id',
+      tenantId: 'tenant_id',
+      brandEntityId: 'brand_entity_id',
+      isEnabled: 'is_enabled',
+    },
+    brandEntities: {},
+    tenants: {},
+    signals: {},
+    sentimentResults: {},
+    dimensionScores: {},
+    brandAliases: {},
+    signalMentions: {},
+    client: { get: vi.fn() },
   };
 });
 
-const { parseScanRequest, runScan } = await import('../src/scanConsumer.js');
+const { parseScanRequest, runScan, isScheduledJob } = await import('../src/scanConsumer.js');
 
 /**
  * The scan consumer.
@@ -58,7 +93,9 @@ describe('parseScanRequest', () => {
   it('throws on a message missing the tenant', () => {
     /* Without a tenant the consumer cannot scope its own queries, and a run id alone must never
        be enough to widen to another tenant's brand. */
-    expect(() => parseScanRequest(JSON.stringify({ scanRunId: 'r', brandEntityId: 'b' }))).toThrow();
+    expect(() =>
+      parseScanRequest(JSON.stringify({ scanRunId: 'r', brandEntityId: 'b' })),
+    ).toThrow();
   });
 
   it('throws on non-JSON', () => {
@@ -184,5 +221,77 @@ describe('scheduled jobs', () => {
     rows = [{ id: 'run-x' }];
     mockJob.mockRejectedValue(new Error('feed down'));
     await expect(scanAll()).resolves.toBe(2);
+  });
+
+  it('recognises a reconcile message', async () => {
+    const m = parseScanRequest(JSON.stringify({ job: 'reconcile' }));
+    expect(isScheduledJob(m) && m.job).toBe('reconcile');
+  });
+});
+
+describe('createScanConsumer', () => {
+  const log = { info: vi.fn(), error: vi.fn() };
+
+  async function handlerFor(): Promise<(body: string) => Promise<void>> {
+    consumerOptions.length = 0;
+    const { createScanConsumer } = await import('../src/scanConsumer.js');
+    createScanConsumer(log);
+    return consumerOptions[0]!['handle'] as (body: string) => Promise<void>;
+  }
+
+  it('consumes the scan queue one message at a time', async () => {
+    /* A sweep runs for minutes. Nine messages received alongside it would sit invisible but
+       unprocessed behind it the whole time. */
+    await handlerFor();
+    expect(consumerOptions[0]!['queue']).toBe('scan');
+    expect(consumerOptions[0]!['batchSize']).toBe(1);
+  });
+
+  it('runs the reconcile sweep for a reconcile job', async () => {
+    /* The safety net that was only ever reachable over HTTP, which nothing in AWS can call. */
+    mockReconcile.mockResolvedValue({ pending: 3, published: 3 });
+    const handle = await handlerFor();
+    await handle(JSON.stringify({ job: 'reconcile' }));
+    expect(mockReconcile).toHaveBeenCalledOnce();
+    expect(mockRollup).not.toHaveBeenCalled();
+  });
+
+  it('runs the rollup for a rollup job', async () => {
+    mockRollup.mockResolvedValue({ brands: 1, rows: 5 });
+    const handle = await handlerFor();
+    await handle(JSON.stringify({ job: 'rollup' }));
+    expect(mockRollup).toHaveBeenCalledOnce();
+  });
+
+  it('runs the whole sweep for scan-all', async () => {
+    rowQueue.push([]);
+    const handle = await handlerFor();
+    await handle(JSON.stringify({ job: 'scan-all' }));
+    expect(log.info).toHaveBeenCalledWith({ brands: 0 }, 'scheduled sweep finished');
+  });
+
+  it('runs an on-demand scan', async () => {
+    rowQueue.push([], []);
+    const handle = await handlerFor();
+    await handle(JSON.stringify(REQ));
+    expect(status()).toEqual(['running', 'completed']);
+  });
+
+  it('discards an unparseable message instead of retrying it', async () => {
+    /* Permanent: it will never parse. Resolving lets the consumer delete it rather than spend
+       the redrive policy's retries reaching a conclusion known on the first attempt. */
+    const handle = await handlerFor();
+    await expect(handle('not json')).resolves.toBeUndefined();
+    expect(log.error).toHaveBeenCalled();
+  });
+
+  it('routes consumer-level failures to the error log', async () => {
+    await handlerFor();
+    const onError = consumerOptions[0]!['onError'] as (e: unknown, b: string) => void;
+    onError(new Error('x'), 'body');
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ body: 'body' }),
+      'scan message failed',
+    );
   });
 });
