@@ -1,14 +1,14 @@
 import { getIdToken } from './auth';
+import { API_BASE } from './config';
+import { notifySessionExpired } from './session-events';
 
-// Defaults to the local API. In deployed environments NEXT_PUBLIC_API_URL must be supplied as a
-// Docker build arg — it is inlined at build time, so a runtime env var has no effect
-// (docs/KNOWN-GAPS.md #8).
-//
-// On AWS the web app and the API sit behind the SAME load balancer, so this is the ALB's own
-// origin. Same-origin means no CORS preflight and no CORS_ORIGINS allowlist to maintain.
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
-
-/** Fetch the API with the current user's Cognito ID token attached. */
+/**
+ * Fetch the API with the current user's token attached.
+ *
+ * A 401 means the API no longer accepts this session — expired, revoked, or no token at all —
+ * and is raised as a session-expired signal so the user is returned to sign-in, instead of every
+ * view independently rendering "Could not load this view" with no way forward.
+ */
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await getIdToken();
   const res = await fetch(`${API_BASE}${path}`, {
@@ -28,6 +28,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
     },
   });
   if (!res.ok) {
+    if (res.status === 401) notifySessionExpired();
     const body = await res.text();
     throw new Error(`${res.status}: ${messageFrom(body) || res.statusText}`);
   }

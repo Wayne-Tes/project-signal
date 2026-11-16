@@ -15,8 +15,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           placeItems: 'center',
           background: 'var(--bg)',
           color: 'var(--t2)',
-          fontFamily: 'IBM Plex Sans, sans-serif',
+          fontFamily: 'var(--font-body)',
         }}
+        role="status"
       >
         Loading…
       </div>

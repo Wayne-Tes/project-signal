@@ -3,9 +3,20 @@
 import { useState, type CSSProperties, type FormEvent } from 'react';
 import { useAuth } from '@/lib/auth';
 
+/**
+ * The sign-in screen, for whichever provider this build uses.
+ *
+ * Cognito (deployed): email + password, plus the first-sign-in password change the
+ * admin-create-only pool forces on every new user.
+ *
+ * Local (`NEXT_PUBLIC_AUTH_MODE=local`): a username + password checked by the API's local
+ * sign-in. It is labelled as such, prominently, so a local build can never be mistaken for the
+ * real product — and so a screenshot of it is never mistaken for one either.
+ */
 export function SignIn() {
-  const { signIn, completeNewPassword } = useAuth();
-  const [email, setEmail] = useState('');
+  const { mode, expired, signIn, completeNewPassword } = useAuth();
+  const local = mode === 'local';
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [error, setError] = useState('');
@@ -22,47 +33,69 @@ export function SignIn() {
     setBusy(true);
     try {
       if (mustSetPassword) {
-        await completeNewPassword(email, newPassword);
+        await completeNewPassword(identifier, newPassword);
       } else {
-        const { newPasswordRequired } = await signIn(email, password);
+        const { newPasswordRequired } = await signIn(identifier, password);
         if (newPasswordRequired) setMustSetPassword(true);
       }
     } catch (err) {
-      // Surface Cognito's own message for a password-policy rejection — "Sign-in failed" would
-      // be actively misleading when the real problem is that the new password is too short.
       const message = err instanceof Error ? err.message : '';
-      setError(
-        mustSetPassword
-          ? message || 'Could not set the new password.'
-          : 'Sign-in failed — check your email and password.',
-      );
+      if (mustSetPassword) {
+        // Surface Cognito's own message for a password-policy rejection — "Sign-in failed" would
+        // be actively misleading when the real problem is that the new password is too short.
+        setError(message || 'Could not set the new password.');
+      } else if (local) {
+        // The local client's messages are written for this screen: wrong credentials, API not
+        // running, API not in local mode, rate limited. Each needs a different action.
+        setError(message || 'Sign-in failed — check your username and password.');
+      } else {
+        setError('Sign-in failed — check your email and password.');
+      }
     } finally {
       setBusy(false);
     }
   }
 
+  const idLabel = local ? 'Username' : 'Email';
+
   return (
     <div style={wrap}>
-      <form onSubmit={submit} style={card}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 22, margin: '0 0 4px' }}>
+      <form onSubmit={submit} style={card} aria-labelledby="signin-title">
+        {local && (
+          <p style={localBadge} data-testid="local-auth-badge">
+            Local development sign-in
+          </p>
+        )}
+        <h1
+          id="signin-title"
+          style={{ fontFamily: 'var(--font-display)', fontSize: 22, margin: '0 0 4px' }}
+        >
           Project Signal
         </h1>
         <p style={{ color: 'var(--t2)', margin: '0 0 20px', fontSize: 13 }}>
           {mustSetPassword
             ? 'Choose a new password to finish setting up your account'
-            : 'Sign in to your brand intelligence dashboard'}
+            : local
+              ? 'Sign in with a local test account. This build is not connected to Cognito.'
+              : 'Sign in to your brand intelligence dashboard'}
         </p>
-        <label style={lbl} htmlFor="email">
-          Email
+        {expired && !error && (
+          <p role="status" style={notice}>
+            Your session has ended. Sign in again to continue.
+          </p>
+        )}
+        <label style={lbl} htmlFor="identifier">
+          {idLabel}
         </label>
         <input
-          id="email"
+          id="identifier"
+          name={local ? 'username' : 'email'}
           style={inp}
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          type={local ? 'text' : 'email'}
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
           required
-          autoComplete="email"
+          autoComplete={local ? 'username' : 'email'}
           readOnly={mustSetPassword}
         />
         {!mustSetPassword && (
@@ -72,6 +105,7 @@ export function SignIn() {
             </label>
             <input
               id="password"
+              name="password"
               style={inp}
               type="password"
               value={password}
@@ -88,6 +122,7 @@ export function SignIn() {
             </label>
             <input
               id="newPassword"
+              name="newPassword"
               style={inp}
               type="password"
               value={newPassword}
@@ -101,7 +136,11 @@ export function SignIn() {
           </>
         )}
         {error && (
-          <p style={{ color: 'var(--coral)', fontSize: 13, margin: '12px 0 0' }}>{error}</p>
+          /* role=alert: the error appears after an async submit, away from focus, and a screen
+             reader user would otherwise never learn the sign-in failed. */
+          <p role="alert" style={{ color: 'var(--coral)', fontSize: 13, margin: '12px 0 0' }}>
+            {error}
+          </p>
         )}
         <button type="submit" disabled={busy} style={btn}>
           {busy
@@ -131,6 +170,23 @@ const card: CSSProperties = {
   background: 'var(--bg-2)',
   border: '1px solid var(--line)',
   borderRadius: 14,
+};
+const localBadge: CSSProperties = {
+  display: 'inline-block',
+  margin: '0 0 14px',
+  padding: '3px 10px',
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  color: 'var(--gold)',
+  border: '1px solid var(--gold)',
+};
+const notice: CSSProperties = {
+  margin: '0 0 8px',
+  fontSize: 13,
+  color: 'var(--t2)',
 };
 const lbl: CSSProperties = {
   display: 'block',

@@ -2,8 +2,8 @@
 
 import dynamic from 'next/dynamic';
 
-// Auth + dashboard run client-only: the Firebase client SDK touches browser APIs and
-// must not be evaluated during server prerender.
+// Auth + dashboard run client-only: the Cognito SDK and the local-session store touch browser
+// APIs (localStorage, sessionStorage) and must not be evaluated during server prerender.
 const ClientApp = dynamic(() => import('@/components/ClientApp').then((m) => m.ClientApp), {
   ssr: false,
   loading: () => (
