@@ -13,6 +13,27 @@
 # that a defect in one project cannot reach another project's data. Every statement below names
 # concrete ARNs — no wildcards on resources.
 
+locals {
+  # Bedrock, for the two services that invoke a model (API assistant, sentiment worker).
+  #
+  # An `eu.` inference profile is a resource IN THE CALLING REGION that fans requests out to
+  # foundation models in several EU regions, so both halves must be permitted:
+  #
+  #   * the profile — pinned to this stack's region and to `eu.anthropic.*`, so neither a `us.`
+  #     or `global.` profile (inference outside the EU, contrary to HANDOVER §3.4 / owner answer
+  #     #3) nor another vendor's model can be invoked;
+  #   * the foundation models behind it — pinned to `anthropic.*` in `eu-*` regions. A wildcard
+  #     on the region SUFFIX rather than an enumerated list, because the set of regions an EU
+  #     profile routes to is AWS's to extend (it was seven on 2026-08-07), and an enumerated list
+  #     would turn a routing change into an AccessDenied on the scoring path at runtime.
+  #
+  # Before 2026-11-16 both ARNs used `arn:aws:bedrock:*:...`, permitting every region.
+  bedrock_resources = [
+    "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/eu.anthropic.*",
+    "arn:aws:bedrock:eu-*::foundation-model/anthropic.*",
+  ]
+}
+
 data "aws_iam_policy_document" "ecs_tasks_assume" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -83,7 +104,14 @@ resource "aws_iam_role_policy" "task_common" {
       {
         Effect   = "Allow"
         Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-        Resource = "${aws_cloudwatch_log_group.app.arn}:*"
+        Resource = ["${aws_cloudwatch_log_group.app.arn}:*", "${aws_cloudwatch_log_group.exec.arn}:*"]
+      },
+      {
+        # ECS Exec session logging (ecs.tf) runs inside the task and checks the target group
+        # exists before streaming to it. DescribeLogGroups takes no resource scope.
+        Effect   = "Allow"
+        Action   = ["logs:DescribeLogGroups"]
+        Resource = "*"
       },
       {
         Effect = "Allow"
@@ -144,18 +172,42 @@ resource "aws_iam_role_policy" "task_api" {
         # name depends on a tenant that does not exist yet — which is why this is a prefix grant
         # rather than an enumerated list like the one above it.
         #
-        # `DeleteSecret` is included for disconnect. It schedules deletion with a recovery window;
-        # the policy deliberately does NOT include `secretsmanager:DeleteSecret` with force, and
-        # nothing in the API passes `ForceDeleteWithoutRecovery`.
+        # `DeleteSecret` is included for disconnect, which schedules deletion with a recovery
+        # window. The explicit DENY below makes "never force-delete" a property of the POLICY
+        # rather than of the application code — before 2026-11-16 this comment claimed the
+        # policy prevented it while the statement allowed it unconditionally.
         Effect = "Allow"
         Action = [
-          "secretsmanager:CreateSecret",
           "secretsmanager:PutSecretValue",
           "secretsmanager:GetSecretValue",
           "secretsmanager:DeleteSecret",
           "secretsmanager:DescribeSecret",
         ]
         Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}-crm/*"
+      },
+      {
+        # Creation is a separate statement because it carries a CONDITION: the secret must be
+        # created carrying this project's `Project` tag. Untagged secrets were invisible to
+        # 99-teardown.sh's tag inventory and to the project budget, so a CRM token secret could
+        # outlive the stack in a shared account with nothing pointing at it. The API passes the
+        # tag set on CreateSecret (apps/api/src/lib/crm-secrets.ts); TagResource is required by
+        # Secrets Manager whenever CreateSecret includes Tags.
+        Effect   = "Allow"
+        Action   = ["secretsmanager:CreateSecret", "secretsmanager:TagResource"]
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}-crm/*"
+        Condition = {
+          StringEquals = { "aws:RequestTag/Project" = var.project }
+        }
+      },
+      {
+        # Force-deletion destroys a customer's CRM credential with no recovery window. No code
+        # path needs it; denying it here means a future one cannot add it by accident.
+        Effect   = "Deny"
+        Action   = ["secretsmanager:DeleteSecret"]
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}-crm/*"
+        Condition = {
+          Bool = { "secretsmanager:ForceDeleteWithoutRecovery" = "true" }
+        }
       },
       {
         # On-demand scans. The API publishes a request and ingestion consumes it — it cannot call
@@ -175,12 +227,9 @@ resource "aws_iam_role_policy" "task_api" {
         # that: it lets the API talk to a model, not the model reach the database. Every tool the
         # assistant can call runs through the API's own authenticated routes — see
         # apps/api/src/assistant/tools.ts.
-        Effect = "Allow"
-        Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
-        Resource = [
-          "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/eu.anthropic.*",
-          "arn:aws:bedrock:*::foundation-model/anthropic.*",
-        ]
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+        Resource = local.bedrock_resources
       },
     ]
   })
@@ -257,13 +306,8 @@ resource "aws_iam_role_policy" "task_sentiment" {
       {
         Effect = "Allow"
         Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
-        # An inference profile fans out to foundation models across EU regions, so BOTH the
-        # profile and the underlying models must be permitted. Scoping the model arn to
-        # `anthropic.*` keeps this from becoming a blanket bedrock:* grant in a shared account.
-        Resource = [
-          "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/eu.anthropic.*",
-          "arn:aws:bedrock:*::foundation-model/anthropic.*",
-        ]
+        # See local.bedrock_resources for the scoping.
+        Resource = local.bedrock_resources
       },
     ]
   })

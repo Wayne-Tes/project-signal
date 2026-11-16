@@ -1,10 +1,10 @@
-# ── Scheduled collection and rollup ──────────────────────────────────────────
+# ── Scheduled collection, rollup and reconcile ───────────────────────────────
 #
-# NOTHING IN THIS SYSTEM HAS EVER RUN ON A TIMER. There was no scheduler anywhere in this tree
-# before this file: the periodic design lived only in `infra/` (GCP Cloud Scheduler), which was
-# never deployed. So `POST /ingest/dispatch` and `POST /ingest/rollup` existed and were never
-# called by anything, and `dimension_scores` — which is what produces the Brand Perception Index,
-# the five dimensions and every trend — has never been written in a deployed environment.
+# Before this file existed nothing in the system ran on a timer: the periodic design lived only
+# in `infra/` (GCP Cloud Scheduler), which was never deployed, so `dimension_scores` — which
+# produces the Brand Perception Index, the five dimensions and every trend — was never written in
+# a deployed environment. Three schedules now drive the pipeline: scan-all (:00), rollup (:30)
+# and reconcile (:45).
 #
 # The schedules target SQS, not the ingestion service. Ingestion has no ALB target group and no
 # listener rule, so nothing outside the VPC can reach it over HTTP; and a collection sweep blocks
@@ -67,6 +67,40 @@ resource "aws_scheduler_schedule" "rollup" {
     arn      = aws_sqs_queue.main["scan"].arn
     role_arn = aws_iam_role.scheduler.arn
     input    = jsonencode({ job = "rollup" })
+
+    retry_policy {
+      maximum_retry_attempts       = 1
+      maximum_event_age_in_seconds = 600
+    }
+  }
+}
+
+# Reconcile — the safety net under ingestion's write-then-publish.
+#
+# Ingestion writes each signal row and then publishes its id to the item queue. If the publish is
+# lost (a crash between the two, an SQS error mid-batch), the row exists, is never scored, and a
+# re-collection cannot repair it because the insert de-duplicates. The reconcile job re-publishes
+# signals that still have no sentiment result. It existed as `POST /reconcile` but, with ingestion
+# having no HTTP ingress on AWS, NOTHING ever called it — this schedule is what makes it run.
+#
+# At :45, after the :00 sweep and the :30 rollup, so a signal published normally a few minutes
+# ago is not re-published while its first message is still in flight. Re-publishing is idempotent
+# regardless: scoring upserts on the unique signal_id.
+resource "aws_scheduler_schedule" "reconcile" {
+  name       = "${local.name_prefix}-reconcile"
+  group_name = aws_scheduler_schedule_group.main.name
+
+  schedule_expression          = "cron(45 * * * ? *)"
+  schedule_expression_timezone = "UTC"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = aws_sqs_queue.main["scan"].arn
+    role_arn = aws_iam_role.scheduler.arn
+    input    = jsonencode({ job = "reconcile" })
 
     retry_policy {
       maximum_retry_attempts       = 1

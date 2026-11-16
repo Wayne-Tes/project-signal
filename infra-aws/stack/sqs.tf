@@ -12,6 +12,26 @@
 
 locals {
   queues = toset(["item", "report", "scan"])
+
+  # Visibility must exceed the worst-case processing time of ONE message, or it is redelivered
+  # while still being worked.
+  #
+  #   item   — one Bedrock call per signal; sub-second normally. 300s leaves room for a model
+  #            that is throttling and retrying internally. Scoring is idempotent on the unique
+  #            signal_id, so a duplicate is wasteful rather than wrong.
+  #   report — unused until Epic 12; kept at the item value.
+  #   scan   — NOT sub-second. `scan-all` sweeps every brand in turn, and each Apify-backed source
+  #            may poll its actor run for up to 300s (libs/source-adapters apifyClient), so a sweep
+  #            is minutes long and grows with the brand count. At 300s it became visible again
+  #            mid-sweep and a second consumer could start the same sweep. 1800s covers the
+  #            current brand count with margin, and the ingestion consumer additionally extends
+  #            visibility while it works (ChangeMessageVisibility heartbeat, libs/messaging), so
+  #            this value is the ceiling for a consumer that died, not the budget for a live one.
+  visibility_timeout_seconds = {
+    item   = 300
+    report = 300
+    scan   = 1800
+  }
 }
 
 resource "aws_sqs_queue" "dlq" {
@@ -32,11 +52,8 @@ resource "aws_sqs_queue" "main" {
 
   name = "${local.name_prefix}-${each.value}"
 
-  # Visibility must exceed the worst-case processing time or a slow message is redelivered while
-  # still being worked, producing duplicate scoring. Scoring is one Bedrock call — sub-second in
-  # practice — but 300s leaves room for a model that is throttling and retrying internally.
-  # Scoring is idempotent on the unique signal_id anyway, so a duplicate is wasteful, not wrong.
-  visibility_timeout_seconds = 300
+  # Per queue — see the reasoning beside `visibility_timeout_seconds` in locals above.
+  visibility_timeout_seconds = local.visibility_timeout_seconds[each.value]
 
   message_retention_seconds = 345600 # 4 days
   sqs_managed_sse_enabled   = true

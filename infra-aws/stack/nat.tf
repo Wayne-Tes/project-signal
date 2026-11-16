@@ -41,7 +41,7 @@ resource "aws_nat_gateway" "main" {
   depends_on = [aws_internet_gateway.main]
 }
 
-# The default route vpc.tf deliberately left out. Private subnets now reach the internet
+# The private subnets' default route. Private subnets reach the internet
 # outbound only: nothing on the internet can initiate a connection back through a NAT gateway.
 resource "aws_route" "private_nat" {
   route_table_id         = aws_route_table.private.id

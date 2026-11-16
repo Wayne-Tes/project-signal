@@ -2,16 +2,22 @@
 # these variables, can consume dev.tfvars without Terraform warning about undeclared values.
 
 # Sizing this is a judgement, so here is the arithmetic behind it rather than a round number.
-# Expected steady state once Phase 4 is complete, eu-west-2 on-demand:
+# Steady state of the stack AS DEPLOYED (re-derived 2026-11-16 from ecs.tf), eu-west-2 on-demand.
+# The Fargate figures scale the original estimate of ~$9/month per 0.25 vCPU / 0.5 GB task; they
+# are estimates, and Cost Explorer grouped by SERVICE is the measurement (docs/HANDOVER.md §6):
 #
-#   RDS db.t4g.micro, single-AZ, 20GB gp3      ~ $15
-#   4x Fargate task, 0.25 vCPU / 0.5 GB, 24/7  ~ $36   <- does NOT scale to zero
-#   Application Load Balancer                  ~ $17
-#   NAT gateway (if Phase 2 uses one)          ~ $33   <- prefer VPC endpoints; see infra-aws/README.md
-#   S3 + SQS + Secrets Manager                 ~  $3
-#   Bedrock (Haiku 4.5, low volume)            ~  $5
-#                                              -------
-#                                              ~ $109
+#   RDS db.t4g.micro, single-AZ, 20GB gp3        ~ $15
+#   3x Fargate 0.25 vCPU / 0.5 GB (web, ingestion,
+#      sentiment-worker), 24/7                   ~ $27   <- does NOT scale to zero
+#   1x Fargate 0.5 vCPU / 1 GB (api), 24/7       ~ $18
+#   Application Load Balancer                    ~ $17
+#   NAT gateway, one AZ                          ~ $33   <- the only complete egress option; see nat.tf
+#   S3 + SQS + Secrets Manager + ALB access logs ~  $3
+#   Container Insights (enhanced)                ~  $3
+#   CloudWatch alarms (13) + SNS                 ~  $1
+#   Bedrock (low volume)                         ~  $5
+#                                                -------
+#                                                ~ $122
 #
 # 150 leaves headroom for a bad week without being so generous that breaching it means nothing.
 # The FORECASTED notification is the one that will actually catch a mistake here, because
@@ -68,27 +74,44 @@ db_apply_immediately     = true  # No waiting for a maintenance window while ite
 # while iterating. Set to 7+ anywhere the credential loss would matter.
 secret_recovery_window_days = 0
 
+# Dev: teardown must genuinely tear down. ECR repositories and S3 buckets are emptied by
+# `terraform destroy` (images rebuild from git; raw payloads re-ingest), the Cognito pool and the
+# ALB carry no deletion protection. BOTH flip to the opposite value anywhere data or users are real.
+allow_force_destroy        = true
+protect_stateful_resources = false
+
+# RDS log export groups that ALREADY exist in the account and are adopted by import (logs.tf).
+# ⚠️ NOT YET VERIFIED — this repository cannot read the account offline. Immediately before the
+# next apply, run (read-only, sandbox only):
+#   aws logs describe-log-groups --region eu-west-2 \
+#     --log-group-name-prefix /aws/rds/instance/psignal-dev-postgres/ --query 'logGroups[].logGroupName'
+# and list exactly the suffixes it returns. `postgresql` is pre-filled because exports have been
+# enabled since 2026-08-08 and Postgres writes on every start; `upgrade` only exists if a minor
+# upgrade has run. A wrong entry fails the plan (import of a missing group) or the apply
+# (create of an existing one) — both before anything is changed.
+rds_log_groups_existing = ["postgresql"]
+
+# No certificate yet — HTTP only. Set to an ACM ARN in eu-west-2 once a domain exists.
+# certificate_arn = "arn:aws:acm:eu-west-2:290304998906:certificate/<id>"
+
 # ── Phase 4: Bedrock model routing ────────────────────────────────────────────────────────────
 # Named by USE CASE, not by provider, so the underlying model changes without touching a call
 # site. Both are EU inference profiles — the `eu.` prefix keeps inference inside the EU, and the
 # bare model id (no prefix) is rejected at invoke time with "on-demand throughput isn't
 # supported".
 #
-# Verified by INVOKING each profile in eu-west-2 on 2026-08-08T23:39Z.
+# History, because it explains the value: on 2026-08-08T23:39Z only Sonnet 5 and Opus 5
+# answered an invoke; Haiku 4.5 and the other older profiles returned ResourceNotFoundException,
+# "Model use case details have not been submitted for this account", and every slot was moved to
+# Sonnet 5. The Anthropic use case form was then submitted (docs/OWNER-ACTIONS.md #1, 2026-08-09
+# 10:20Z) and Haiku 4.5 INVOKED SUCCESSFULLY again, so all three slots returned to Haiku 4.5 —
+# the values below, which match the defaults in libs/config/src/index.ts.
 #
-# `list-inference-profiles` was the previous evidence and it was NOT ENOUGH: every profile that
-# now refuses is still listed by it. Listing tells you a profile exists; only an invoke tells you
-# this account may use it. That distinction is why the previously-recorded value was wrong.
+# The evidence that counts is an INVOKE, never a listing: every refusing profile was still listed
+# ACTIVE by `list-inference-profiles`, and `get-foundation-model-availability` reported
+# NOT_AVAILABLE for profiles that answered. Re-invoke before changing any value here.
 #
-# Sonnet 5 and Opus 5 answered. Seven others — Haiku 4.5, Sonnet 4.5, Opus 4.5, Sonnet 4.6 and
-# Opus 4.6 among them — returned ResourceNotFoundException, "Model use case details have not been
-# submitted for this account". Six of those seven were still answering an hour earlier the same
-# evening, so account-level access is being tightened while we work. See docs/OWNER-ACTIONS.md #1.
-#
-# SCORER: was Haiku 4.5, which is now REFUSED — the deployed sentiment worker was carrying a
-# model id it could no longer invoke. Runs once per signal, so it is the cost-sensitive slot;
-# Sonnet 5 is more expensive per call than Haiku and that is the price of it working at all.
-# Move back to a cheaper profile once the use case form re-opens them, having re-invoked first.
+# SCORER: runs once per signal — the cost-sensitive slot, and the reason it is Haiku.
 scorer_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 # REPORTER: deliberately the SAME model as the scorer. Opus 5 also works and the reporter is the

@@ -45,12 +45,12 @@ output "public_subnet_ids" {
 }
 
 output "private_subnet_ids" {
-  description = "Private subnets — RDS today, Fargate tasks in Phase 4. No default route to the internet; see the NAT decision in vpc.tf."
+  description = "Private subnets — RDS and every Fargate task. Outbound internet via the single NAT gateway in nat.tf; nothing inbound from the internet."
   value       = aws_subnet.private[*].id
 }
 
 output "app_security_group_id" {
-  description = "Attach to Fargate tasks. It is what the database's ingress rule permits, so a task outside this group cannot reach Postgres."
+  description = "Attached to the api, ingestion and sentiment-worker tasks. It is what the database's ingress rule permits, so a task outside this group — including web, which has its own — cannot reach Postgres."
   value       = aws_security_group.app.id
 }
 
@@ -70,7 +70,7 @@ output "raw_bucket" {
 }
 
 output "reports_bucket" {
-  description = "REPORTS_BUCKET. Unused until Epic 12."
+  description = "REPORTS_BUCKET. The API reads it; nothing writes to it until Epic 12's PDF render exists."
   value       = aws_s3_bucket.reports.id
 }
 
@@ -80,8 +80,23 @@ output "ecr_repository_urls" {
 }
 
 output "alb_dns_name" {
-  description = "The team-facing URL. HTTP only until a real hostname and ACM certificate exist (docs/OWNER-ACTIONS.md item 6)."
-  value       = "http://${aws_lb.main.dns_name}"
+  description = "The team-facing URL. HTTP until var.certificate_arn is set; then HTTPS, with port 80 redirecting (docs/OWNER-ACTIONS.md, hostname item). The certificate covers the chosen domain, not this name, so use the domain once it exists."
+  value       = local.https_enabled ? "https://${aws_lb.main.dns_name}" : "http://${aws_lb.main.dns_name}"
+}
+
+output "alarm_topic_arn" {
+  description = "SNS topic every operational alarm (monitoring.tf) publishes to. Email subscribers must confirm before anything is delivered."
+  value       = aws_sns_topic.alarms.arn
+}
+
+output "alb_logs_bucket" {
+  description = "ALB access logs, under alb/AWSLogs/<account>/. Expire after 90 days."
+  value       = aws_s3_bucket.alb_logs.id
+}
+
+output "ecs_exec_log_group" {
+  description = "Transcripts of every ECS Exec session. A year's retention: it is an access record."
+  value       = aws_cloudwatch_log_group.exec.name
 }
 
 output "ecs_cluster" {

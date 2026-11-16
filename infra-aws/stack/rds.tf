@@ -15,8 +15,10 @@ resource "aws_security_group" "app" {
   description = "Application tasks. Attached to Fargate services in Phase 4."
   vpc_id      = aws_vpc.main.id
 
-  # No inbound rules yet, deliberately. Phase 4 adds exactly one: the ALB on the API's port.
-  # An empty ingress set is the correct starting position, not an unfinished one.
+  # No inline ingress. The only inbound rule is the ALB on the API's port, added as a separate
+  # resource in alb.tf. This group is attached to api, ingestion and sentiment-worker — the
+  # services that use the database. Web has its own group (ecs.tf) precisely so that the
+  # database's ingress rule below, which trusts THIS group, does not reach it.
 
   egress {
     description = "All outbound. Ingestion must reach RSS, Apify and the YouTube API."
@@ -154,7 +156,11 @@ resource "aws_db_instance" "main" {
 
   # Postgres logs to CloudWatch so a failed migration on API startup is diagnosable without
   # shell access to the instance. This is the cheap half of observability (Epic 9).
+  # The groups themselves are declared in logs.tf with a retention period; on a fresh build they
+  # must exist BEFORE the instance first writes, or RDS creates them with no retention.
   enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
+
+  depends_on = [aws_cloudwatch_log_group.rds]
 
   tags = { Name = "${local.name_prefix}-postgres" }
 }

@@ -25,6 +25,18 @@ resource "aws_cognito_user_pool" "main" {
   username_attributes      = ["email"]
   auto_verified_attributes = ["email"]
 
+  # Destroying the pool deletes every user and every `sub` the users table keys on — there is no
+  # recovering it. Driven by var.protect_stateful_resources: TRUE wherever users are real, FALSE in
+  # dev so 99-teardown.sh can genuinely tear down (dev users are re-creatable).
+  deletion_protection = var.protect_stateful_resources ? "ACTIVE" : "INACTIVE"
+
+  # MFA: deliberately OFF, recorded as a decision rather than an omission (2026-11-16). The web
+  # SignIn flow (apps/web/src/lib/auth.tsx) handles only the password and NEW_PASSWORD_REQUIRED
+  # challenges; turning MFA on — even OPTIONAL — before the UI handles SOFTWARE_TOKEN_MFA would
+  # strand any user who enrolled. Enable it in the same change that adds the TOTP challenge to
+  # the sign-in screen. Owner action in docs/OWNER-ACTIONS.md.
+  mfa_configuration = "OFF"
+
   password_policy {
     minimum_length                   = 12
     require_lowercase                = true
@@ -96,10 +108,14 @@ resource "aws_cognito_user_pool_client" "web" {
   # Cognito's SRP/password flows do not need one.
   generate_secret = false
 
+  # Only the flows the web app actually uses. `CognitoUser.authenticateUser` in
+  # amazon-cognito-identity-js (apps/web/src/lib/auth.tsx) performs SRP unless told otherwise, and
+  # nothing in the repo selects USER_PASSWORD_AUTH. That flow sends the plaintext password to
+  # Cognito, and with the ALB on HTTP until a certificate exists it was an enabled path nobody
+  # needed — removed 2026-11-16. Re-add it only alongside code that requires it.
   explicit_auth_flows = [
-    "ALLOW_USER_PASSWORD_AUTH", # email + password, matching the existing SignIn form
-    "ALLOW_REFRESH_TOKEN_AUTH",
     "ALLOW_USER_SRP_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
   ]
 
   access_token_validity  = 60 # minutes

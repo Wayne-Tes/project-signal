@@ -5,8 +5,12 @@
 # a URL string, producing real-looking sentiment derived from nothing. Ingestion now uploads
 # BEFORE inserting the signal row, so raw_storage_ref can never point at a missing object.
 #
-# `reports` is unused until Epic 12 and is created now because an empty bucket costs nothing and
-# adding it later means another apply against a live stack.
+# `reports` holds generated report artefacts. The API has read access to it today; nothing writes
+# it until Epic 12's PDF render and email delivery exist.
+#
+# `force_destroy` follows var.allow_force_destroy: TRUE only in dev, where raw payloads are
+# re-ingestable. Without it a destroy fails on the first object — and `raw` is versioned, so it is
+# never empty — which is why 99-teardown.sh --execute could not complete before 2026-11-16.
 
 locals {
   # Bucket names are globally unique across all AWS accounts, so the account id disambiguates —
@@ -16,13 +20,15 @@ locals {
 }
 
 resource "aws_s3_bucket" "raw" {
-  bucket = local.raw_bucket_name
-  tags   = { Name = local.raw_bucket_name }
+  bucket        = local.raw_bucket_name
+  force_destroy = var.allow_force_destroy
+  tags          = { Name = local.raw_bucket_name }
 }
 
 resource "aws_s3_bucket" "reports" {
-  bucket = local.reports_bucket_name
-  tags   = { Name = local.reports_bucket_name }
+  bucket        = local.reports_bucket_name
+  force_destroy = var.allow_force_destroy
+  tags          = { Name = local.reports_bucket_name }
 }
 
 # --- Hardening, applied identically to both -----------------------------------------------

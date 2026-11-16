@@ -15,6 +15,10 @@ resource "aws_ecr_repository" "app" {
 
   name = "${local.name_prefix}/${each.value}"
 
+  # A repository holding images cannot be destroyed without this, so teardown failed on the first
+  # one. Dev only — images are rebuilt from git. See var.allow_force_destroy.
+  force_delete = var.allow_force_destroy
+
   # IMMUTABLE, and this is load-bearing rather than tidy. Terraform owns the image via a required
   # image_tag variable with no default, precisely so an apply cannot silently roll images back
   # (CLAUDE.md). Mutable tags would reopen that hole from the other end: the same tag could point

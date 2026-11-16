@@ -89,24 +89,11 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# The private route table has NO default route, and that is the decision, not an omission.
-#
-# There is no NAT gateway. One costs roughly $33/month before a byte crosses it — over a fifth
-# of this project's $150 budget — and NOTHING IN PHASE 2 NEEDS OUTBOUND INTERNET. RDS does not
-# egress, and it is the only thing in these subnets today.
-#
-# Phase 4 is when the question becomes real, because ingestion must reach RSS feeds, Apify and
-# the YouTube API, and Fargate must pull images from ECR. Decide it there, with three options:
-#
-#   1. VPC endpoints (ECR api + dkr, S3 gateway, Logs, Secrets Manager). Gateway endpoints are
-#      free; interface endpoints are ~$7/month each. Covers image pulls and AWS APIs but NOT
-#      third-party HTTP, so ingestion still needs egress.
-#   2. A single NAT gateway (~$33/month). Covers everything, simplest, most expensive.
-#   3. Ingestion tasks in public subnets with a public IP; everything else private. Free, and
-#      acceptable when security groups allow no inbound — but it puts a task on a public subnet,
-#      which wants a deliberate decision rather than a default.
-#
-# Deferring costs nothing: adding a route later is a route, not a rebuild.
+# The private route table. Its default route — outbound only, via the single NAT gateway — lives
+# in nat.tf, together with the reasoning for choosing a NAT over VPC endpoints or public-subnet
+# tasks (ingestion must reach arbitrary third-party HTTPS, which no endpoint covers). Phase 2
+# shipped this table with no default route at all, because nothing in the private subnets needed
+# egress until Fargate arrived in Phase 4.
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
   tags   = { Name = "${local.name_prefix}-private-rt" }
