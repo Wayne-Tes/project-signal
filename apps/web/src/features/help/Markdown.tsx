@@ -1,6 +1,7 @@
 'use client';
 
 import type { JSX, ReactNode } from 'react';
+import { safeExternalHref, safeInAppPath } from '@/lib/safe-url';
 
 /**
  * A small markdown renderer for the help corpus and assistant answers.
@@ -31,10 +32,9 @@ export interface MarkdownProps {
  * a real path rather than a theoretical one.
  */
 function safeHref(href: string): string | undefined {
-  const trimmed = href.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith('/')) return trimmed;
-  return undefined;
+  /* Protocol-relative `//host` is rejected by safeInAppPath: it starts with a slash but leaves
+     the origin, and used to pass a bare `startsWith('/')` check here. */
+  return safeExternalHref(href) ?? safeInAppPath(href);
 }
 
 /** Inline formatting: `**bold**`, `*italic*`, `` `code` ``, and `[text](href)`. */
@@ -72,16 +72,23 @@ function renderInline(text: string, onNavigate?: (href: string) => void): ReactN
         /* Unsafe or unrecognised scheme: show the label as plain text rather than dropping it.
            The user still reads what was written; it simply is not clickable. */
         out.push(label);
-      } else if (href.startsWith('/') && onNavigate) {
+      } else if (href.startsWith('/')) {
+        /* This app has ONE route; an in-app path is never a real URL. Rendered as an <a> it
+           navigated the browser to a 404. So an in-app link is either an in-app action, or —
+           when the host gave no way to act on it — plain text, never a dead link. */
         out.push(
-          <button
-            type="button"
-            className="ds-md__link"
-            key={`l${key}`}
-            onClick={() => onNavigate(href)}
-          >
-            {label}
-          </button>,
+          onNavigate ? (
+            <button
+              type="button"
+              className="ds-md__link"
+              key={`l${key}`}
+              onClick={() => onNavigate(href)}
+            >
+              {label}
+            </button>
+          ) : (
+            label
+          ),
         );
       } else {
         out.push(
@@ -91,8 +98,8 @@ function renderInline(text: string, onNavigate?: (href: string) => void): ReactN
             href={href}
             /* External links open away from an authenticated app; noreferrer denies the
                destination the referring URL, which can carry ids. */
-            target={href.startsWith('/') ? undefined : '_blank'}
-            rel={href.startsWith('/') ? undefined : 'noopener noreferrer'}
+            target="_blank"
+            rel="noopener noreferrer"
           >
             {label}
           </a>,

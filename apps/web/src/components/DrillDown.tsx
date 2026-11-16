@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { TERRITORY_LABELS, type Territory } from '@project-signal/shared-types';
 import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
@@ -17,6 +18,7 @@ import { sourceMeta } from '@/config/sources';
 import { SourceGlyph } from './primitives';
 import { scoreColor, sentColor, sentLabel } from '@/lib/utils';
 import type { NavActions, NavLevel } from '@/lib/types';
+import { safeExternalHref } from '@/lib/safe-url';
 
 /**
  * The drill-down: index → dimension → topic → the individual signals.
@@ -69,12 +71,29 @@ function MetricRow({ items }: { items: { label: string; value: string; tone?: st
   );
 }
 
+/** A level whose request failed. Distinct from every empty state, which are all statements of fact. */
+function LevelError({ title, error }: { title: string; error: string }) {
+  return (
+    <>
+      <h2 className="drill-title">{title}</h2>
+      <p className="prov" role="alert">
+        Could not load this level: {error}
+      </p>
+    </>
+  );
+}
+
 /** Level 1 — the index and its five dimensions. */
 function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
   const { brandId, selected, territory } = useBrand();
-  const { data, loading } = useApi<ApiBrandScore>(brandId ? withTerritory(`/brands/${brandId}/score`, territory) : null);
+  const { data, loading, error } = useApi<ApiBrandScore>(
+    brandId ? withTerritory(`/brands/${brandId}/score`, territory) : null,
+  );
 
   if (loading) return <p className="drill-sub">Loading…</p>;
+  /* A failed request is not "not scored". Without this the level fell through to
+     emptyScoreMessage and told the user the brand had no score when the API had in fact errored. */
+  if (error) return <LevelError title={selected?.name ?? 'Brand'} error={error} />;
 
   const index = data?.score ?? null;
   const previous = data?.previousScore ?? null;
@@ -97,7 +116,9 @@ function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
               {
                 label: 'Change',
                 value:
-                  previous === null ? 'no comparison' : `${index >= previous ? '+' : ''}${roundScore(index - previous)}`,
+                  previous === null
+                    ? 'no comparison'
+                    : `${index >= previous ? '+' : ''}${roundScore(index - previous)}`,
               },
               { label: 'As at', value: data?.date?.slice(0, 10) ?? '—' },
             ]}
@@ -106,7 +127,10 @@ function OverviewLevel({ onDim }: { onDim: (key: string) => void }) {
           <div className="drill-list">
             {dimensions.map((d) => (
               <button className="drill-row" key={d.key} onClick={() => onDim(d.key)}>
-                <div className="lead" style={{ background: 'var(--surface-track)', color: scoreColor(d.score) }}>
+                <div
+                  className="lead"
+                  style={{ background: 'var(--surface-track)', color: scoreColor(d.score) }}
+                >
                   {roundScore(d.score)}
                 </div>
                 <div className="body">
@@ -166,6 +190,24 @@ function Stars({ rating }: { rating: number }) {
 }
 
 /**
+ * The link to a signal's original.
+ *
+ * `sourceUrl` is SCRAPED — a review platform, a feed, an Apify actor wrote it, not us — so it is
+ * never placed in an href unchecked. A `javascript:` URL here would run script in an authenticated
+ * page on click. Anything that is not a well-formed http(s) URL is shown as text instead.
+ */
+function SourceLink({ url }: { url: string | null }) {
+  if (!url) return <span className="conf">no source URL recorded</span>;
+  const href = safeExternalHref(url);
+  if (!href) return <span className="conf">source link withheld — not a web address</span>;
+  return (
+    <a className="link" href={href} target="_blank" rel="noopener noreferrer">
+      read the original ↗
+    </a>
+  );
+}
+
+/**
  * The evidence itself.
  *
  * WHAT CHANGED AND WHY. This used to render a source name, a date and a link — nothing readable.
@@ -200,7 +242,9 @@ function SignalList({ items }: { items: ApiSignal[] }) {
                   not trusting. Hidden when unclassified rather than printed as "Not set", which
                   would put noise on every row of a tenant that has not set any. */}
               {s.territory && s.territory !== 'unknown' && (
-                <span className="conf">{TERRITORY_LABELS[s.territory as Territory] ?? s.territory}</span>
+                <span className="conf">
+                  {TERRITORY_LABELS[s.territory as Territory] ?? s.territory}
+                </span>
               )}
               <span className="when">{s.publishedAt?.slice(0, 10)}</span>
             </div>
@@ -247,13 +291,7 @@ function SignalList({ items }: { items: ApiSignal[] }) {
             )}
 
             <div className="sig-foot">
-              {s.sourceUrl ? (
-                <a className="link" href={s.sourceUrl} target="_blank" rel="noopener noreferrer">
-                  read the original ↗
-                </a>
-              ) : (
-                <span className="conf">no source URL recorded</span>
-              )}
+              <SourceLink url={s.sourceUrl} />
             </div>
           </div>
         );
@@ -277,14 +315,31 @@ function SignalList({ items }: { items: ApiSignal[] }) {
  * cannot dead-end even before any topic has formed. Level 1 promises the number traces to
  * evidence; this is that evidence.
  */
-function DimensionLevel({ dimKey, onCluster }: { dimKey: string; onCluster: (topic: string) => void }) {
+function DimensionLevel({
+  dimKey,
+  onCluster,
+}: {
+  dimKey: string;
+  onCluster: (topic: string) => void;
+}) {
   const { brandId, territory } = useBrand();
   const topics = useApi<ApiCluster[]>(
-    brandId ? withTerritory(`/brands/${brandId}/topics?dimension=${encodeURIComponent(dimKey)}`, territory) : null,
+    brandId
+      ? withTerritory(
+          `/brands/${brandId}/topics?dimension=${encodeURIComponent(dimKey)}`,
+          territory,
+        )
+      : null,
   );
+  /* Territory-filtered like the topics above it. It was not: under a UK lens the topics were UK
+     and the signals beneath them were every territory, so the evidence did not match the claim
+     it sat under. */
   const signals = useApi<{ items: ApiSignal[] }>(
     brandId
-      ? `/brands/${brandId}/signals?limit=20&dimension=${encodeURIComponent(dimKey)}`
+      ? withTerritory(
+          `/brands/${brandId}/signals?limit=20&dimension=${encodeURIComponent(dimKey)}`,
+          territory,
+        )
       : null,
   );
 
@@ -292,13 +347,16 @@ function DimensionLevel({ dimKey, onCluster }: { dimKey: string; onCluster: (top
   const clusters = topics.data ?? [];
   const items = signals.data?.items ?? [];
   const loading = topics.loading || signals.loading;
+  const error = topics.error ?? signals.error;
+
+  if (error) return <LevelError title={label} error={error} />;
 
   return (
     <>
       <h2 className="drill-title">{label}</h2>
       <p className="drill-sub">
-        Topics driving this dimension — what is helping as well as what is hurting — and the
-        signals behind them.
+        Topics driving this dimension — what is helping as well as what is hurting — and the signals
+        behind them.
       </p>
 
       {loading ? (
@@ -309,7 +367,10 @@ function DimensionLevel({ dimKey, onCluster }: { dimKey: string; onCluster: (top
             <div className="drill-list">
               {clusters.map((c) => (
                 <button className="drill-row" key={c.topic} onClick={() => onCluster(c.topic)}>
-                  <div className="lead" style={{ background: 'var(--surface-track)', color: sentColor(c.sentiment) }}>
+                  <div
+                    className="lead"
+                    style={{ background: 'var(--surface-track)', color: sentColor(c.sentiment) }}
+                  >
                     {c.volume}
                   </div>
                   <div className="body">
@@ -367,15 +428,25 @@ function DimensionLevel({ dimKey, onCluster }: { dimKey: string; onCluster: (top
 /** Level 3 — the actual signals behind one topic. */
 function ClusterLevel({ topic }: { topic: string }) {
   const { brandId, territory } = useBrand();
-  const clusters = useApi<ApiCluster[]>(brandId ? withTerritory(`/brands/${brandId}/brand-impact`, territory) : null);
+  const clusters = useApi<ApiCluster[]>(
+    brandId ? withTerritory(`/brands/${brandId}/brand-impact`, territory) : null,
+  );
   /* The `topic` filter added to the signals route for exactly this: the evidence behind a
      cluster, rather than "recent signals" standing in for it. */
   const signals = useApi<{ items: ApiSignal[] }>(
-    brandId ? withTerritory(`/brands/${brandId}/signals?limit=20&topic=${encodeURIComponent(topic)}`, territory) : null,
+    brandId
+      ? withTerritory(
+          `/brands/${brandId}/signals?limit=20&topic=${encodeURIComponent(topic)}`,
+          territory,
+        )
+      : null,
   );
 
   const cluster = (clusters.data ?? []).find((c) => c.topic === topic);
   const items = signals.data?.items ?? [];
+  const error = clusters.error ?? signals.error;
+
+  if (error) return <LevelError title={topic} error={error} />;
   /* A positive topic reaches this level now that the dimension above it no longer hides one, and
      its damage is 0.0 by construction. Reporting the measure the cluster actually carries keeps
      the row from reading as a bug. */
@@ -393,7 +464,11 @@ function ClusterLevel({ topic }: { topic: string }) {
         <MetricRow
           items={[
             { label: 'Signals', value: String(cluster.volume) },
-            { label: 'Sentiment', value: sentLabel(cluster.sentiment), tone: sentColor(cluster.sentiment) },
+            {
+              label: 'Sentiment',
+              value: sentLabel(cluster.sentiment),
+              tone: sentColor(cluster.sentiment),
+            },
             impact,
           ]}
         />
@@ -428,7 +503,28 @@ function ClusterLevel({ topic }: { topic: string }) {
  * how deep you went, and collapses three levels of evidence into one line of text.
  */
 export function DrillDown({ path, nav }: { path: NavLevel[]; nav: NavActions }) {
-  if (path.length === 0) return null;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const open = path.length > 0;
+  const { close } = nav;
+
+  /* A modal drawer behaves like one: Escape closes it, focus moves into it when it opens and goes
+     back where it came from when it closes. It previously did none of these, so a keyboard user
+     who opened it from a dimension card was left focused on a control hidden behind the scrim. */
+  useEffect(() => {
+    if (!open) return;
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      returnTo?.focus();
+    };
+  }, [open, close]);
+
+  if (!open) return null;
 
   const crumb = (lvl: NavLevel): string => {
     if (lvl.kind === 'overview') return 'Index';
@@ -445,7 +541,14 @@ export function DrillDown({ path, nav }: { path: NavLevel[]; nav: NavActions }) 
   return (
     <>
       <div className="drill-scrim" onClick={nav.close} aria-hidden="true" />
-      <div className="drill-stack">
+      <div
+        className="drill-stack"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Score drill-down"
+        ref={dialogRef}
+        tabIndex={-1}
+      >
         {path.map((lvl, i) => {
           const isCurrent = i === path.length - 1;
 
@@ -474,15 +577,24 @@ export function DrillDown({ path, nav }: { path: NavLevel[]; nav: NavActions }) 
             <div className="drill-panel" key={`${lvl.kind}-${i}`} data-testid="drill-panel">
               <div className="drill-head">
                 <div className="crumbs">
+                  {/* Earlier steps are buttons — they are actions, and a span with onClick was
+                      unreachable by keyboard. The current step is not a control at all. */}
                   {path.map((p, j) => (
                     <span key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                      {j > 0 && <span className="sep">›</span>}
-                      <span
-                        className={`c${j === path.length - 1 ? ' cur' : ''}`}
-                        onClick={() => nav.to(j)}
-                      >
-                        {crumb(p)}
-                      </span>
+                      {j > 0 && (
+                        <span className="sep" aria-hidden="true">
+                          ›
+                        </span>
+                      )}
+                      {j === path.length - 1 ? (
+                        <span className="c cur" aria-current="step">
+                          {crumb(p)}
+                        </span>
+                      ) : (
+                        <button type="button" className="c" onClick={() => nav.to(j)}>
+                          {crumb(p)}
+                        </button>
+                      )}
                     </span>
                   ))}
                 </div>
@@ -496,7 +608,9 @@ export function DrillDown({ path, nav }: { path: NavLevel[]; nav: NavActions }) 
                 {lvl.kind === 'dimension' && (
                   <DimensionLevel
                     dimKey={(lvl as { dimKey: string }).dimKey}
-                    onCluster={(topic) => nav.openCluster(topic, (lvl as { dimKey: string }).dimKey)}
+                    onCluster={(topic) =>
+                      nav.openCluster(topic, (lvl as { dimKey: string }).dimKey)
+                    }
                   />
                 )}
                 {lvl.kind === 'cluster' && (

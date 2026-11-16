@@ -51,7 +51,9 @@ describe('Markdown — link safety', () => {
   });
 
   it('never injects raw HTML from the source text', () => {
-    const { container } = render(<Markdown>{'<img src=x onerror=alert(1)> and <b>bold</b>'}</Markdown>);
+    const { container } = render(
+      <Markdown>{'<img src=x onerror=alert(1)> and <b>bold</b>'}</Markdown>,
+    );
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelector('b')).toBeNull();
     /* Shown literally, which is the correct failure: visible, harmless, and obviously wrong to
@@ -63,17 +65,33 @@ describe('Markdown — link safety', () => {
 describe('Markdown — in-app links', () => {
   it('routes a /help/ link through the callback instead of navigating', async () => {
     const onNavigate = vi.fn();
-    render(<Markdown onNavigate={onNavigate}>{'See [recency](/help/how-recency-works).'}</Markdown>);
+    render(
+      <Markdown onNavigate={onNavigate}>{'See [recency](/help/how-recency-works).'}</Markdown>,
+    );
     await userEvent.click(screen.getByRole('button', { name: 'recency' }));
     expect(onNavigate).toHaveBeenCalledWith('/help/how-recency-works');
   });
 
-  it('falls back to a real anchor when no callback is supplied', () => {
-    render(<Markdown>{'[recency](/help/how-recency-works)'}</Markdown>);
-    expect(screen.getByRole('link', { name: 'recency' })).toHaveAttribute(
-      'href',
-      '/help/how-recency-works',
-    );
+  it('renders plain text, never a dead link, when no callback is supplied', () => {
+    /* REGRESSION. This app has a single route, so `<a href="/help/x">` navigated the browser to a
+       404 — which is what the Assistant page did with every help link it rendered. With nowhere
+       to send it, the label is shown as text. */
+    const { container } = render(<Markdown>{'[recency](/help/how-recency-works)'}</Markdown>);
+    expect(container.textContent).toContain('recency');
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('refuses a protocol-relative //host link, which starts with a slash but leaves the site', () => {
+    const onNavigate = vi.fn();
+    render(<Markdown onNavigate={onNavigate}>{'[x](//evil.example/steal)'}</Markdown>);
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('refuses a backslash-led path that browsers resolve off-site', () => {
+    render(<Markdown onNavigate={vi.fn()}>{'[x](/\\evil.example)'}</Markdown>);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });
 
@@ -87,7 +105,9 @@ describe('Markdown — block rendering', () => {
 
   it('renders a table with its header row', () => {
     render(
-      <Markdown>{'| Range | Reading |\n| --- | --- |\n| 70-100 | Strong |\n| 0-30 | Weak |'}</Markdown>,
+      <Markdown>
+        {'| Range | Reading |\n| --- | --- |\n| 70-100 | Strong |\n| 0-30 | Weak |'}
+      </Markdown>,
     );
     expect(screen.getByRole('columnheader', { name: 'Range' })).toBeInTheDocument();
     expect(screen.getAllByRole('row')).toHaveLength(3);
@@ -109,7 +129,9 @@ describe('Markdown — block rendering', () => {
   });
 
   it('renders an indented block as preformatted, for the formulae in the corpus', () => {
-    const { container } = render(<Markdown>{'Text:\n\n    weight = recency × confidence\n'}</Markdown>);
+    const { container } = render(
+      <Markdown>{'Text:\n\n    weight = recency × confidence\n'}</Markdown>,
+    );
     expect(container.querySelector('pre')?.textContent).toBe('weight = recency × confidence');
   });
 

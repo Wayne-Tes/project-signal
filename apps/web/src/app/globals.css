@@ -133,6 +133,13 @@
   --paper-warn: #c8902a;
   --paper-bad: #d2553f;
   --paper-on-accent: #fff;
+
+  /* Overlay depth. Theme-independent by design: a modal scrim darkens whatever is behind it in
+     either theme, and the drawer/paper shadows sit on that scrim rather than on a surface. Named
+     here so the rules below and the components read a token, not a literal. */
+  --scrim: rgba(4, 5, 7, 0.55);
+  --shadow-drawer: -30px 0 60px -20px rgba(0, 0, 0, 0.7);
+  --shadow-paper: 0 30px 80px -30px rgba(0, 0, 0, 0.6);
 }
 
 * { box-sizing: border-box; }
@@ -288,12 +295,15 @@ button.drill-hint:hover { color: var(--peri); border-color: color-mix(in srgb,va
 .stat .foot { font-size: 12px; color: var(--t3); margin-top: 4px; display:flex; align-items:center; gap:8px; }
 
 /* ---------- drill-down drawer ---------- */
-.drill-scrim { position: fixed; inset: 0; background: rgba(4,5,7,0.55); backdrop-filter: blur(2px); z-index: 40; animation: fade .3s both; }
+.drill-scrim { position: fixed; inset: 0; background: var(--scrim); backdrop-filter: blur(2px); z-index: 40; animation: fade .3s both; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 .drill-stack { position: fixed; top: 0; right: 0; bottom: 0; z-index: 41; display: flex; pointer-events: none; }
+/* Focus lands on the dialog container programmatically so the next Tab reaches its first control;
+   the container itself is not an interactive target and draws no ring. */
+.drill-stack:focus { outline: none; }
 .drill-panel {
   width: 540px; max-width: 92vw; height: 100%; background: var(--bg-2); border-left: 1px solid var(--line2);
-  box-shadow: -30px 0 60px -20px rgba(0,0,0,0.7); pointer-events: auto; display: flex; flex-direction: column;
+  box-shadow: var(--shadow-drawer); pointer-events: auto; display: flex; flex-direction: column;
   animation: panelIn .42s cubic-bezier(.2,.85,.25,1) both;
 }
 /* A completed step, collapsed to its spine. It is a <button> — it is the way back to that level,
@@ -315,7 +325,7 @@ button.drill-hint:hover { color: var(--peri); border-color: color-mix(in srgb,va
 .drill-spine .lvl { color: var(--peri); }
 .drill-head { padding: 20px 24px 14px; border-bottom: 1px solid var(--line); position: relative; }
 .crumbs { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 11px; color: var(--t3); margin-bottom: 14px; }
-.crumbs .c { cursor: pointer; transition: color .15s; }
+.crumbs .c { cursor: pointer; transition: color .15s; background: none; border: 0; padding: 0; font: inherit; color: inherit; }
 .crumbs .c:hover { color: var(--t1); }
 .crumbs .c.cur { color: var(--peri); }
 .crumbs .sep { opacity: .5; }
@@ -428,7 +438,7 @@ button.drill-hint:hover { color: var(--peri); border-color: color-mix(in srgb,va
 .report-frame { background: var(--paper-edge); padding: 40px; display: flex; justify-content: center; min-height: 100%; }
 .page {
   width: 794px; min-height: 1123px; background: var(--paper); color: var(--ink); border-radius: 3px;
-  box-shadow: 0 30px 80px -30px rgba(0,0,0,0.6); padding: 64px 60px; margin-bottom: 32px;
+  box-shadow: var(--shadow-paper); padding: 64px 60px; margin-bottom: 32px;
   font-family: var(--font-body); position: relative;
 }
 .page * { color: inherit; }
