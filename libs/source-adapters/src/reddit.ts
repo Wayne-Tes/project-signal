@@ -2,6 +2,7 @@ import type { Signal } from '@project-signal/shared-types';
 import { startApifyRun, waitForApifyRun, fetchApifyDataset } from './apifyClient.js';
 import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index.js';
 import { clampContent, joinTitleAndBody, stripHtml } from './text.js';
+import { baseSignal, isUsable, newerThan } from './common.js';
 
 /**
  * Reddit, via Apify.
@@ -104,33 +105,25 @@ export class RedditAdapter implements SourceAdapter {
     const completed = await waitForApifyRun(apiKey, run.id);
     const rows = await fetchApifyDataset<ApifyRedditItem>(apiKey, completed.defaultDatasetId);
 
-    let items = rows
+    const items = rows
       /* `dataType` is checked rather than trusted. `skipComments` is asked for, but a mixed
          dataset would otherwise be turned into signals whose text is a one-line reply. */
       .filter((row) => (row.dataType ?? 'post') === 'post')
       .map(toRawItem)
-      .filter((item) => item.text.length > 0 && item.externalId.length > 0);
+      .filter(isUsable);
 
     /* Filtered here rather than through the actor's `postDateLimit`. The date format that input
        expects is not documented in its schema, and a cutoff silently rejected by the actor would
        return everything on every run — expensive, and invisible, because the result still looks
        like a successful collection. Comparing dates locally cannot fail that way. */
-    if (since) items = items.filter((item) => item.publishedAt > since);
-
-    return { items };
+    return { items: newerThan(items, since) };
   }
 
   toSignal(
     item: RawItem,
     config: AdapterConfig,
   ): Omit<Signal, 'id' | 'ingestedAt' | 'rawStorageRef'> {
-    return {
-      tenantId: config.tenantId,
-      brandEntityId: config.brandEntityId,
-      source: this.source,
-      sourceUrl: item.url,
-      publishedAt: item.publishedAt,
-    };
+    return baseSignal(this.source, item, config);
   }
 }
 

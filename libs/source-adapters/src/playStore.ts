@@ -2,6 +2,7 @@ import type { Signal } from '@project-signal/shared-types';
 import { startApifyRun, waitForApifyRun, fetchApifyDataset } from './apifyClient.js';
 import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index.js';
 import { clampContent, stripHtml } from './text.js';
+import { baseSignal, isUsable, newerThan } from './common.js';
 
 /**
  * `neatrat/google-play-store-reviews-scraper`.
@@ -59,19 +60,14 @@ export class PlayStoreAdapter implements SourceAdapter {
     const completed = await waitForApifyRun(apiKey, run.id);
     const reviews = await fetchApifyDataset<PlayStoreReview>(apiKey, completed.defaultDatasetId);
 
-    let items = reviews.filter((r) => r.body).map(toRawItem);
-    if (since) items = items.filter((item) => item.publishedAt > since);
-    return { items };
+    return { items: newerThan(reviews.map(toRawItem).filter(isUsable), since) };
   }
 
-  toSignal(item: RawItem, config: AdapterConfig): Omit<Signal, 'id' | 'ingestedAt' | 'rawStorageRef'> {
-    return {
-      tenantId: config.tenantId,
-      brandEntityId: config.brandEntityId,
-      source: this.source,
-      sourceUrl: item.url,
-      publishedAt: item.publishedAt,
-    };
+  toSignal(
+    item: RawItem,
+    config: AdapterConfig,
+  ): Omit<Signal, 'id' | 'ingestedAt' | 'rawStorageRef'> {
+    return baseSignal(this.source, item, config);
   }
 }
 

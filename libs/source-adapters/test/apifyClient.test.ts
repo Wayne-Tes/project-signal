@@ -28,9 +28,20 @@ describe('startApifyRun', () => {
     const result = await startApifyRun('key', 'actor~id', { placeIds: ['abc'] });
     expect(result).toEqual(run);
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/acts/actor~id/runs?token=key'),
+      expect.stringContaining('/acts/actor~id/runs'),
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  it('sends the token as a header, never in the URL', async () => {
+    /* A token in a URL is a credential in every log line that records the URL. */
+    mockFetch.mockResolvedValue(jsonResponse({ data: run }));
+    await startApifyRun('secret-key', 'actor~id', {});
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).not.toContain('secret-key');
+    expect(url).not.toContain('token=');
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer secret-key');
+    expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
   it('throws when the HTTP response is not ok', async () => {
@@ -70,7 +81,9 @@ describe('waitForApifyRun', () => {
   });
 
   it('throws when run ends with ABORTED status', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ data: { id: 'run-1', status: 'ABORTED', defaultDatasetId: '' } }));
+    mockFetch.mockResolvedValue(
+      jsonResponse({ data: { id: 'run-1', status: 'ABORTED', defaultDatasetId: '' } }),
+    );
     await expect(waitForApifyRun('key', 'run-1')).rejects.toThrow('ABORTED');
   });
 
@@ -78,16 +91,49 @@ describe('waitForApifyRun', () => {
     mockFetch.mockResolvedValue(jsonResponse({}, 500));
     await expect(waitForApifyRun('key', 'run-1')).rejects.toThrow('500');
   });
+
+  it('ABORTS a run it gives up waiting for, so it stops billing', async () => {
+    /* Giving up on a run used to leave it running on Apify until its own limit. */
+    vi.useFakeTimers();
+    mockFetch.mockResolvedValue(
+      jsonResponse({ data: { id: 'run-1', status: 'RUNNING', defaultDatasetId: '' } }),
+    );
+    const promise = waitForApifyRun('key', 'run-1').catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(301_000);
+    const err = await promise;
+    vi.useRealTimers();
+
+    expect(String(err)).toMatch(/timed out after 300000ms and was aborted/);
+    const abort = mockFetch.mock.calls.find(([u]) => String(u).endsWith('/actor-runs/run-1/abort'));
+    expect(abort?.[1]).toMatchObject({ method: 'POST' });
+  });
+
+  it('still reports the timeout when the abort itself fails', async () => {
+    vi.useFakeTimers();
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url.endsWith('/abort')) throw new Error('network');
+      return jsonResponse({ data: { id: 'run-1', status: 'RUNNING', defaultDatasetId: '' } });
+    });
+    const promise = waitForApifyRun('key', 'run-1').catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(301_000);
+    const err = await promise;
+    vi.useRealTimers();
+    expect(String(err)).toMatch(/timed out/);
+  });
 });
 
 describe('fetchApifyDataset', () => {
   it('returns array of typed items from dataset', async () => {
-    const items = [{ text: 'Great!', stars: 5 }, { text: 'Good', stars: 4 }];
+    const items = [
+      { text: 'Great!', stars: 5 },
+      { text: 'Good', stars: 4 },
+    ];
     mockFetch.mockResolvedValue(jsonResponse(items));
     const result = await fetchApifyDataset<{ text: string; stars: number }>('key', 'ds-1');
     expect(result).toEqual(items);
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/datasets/ds-1/items?token=key'),
+      expect.stringContaining('/datasets/ds-1/items?format=json'),
+      expect.objectContaining({ headers: { Authorization: 'Bearer key' } }),
     );
   });
 
@@ -172,7 +218,9 @@ describe('a run Apify refused rather than ran', () => {
   it("carries Apify's own words through, so the feed row names the cause", async () => {
     /* `source_configs.last_error` is rendered on the feed. "Free tier limit reached" is something
        the owner can act on; "collection failed" is not. */
-    mockFetch.mockResolvedValue(jsonResponse({ data: refused('Free tier limit reached (5 total runs).') }));
+    mockFetch.mockResolvedValue(
+      jsonResponse({ data: refused('Free tier limit reached (5 total runs).') }),
+    );
     await expect(waitForApifyRun('key', 'run-1')).rejects.toThrow(/Free tier limit reached/);
   });
 
@@ -225,7 +273,7 @@ describe('a run Apify refused rather than ran', () => {
     await expect(waitForApifyRun('key', 'run-1')).resolves.toMatchObject({ status: 'SUCCEEDED' });
   });
 
-  it("names the cause when a run genuinely FAILS, not just the status", async () => {
+  it('names the cause when a run genuinely FAILS, not just the status', async () => {
     /* A real one: a Google Place ID field holding an App Store URL. "FAILED" sends someone to the
        logs; the message tells them which feed to fix. */
     mockFetch.mockResolvedValue(
@@ -261,7 +309,9 @@ describe('placeholder rows', () => {
   it('throws when the dataset is nothing BUT placeholders', async () => {
     /* The shape of a refused run that said nothing useful in `statusMessage`. Ten placeholder
        rows and no data is a fault worth showing on the feed, not a quiet zero. */
-    mockFetch.mockResolvedValue(jsonResponse(Array.from({ length: 10 }, () => ({ noResults: true }))));
+    mockFetch.mockResolvedValue(
+      jsonResponse(Array.from({ length: 10 }, () => ({ noResults: true }))),
+    );
     await expect(fetchApifyDataset('key', 'ds-1')).rejects.toThrow(/placeholder/i);
   });
 

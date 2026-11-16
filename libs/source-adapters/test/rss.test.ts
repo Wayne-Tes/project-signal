@@ -1,4 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/* The feed URL is resolved before it is fetched (SSRF guard). A test must never depend on real
+   DNS, so every name resolves to a documentation-range public address unless a test says otherwise. */
+const { mockLookup } = vi.hoisted(() => ({ mockLookup: vi.fn() }));
+vi.mock('node:dns/promises', () => ({ lookup: mockLookup }));
+
 import { RssAdapter } from '../src/rss.js';
 
 const mockFetch = vi.fn();
@@ -6,6 +12,8 @@ const mockFetch = vi.fn();
 beforeEach(() => {
   vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockReset();
+  mockLookup.mockReset();
+  mockLookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
 });
 
 afterEach(() => {
@@ -54,7 +62,7 @@ const ATOM_XML = `<?xml version="1.0"?>
 </feed>`;
 
 function xmlResponse(xml: string) {
-  return { ok: true, status: 200, text: () => Promise.resolve(xml) };
+  return { ok: true, status: 200, headers: new Headers(), text: () => Promise.resolve(xml) };
 }
 
 describe('RssAdapter', () => {
@@ -92,12 +100,23 @@ describe('RssAdapter', () => {
   });
 
   it('throws when fetch returns non-ok response', async () => {
-    mockFetch.mockResolvedValue({ ok: false, status: 404, text: () => Promise.resolve('') });
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 404,
+      headers: new Headers(),
+      text: () => Promise.resolve(''),
+    });
     await expect(adapter.fetch(config)).rejects.toThrow('404');
   });
 
   it('toSignal maps item to signal shape', () => {
-    const item = { externalId: 'i1', url: 'https://example.com/p/1', text: 'content', publishedAt: new Date(), metadata: {} };
+    const item = {
+      externalId: 'i1',
+      url: 'https://example.com/p/1',
+      text: 'content',
+      publishedAt: new Date(),
+      metadata: {},
+    };
     const signal = adapter.toSignal(item, config);
     expect(signal.source).toBe('rss');
     expect(signal.tenantId).toBe('tenant-1');
@@ -278,5 +297,61 @@ describe('the untouched source text', () => {
     const { items } = await adapter.fetch(config);
     expect(items[0]!.sourceText).toBeUndefined();
     expect(items[0]!.sourceTitle).toBe('Only a title');
+  });
+});
+
+/**
+ * The feed URL is typed in by a tenant admin and fetched from inside the VPC. Without a guard,
+ * `http://169.254.169.254/latest/meta-data/` — the instance metadata service — is just a feed.
+ */
+describe('a feed URL pointing inside the network', () => {
+  it('is refused before any request is made', async () => {
+    await expect(
+      adapter.fetch({
+        ...config,
+        credentials: { feedUrl: 'http://169.254.169.254/latest/meta-data/' },
+      }),
+    ).rejects.toThrow(/private or reserved/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('is refused when an innocent-looking name resolves to a private address', async () => {
+    mockLookup.mockResolvedValue([{ address: '10.20.1.5', family: 4 }]);
+    await expect(
+      adapter.fetch({ ...config, credentials: { feedUrl: 'https://feeds.attacker.test/rss' } }),
+    ).rejects.toThrow(/private or reserved/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('is refused when a public feed REDIRECTS inside the network', async () => {
+    /* fetch follows redirects by itself, which would walk straight past a check on the first URL. */
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 302,
+      headers: new Headers({ location: 'http://127.0.0.1:5432/' }),
+      text: () => Promise.resolve(''),
+    });
+    await expect(adapter.fetch(config)).rejects.toThrow(/private or reserved/);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it('follows a redirect to another public address', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 301,
+        headers: new Headers({ location: '/moved.xml' }),
+        text: () => Promise.resolve(''),
+      })
+      .mockResolvedValueOnce(xmlResponse(RSS_XML));
+    const { items } = await adapter.fetch(config);
+    expect(items).toHaveLength(2);
+    expect(mockFetch.mock.calls[1]?.[0]).toBe('https://example.com/moved.xml');
+  });
+
+  it('refuses a scheme other than http(s)', async () => {
+    await expect(
+      adapter.fetch({ ...config, credentials: { feedUrl: 'file:///etc/passwd' } }),
+    ).rejects.toThrow(/Only http and https/);
   });
 });

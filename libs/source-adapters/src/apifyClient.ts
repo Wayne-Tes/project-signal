@@ -1,6 +1,19 @@
+import { fetchWithTimeout } from './http.js';
+
 const APIFY_BASE = 'https://api.apify.com/v2';
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 300_000;
+
+/**
+ * The API token goes in the `Authorization` header, never the query string.
+ *
+ * A token in a URL is a credential in every log line that records the URL — proxies, load
+ * balancers, error messages that echo the request — and in any stack trace that prints it. The
+ * header is Apify's documented alternative and is not logged by default anywhere on that path.
+ */
+function authHeaders(apiKey: string, extra: Record<string, string> = {}): Record<string, string> {
+  return { Authorization: `Bearer ${apiKey}`, ...extra };
+}
 
 type ApifyRunStatus = 'READY' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'TIMED-OUT' | 'ABORTED';
 
@@ -60,9 +73,9 @@ export async function startApifyRun(
   actorId: string,
   input: Record<string, unknown>,
 ): Promise<ApifyRun> {
-  const res = await fetch(`${APIFY_BASE}/acts/${actorId}/runs?token=${apiKey}`, {
+  const res = await fetchWithTimeout(`${APIFY_BASE}/acts/${actorId}/runs`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(apiKey, { 'Content-Type': 'application/json' }),
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`Apify start run failed: ${res.status}`);
@@ -86,7 +99,9 @@ export async function startApifyRun(
 export async function waitForApifyRun(apiKey: string, runId: string): Promise<ApifyRun> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const res = await fetch(`${APIFY_BASE}/actor-runs/${runId}?token=${apiKey}`);
+    const res = await fetchWithTimeout(`${APIFY_BASE}/actor-runs/${runId}`, {
+      headers: authHeaders(apiKey),
+    });
     if (!res.ok) throw new Error(`Apify poll failed: ${res.status}`);
     const data = (await res.json()) as { data: ApifyRun };
     const run = data.data;
@@ -109,7 +124,23 @@ export async function waitForApifyRun(apiKey: string, runId: string): Promise<Ap
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
-  throw new Error(`Apify run ${runId} timed out after ${POLL_TIMEOUT_MS}ms`);
+  /* Giving up on a run does not stop it: it keeps running — and billing — on Apify until its own
+     limit. So it is aborted on the way out. Best effort: the timeout is the error worth reporting,
+     and a failed abort must not replace it. */
+  await abortApifyRun(apiKey, runId);
+  throw new Error(`Apify run ${runId} timed out after ${POLL_TIMEOUT_MS}ms and was aborted`);
+}
+
+/** Asks Apify to stop a run. Never throws. */
+export async function abortApifyRun(apiKey: string, runId: string): Promise<void> {
+  try {
+    await fetchWithTimeout(`${APIFY_BASE}/actor-runs/${runId}/abort`, {
+      method: 'POST',
+      headers: authHeaders(apiKey),
+    });
+  } catch {
+    /* Swallowed deliberately — see the caller. */
+  }
 }
 
 /**
@@ -127,7 +158,9 @@ export async function waitForApifyRun(apiKey: string, runId: string): Promise<Ap
  * placeholders" is a fault worth showing on the feed, not a quiet zero.
  */
 export async function fetchApifyDataset<T>(apiKey: string, datasetId: string): Promise<T[]> {
-  const res = await fetch(`${APIFY_BASE}/datasets/${datasetId}/items?token=${apiKey}&format=json`);
+  const res = await fetchWithTimeout(`${APIFY_BASE}/datasets/${datasetId}/items?format=json`, {
+    headers: authHeaders(apiKey),
+  });
   if (!res.ok) throw new Error(`Apify dataset fetch failed: ${res.status}`);
 
   const items = (await res.json()) as T[];
@@ -141,5 +174,9 @@ export async function fetchApifyDataset<T>(apiKey: string, datasetId: string): P
 }
 
 function isPlaceholder(item: unknown): boolean {
-  return typeof item === 'object' && item !== null && (item as { noResults?: unknown }).noResults === true;
+  return (
+    typeof item === 'object' &&
+    item !== null &&
+    (item as { noResults?: unknown }).noResults === true
+  );
 }

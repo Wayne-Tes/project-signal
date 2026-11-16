@@ -2,6 +2,8 @@ import { XMLParser } from 'fast-xml-parser';
 import type { Signal } from '@project-signal/shared-types';
 import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index.js';
 import { clampContent, joinTitleAndBody, stripHtml } from './text.js';
+import { baseSignal, isUsable, newerThan, toArray } from './common.js';
+import { fetchPublic } from './http.js';
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
 
@@ -31,27 +33,23 @@ export class RssAdapter implements SourceAdapter {
     const feedUrl = config.credentials?.['feedUrl'];
     if (!feedUrl) throw new Error('feedUrl required in credentials');
 
-    const res = await fetch(feedUrl, {
+    /* The feed URL is typed in by a tenant admin and fetched from inside the VPC, so it goes
+       through `fetchPublic`: http(s) only, public addresses only, every redirect re-checked. */
+    const res = await fetchPublic(feedUrl, {
       headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' },
     });
     if (!res.ok) throw new Error(`RSS fetch failed: ${res.status} for ${feedUrl}`);
 
     const xml = await res.text();
     const parsed = parser.parse(xml) as Record<string, unknown>;
-    let items = extractItems(parsed);
-    if (since) items = items.filter((item) => item.publishedAt > since);
-
-    return { items };
+    return { items: newerThan(extractItems(parsed), since) };
   }
 
-  toSignal(item: RawItem, config: AdapterConfig): Omit<Signal, 'id' | 'ingestedAt' | 'rawStorageRef'> {
-    return {
-      tenantId: config.tenantId,
-      brandEntityId: config.brandEntityId,
-      source: this.source,
-      sourceUrl: item.url,
-      publishedAt: item.publishedAt,
-    };
+  toSignal(
+    item: RawItem,
+    config: AdapterConfig,
+  ): Omit<Signal, 'id' | 'ingestedAt' | 'rawStorageRef'> {
+    return baseSignal(this.source, item, config);
   }
 }
 
@@ -59,12 +57,12 @@ function extractItems(parsed: Record<string, unknown>): RawItem[] {
   const rss = parsed['rss'] as Record<string, unknown> | undefined;
   if (rss) {
     const channel = rss['channel'] as Record<string, unknown> | undefined;
-    return toArray<RssItem>(channel?.['item']).map(fromRssItem).filter((i) => i.text);
+    return toArray<RssItem>(channel?.['item']).map(fromRssItem).filter(isUsable);
   }
 
   const feed = parsed['feed'] as Record<string, unknown> | undefined;
   if (feed) {
-    return toArray<AtomEntry>(feed['entry']).map(fromAtomEntry).filter((i) => i.text);
+    return toArray<AtomEntry>(feed['entry']).map(fromAtomEntry).filter(isUsable);
   }
 
   return [];
@@ -129,9 +127,4 @@ function fromAtomEntry(entry: AtomEntry): RawItem {
         : new Date(),
     metadata: { title },
   };
-}
-
-function toArray<T>(value: unknown): T[] {
-  if (!value) return [];
-  return Array.isArray(value) ? (value as T[]) : [value as T];
 }

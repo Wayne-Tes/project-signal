@@ -19,14 +19,42 @@ const config = {
 };
 
 beforeEach(() => {
-  vi.mocked(startApifyRun).mockResolvedValue({ id: 'run-1', status: 'SUCCEEDED', defaultDatasetId: 'ds-1' });
-  vi.mocked(waitForApifyRun).mockResolvedValue({ id: 'run-1', status: 'SUCCEEDED', defaultDatasetId: 'ds-1' });
+  vi.mocked(startApifyRun).mockResolvedValue({
+    id: 'run-1',
+    status: 'SUCCEEDED',
+    defaultDatasetId: 'ds-1',
+  });
+  vi.mocked(waitForApifyRun).mockResolvedValue({
+    id: 'run-1',
+    status: 'SUCCEEDED',
+    defaultDatasetId: 'ds-1',
+  });
   vi.mocked(fetchApifyDataset).mockResolvedValue([]);
 });
 
 describe('GoogleReviewsAdapter', () => {
   it('source is google_reviews', () => {
     expect(adapter.source).toBe('google_reviews');
+  });
+
+  it('drops star-only reviews and reviews with no identity, which can never become a scored signal', async () => {
+    vi.mocked(fetchApifyDataset).mockResolvedValue([
+      { reviewId: 'r1', text: 'Helpful staff', publishedAtDate: '2024-02-01T00:00:00Z', stars: 5 },
+      { reviewId: 'r2', text: '', stars: 1 },
+      { reviewId: 'r3', stars: 4 },
+      { text: 'No id at all', stars: 3 },
+    ]);
+    const { items } = await adapter.fetch(config);
+    expect(items.map((i) => i.externalId)).toEqual(['r1']);
+  });
+
+  it('applies the precise watermark locally, since cutoffDate is only day-granular', async () => {
+    vi.mocked(fetchApifyDataset).mockResolvedValue([
+      { reviewId: 'same-day-older', text: 'a', publishedAtDate: '2024-01-15T08:00:00Z' },
+      { reviewId: 'newer', text: 'b', publishedAtDate: '2024-01-15T18:00:00Z' },
+    ]);
+    const { items } = await adapter.fetch(config, new Date('2024-01-15T12:00:00Z'));
+    expect(items.map((i) => i.externalId)).toEqual(['newer']);
   });
 
   it('starts an Apify run with placeId in input', async () => {

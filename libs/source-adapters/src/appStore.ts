@@ -2,6 +2,8 @@ import { XMLParser } from 'fast-xml-parser';
 import type { Signal } from '@project-signal/shared-types';
 import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index.js';
 import { clampContent, joinTitleAndBody, stripHtml } from './text.js';
+import { baseSignal, isUsable, newerThan, toArray } from './common.js';
+import { fetchWithTimeout } from './http.js';
 
 /**
  * App Store reviews, from Apple's own public feed.
@@ -103,7 +105,9 @@ export class AppStoreAdapter implements SourceAdapter {
 
     const url = `https://itunes.apple.com/${country}/rss/customerreviews/id=${numericId}/sortby=mostrecent/xml`;
 
-    const res = await fetch(url, { headers: { Accept: 'application/atom+xml, application/xml' } });
+    const res = await fetchWithTimeout(url, {
+      headers: { Accept: 'application/atom+xml, application/xml' },
+    });
     if (!res.ok) {
       /* The status is in the message. A 404 means the app id or country is wrong — which the
          person who configured the feed can fix — and that is a different conversation from a
@@ -113,31 +117,23 @@ export class AppStoreAdapter implements SourceAdapter {
 
     const parsed = parser.parse(await res.text()) as Record<string, unknown>;
     const feed = parsed['feed'] as Record<string, unknown> | undefined;
-    let items = toArray<AppleEntry>(feed?.['entry'])
+    const items = toArray<AppleEntry>(feed?.['entry'])
       .map(toRawItem)
       /* A rating is what makes an entry a review. Verified across two real feeds that every
          `<entry>` is one and carries `im:rating` — the feed's own `<id>`, which is the feed URL,
          is a sibling of `<entry>` rather than an entry, so it never appears here. The filter is
          kept as a guard rather than a fix: an entry with no rating is not a customer review, and
          storing one would put Apple's own boilerplate into the index as a signal. */
-      .filter((item) => item.text.length > 0 && item.metadata['rating'] !== undefined);
+      .filter((item) => isUsable(item) && item.metadata['rating'] !== undefined);
 
-    if (since) items = items.filter((item) => item.publishedAt > since);
-
-    return { items };
+    return { items: newerThan(items, since) };
   }
 
   toSignal(
     item: RawItem,
     config: AdapterConfig,
   ): Omit<Signal, 'id' | 'ingestedAt' | 'rawStorageRef'> {
-    return {
-      tenantId: config.tenantId,
-      brandEntityId: config.brandEntityId,
-      source: this.source,
-      sourceUrl: item.url,
-      publishedAt: item.publishedAt,
-    };
+    return baseSignal(this.source, item, config);
   }
 }
 
@@ -200,9 +196,4 @@ function numberOrUndefined(value: unknown): number | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   const n = Number(value);
   return Number.isNaN(n) ? undefined : n;
-}
-
-function toArray<T>(value: unknown): T[] {
-  if (!value) return [];
-  return Array.isArray(value) ? (value as T[]) : [value as T];
 }

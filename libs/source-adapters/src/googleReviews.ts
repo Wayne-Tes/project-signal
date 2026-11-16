@@ -2,6 +2,7 @@ import type { Signal } from '@project-signal/shared-types';
 import { startApifyRun, waitForApifyRun, fetchApifyDataset } from './apifyClient.js';
 import type { SourceAdapter, AdapterConfig, FetchResult, RawItem } from './index.js';
 import { clampContent, stripHtml } from './text.js';
+import { baseSignal, isUsable, newerThan } from './common.js';
 
 const ACTOR_ID = 'compass~google-maps-reviews-scraper';
 
@@ -30,17 +31,17 @@ export class GoogleReviewsAdapter implements SourceAdapter {
     const completed = await waitForApifyRun(apiKey, run.id);
     const reviews = await fetchApifyDataset<ApifyReview>(apiKey, completed.defaultDatasetId);
 
-    return { items: reviews.map(toRawItem) };
+    /* A star rating with no words is common on Google, and has nothing to score: storing it made a
+       signal whose only fate was a permanent scoring failure. `cutoffDate` is day-granular, so the
+       precise watermark is also applied here — otherwise the watermark day re-collects every run. */
+    return { items: newerThan(reviews.map(toRawItem).filter(isUsable), since) };
   }
 
-  toSignal(item: RawItem, config: AdapterConfig): Omit<Signal, 'id' | 'ingestedAt' | 'rawStorageRef'> {
-    return {
-      tenantId: config.tenantId,
-      brandEntityId: config.brandEntityId,
-      source: this.source,
-      sourceUrl: item.url,
-      publishedAt: item.publishedAt,
-    };
+  toSignal(
+    item: RawItem,
+    config: AdapterConfig,
+  ): Omit<Signal, 'id' | 'ingestedAt' | 'rawStorageRef'> {
+    return baseSignal(this.source, item, config);
   }
 }
 
