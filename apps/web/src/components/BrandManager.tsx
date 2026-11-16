@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { apiFetch } from '@/lib/api';
+import { useBrand } from '@/lib/brand-context';
 import { TERRITORIES, TERRITORY_LABELS } from '@project-signal/shared-types';
 import { sourceMeta } from '@/config/sources';
 import { SourceGlyph } from './primitives';
 
-type Brand = { id: string; name: string; slug: string; isOwned: boolean };
 type SourceConfig = {
   id: string;
   source: string;
@@ -45,7 +45,9 @@ const SOURCE_FIELDS: Record<string, SourceField[]> = {
       hint: 'Any RSS or Atom feed. A Google News search URL is the usual way to track a brand name.',
     },
   ],
-  youtube: [{ key: 'channelId', label: 'Channel ID', placeholder: 'UCxxxxxxxxxxxx', required: true }],
+  youtube: [
+    { key: 'channelId', label: 'Channel ID', placeholder: 'UCxxxxxxxxxxxx', required: true },
+  ],
   app_store: [
     { key: 'appId', label: 'App ID', placeholder: '284882215', required: true },
     { key: 'country', label: 'Country', placeholder: 'gb' },
@@ -71,8 +73,11 @@ const SOURCE_FIELDS: Record<string, SourceField[]> = {
 const SOURCE_TYPES = Object.keys(SOURCE_FIELDS);
 
 /** A one-line summary of a feed's config, for when nobody has given it a label. */
-function describeConfig(cfg: Record<string, string>): string {
-  const values = Object.values(cfg).filter(Boolean);
+function describeConfig(cfg: Record<string, string> | null | undefined): string {
+  /* Tolerates a missing config rather than throwing: this runs while rendering every feed row,
+     and one malformed row used to take the entire Admin page — and, with no error boundary, the
+     whole app — down with it. */
+  const values = Object.values(cfg ?? {}).filter(Boolean);
   return values.length > 0 ? values.join(' · ') : 'no settings';
 }
 
@@ -85,7 +90,11 @@ function describeConfig(cfg: Record<string, string>): string {
  * broken and a feed that has never been tried need completely different responses from the user,
  * and the old label made them identical.
  */
-function feedStatus(s: SourceConfig): { text: string; tone: 'error' | 'ok' | 'idle'; title?: string } {
+function feedStatus(s: SourceConfig): {
+  text: string;
+  tone: 'error' | 'ok' | 'idle';
+  title?: string;
+} {
   if (s.lastError) {
     return {
       text: `failed ${s.lastAttemptedAt ? when(s.lastAttemptedAt) : ''}`.trim(),
@@ -115,18 +124,15 @@ function isComplete(source: string, fields: Record<string, string>): boolean {
 }
 
 export function BrandManager() {
-  const [brands, setBrands] = useState<Brand[]>([]);
-  const [brandId, setBrandId] = useState('');
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    apiFetch<Brand[]>('/brands')
-      .then((rows) => {
-        setBrands(rows);
-        setBrandId((prev) => prev || rows[0]?.id || '');
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load brands'));
-  }, []);
+  /* The shared brand list, not a private /brands request: the private copy was loaded once and
+     never refreshed, so a brand created in the panel above did not appear in this one's select. */
+  const { brands, brandId: shellBrandId, error: brandsError } = useBrand();
+  const [chosen, setBrandId] = useState('');
+  /* Defaults to the brand the shell is showing, and survives that brand being deleted. */
+  const brandId = brands.some((b) => b.id === chosen)
+    ? chosen
+    : (shellBrandId ?? brands[0]?.id ?? '');
+  const error = brandsError ?? '';
 
   return (
     <div style={{ ...card, marginTop: 16 }}>
@@ -324,7 +330,12 @@ function SourcesPanel({ brandId }: { brandId: string }) {
                   editingId === s.id ? (
                     <li key={s.id} style={{ ...row, display: 'block' }}>
                       <div
-                        style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}
+                        style={{
+                          display: 'flex',
+                          gap: 8,
+                          flexWrap: 'wrap',
+                          alignItems: 'flex-end',
+                        }}
                       >
                         <div>
                           <label style={lbl} htmlFor={`edit-label-${s.id}`}>
@@ -536,9 +547,7 @@ function SourcesPanel({ brandId }: { brandId: string }) {
                 onChange={(e) => setFields((p) => ({ ...p, [f.key]: e.target.value }))}
                 required={f.required}
               />
-              {f.hint && (
-                <p style={{ ...muted, fontSize: 11, margin: '3px 0 0' }}>{f.hint}</p>
-              )}
+              {f.hint && <p style={{ ...muted, fontSize: 11, margin: '3px 0 0' }}>{f.hint}</p>}
             </div>
           ))}
           {/* "Add feed", not "Add". The aliases panel below has its own submit button, and two
@@ -783,6 +792,8 @@ const pill = (on: boolean): CSSProperties => ({
   fontWeight: 600,
   cursor: 'pointer',
   border: `1px solid ${on ? 'color-mix(in srgb, var(--mint) 40%, transparent)' : 'var(--line)'}`,
-  background: on ? 'rgba(93,202,165,0.12)' : 'var(--bg)',
+  /* The tint is derived from the token, as the border above already was. A literal rgba of the
+     old mint ignored the theme and the palette switcher. */
+  background: on ? 'color-mix(in srgb, var(--mint) 12%, transparent)' : 'var(--bg)',
   color: on ? 'var(--mint)' : 'var(--t2)',
 });

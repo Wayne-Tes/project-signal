@@ -3,51 +3,48 @@
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { useBrand } from '@/lib/brand-context';
 
 type Role = 'owner' | 'admin' | 'user';
 
 type User = {
   id: string;
+  /** The identity provider's user id (the Cognito `sub`). Wire name kept until KNOWN-GAPS #25. */
   firebaseUid: string;
   tenantId: string;
   role: Role;
   brandEntityId: string | null;
 };
 
-type Brand = { id: string; name: string };
-
 /**
- * Roles the signed-in operator may assign. Mirrors the API: an admin provisions their own
- * tenant below owner, an owner is unconstrained. The server enforces this regardless — the
- * UI only avoids offering a choice that would be rejected.
+ * The roles this panel can assign: admin and user, for every operator.
+ *
+ * `owner` is NEVER offered — not even to an owner. Owner is the platform operator's role, it
+ * crosses tenants, and granting it is a deliberate out-of-band act rather than a dropdown choice.
+ * This panel previously offered it to owners, so one mis-click on a row made a tenant user a
+ * cross-tenant super-admin. The API enforces its own rules regardless; the UI must simply never
+ * present escalation as an ordinary option.
  */
-function assignableRoles(actorRole: Role | null): Role[] {
-  return actorRole === 'owner' ? ['owner', 'admin', 'user'] : ['admin', 'user'];
-}
+export const ASSIGNABLE_ROLES: readonly Role[] = ['admin', 'user'];
 
 export function UserManager() {
   const { role: actorRole } = useAuth();
+  /* The tenant's brands come from the shared provider rather than a second /brands request: the
+     shell already holds them, and a private copy here went stale the moment a brand was added. */
+  const { brands } = useBrand();
   const [users, setUsers] = useState<User[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const [firebaseUid, setFirebaseUid] = useState('');
+  const [subject, setSubject] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('user');
   const [brandEntityId, setBrandEntityId] = useState('');
 
-  const roles = assignableRoles(actorRole as Role | null);
-
   const load = useCallback(async () => {
     try {
-      const [rows, brandRows] = await Promise.all([
-        apiFetch<User[]>('/admin/users'),
-        apiFetch<Brand[]>('/brands'),
-      ]);
-      setUsers(rows);
-      setBrands(brandRows);
+      setUsers(await apiFetch<User[]>('/admin/users'));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load users');
     }
@@ -67,14 +64,16 @@ export function UserManager() {
       await apiFetch<User>('/admin/users', {
         method: 'POST',
         body: JSON.stringify({
-          firebaseUid,
+          /* `firebaseUid` is the API's field name for the identity provider's user id; the value
+             is the Cognito sub (or a local username). Renaming the wire field is KNOWN-GAPS #25. */
+          firebaseUid: subject,
           email,
           role,
           tenantId,
           ...(brandEntityId ? { brandEntityId } : {}),
         }),
       });
-      setFirebaseUid('');
+      setSubject('');
       setEmail('');
       setBrandEntityId('');
       setNotice('User provisioned. They must sign in again for the new claims to apply.');
@@ -105,8 +104,9 @@ export function UserManager() {
     <div style={{ ...card, marginTop: 16 }} data-testid="user-manager">
       <h2 style={heading}>Manage users</h2>
       <p style={muted}>
-        Provision users for this tenant and set their role.
-        {actorRole !== 'owner' && ' Admins cannot create or modify owners.'}
+        Provision users for this tenant and set their role. Owner is a platform role and is not
+        assigned here.
+        {actorRole !== 'owner' && ' Admins cannot modify owners.'}
       </p>
 
       {error && (
@@ -114,7 +114,11 @@ export function UserManager() {
           {error}
         </p>
       )}
-      {notice && <p style={noticeText}>{notice}</p>}
+      {notice && (
+        <p style={noticeText} role="status">
+          {notice}
+        </p>
+      )}
 
       {users.length === 0 ? (
         <p style={muted}>No users yet.</p>
@@ -132,20 +136,25 @@ export function UserManager() {
               <tr key={u.id}>
                 <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{u.firebaseUid}</td>
                 <td style={td}>
-                  <select
-                    aria-label={`Role for ${u.firebaseUid}`}
-                    style={select}
-                    value={u.role}
-                    disabled={actorRole !== 'owner' && u.role === 'owner'}
-                    onChange={(e) => void changeRole(u.id, e.target.value as Role)}
-                  >
-                    {/* Keep the current role visible even when not assignable by this actor. */}
-                    {Array.from(new Set([u.role, ...roles])).map((r) => (
-                      <option key={r} value={r} disabled={!roles.includes(r)}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
+                  {u.role === 'owner' ? (
+                    /* An owner's role is shown, not offered: it is not changeable from here, and
+                       a select that contained "owner" as an option is exactly the escalation
+                       surface this panel must not present. */
+                    <span title="Owner is a platform role and is not managed here">owner</span>
+                  ) : (
+                    <select
+                      aria-label={`Role for ${u.firebaseUid}`}
+                      style={select}
+                      value={u.role}
+                      onChange={(e) => void changeRole(u.id, e.target.value as Role)}
+                    >
+                      {ASSIGNABLE_ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </td>
                 <td style={{ ...td, color: 'var(--t3)' }}>
                   {brands.find((b) => b.id === u.brandEntityId)?.name ?? '—'}
@@ -163,8 +172,8 @@ export function UserManager() {
         <input
           id="newUserUid"
           style={inp}
-          value={firebaseUid}
-          onChange={(e) => setFirebaseUid(e.target.value)}
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
           placeholder="Cognito sub of the new user"
           required
         />
@@ -189,7 +198,7 @@ export function UserManager() {
           value={role}
           onChange={(e) => setRole(e.target.value as Role)}
         >
-          {roles.map((r) => (
+          {ASSIGNABLE_ROLES.map((r) => (
             <option key={r} value={r}>
               {r}
             </option>

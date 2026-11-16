@@ -19,10 +19,15 @@ type CreatedTenant = {
 };
 
 export function AdminView() {
-  const { user } = useAuth();
+  const { role } = useAuth();
+  /* Creating a tenant is an OWNER action — the API's POST /admin/tenants requires `owner`. The form
+     used to render for admins too, who could fill it in completely and then receive a 403. */
+  const canCreateTenant = role === 'owner';
   const [tenantName, setTenantName] = useState('');
   const [brandName, setBrandName] = useState('');
-  const [adminUid, setAdminUid] = useState(user?.sub ?? '');
+  /* Empty, not the operator's own sub. Pre-filling it meant one click provisioned the OWNER as the
+     new tenant's admin, rewriting their own claims to `admin` of the new tenant and demoting them. */
+  const [adminUid, setAdminUid] = useState('');
   const [result, setResult] = useState<CreatedTenant | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -53,59 +58,63 @@ export function AdminView() {
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <div className="ds-card" style={card}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, margin: '0 0 4px' }}>
-          Create tenant
-        </h2>
-        <p style={{ color: 'var(--t2)', fontSize: 13, margin: '0 0 20px' }}>
-          Provisions a tenant, its owned brand, and an admin user.
-        </p>
-        <form onSubmit={submit}>
-          <label style={lbl} htmlFor="tenantName">
-            Tenant name
-          </label>
-          <input
-            id="tenantName"
-            style={inp}
-            value={tenantName}
-            onChange={(e) => setTenantName(e.target.value)}
-            placeholder="Acme Corp"
-            required
-          />
-          <label style={lbl} htmlFor="brandName">
-            Brand name
-          </label>
-          <input
-            id="brandName"
-            style={inp}
-            value={brandName}
-            onChange={(e) => setBrandName(e.target.value)}
-            placeholder="Acme"
-            required
-          />
-          <label style={lbl} htmlFor="adminUid">
-            {/* The value is the Cognito `sub`. The wire field and the database column
+      {canCreateTenant && (
+        <div className="ds-card" style={card} data-testid="create-tenant">
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, margin: '0 0 4px' }}>
+            Create tenant
+          </h2>
+          <p style={{ color: 'var(--t2)', fontSize: 13, margin: '0 0 20px' }}>
+            Provisions a tenant, its owned brand, and an admin user.
+          </p>
+          <form onSubmit={submit}>
+            <label style={lbl} htmlFor="tenantName">
+              Tenant name
+            </label>
+            <input
+              id="tenantName"
+              style={inp}
+              value={tenantName}
+              onChange={(e) => setTenantName(e.target.value)}
+              placeholder="Acme Corp"
+              required
+            />
+            <label style={lbl} htmlFor="brandName">
+              Brand name
+            </label>
+            <input
+              id="brandName"
+              style={inp}
+              value={brandName}
+              onChange={(e) => setBrandName(e.target.value)}
+              placeholder="Acme"
+              required
+            />
+            <label style={lbl} htmlFor="adminUid">
+              {/* The value is the Cognito `sub`. The wire field and the database column
                 are still named firebaseUid — see KNOWN-GAPS #25 — but showing an admin a
                 label naming an identity provider this product no longer uses is a defect
                 they cannot work around. */}
-            Admin Cognito user ID (sub)
-          </label>
-          <input
-            id="adminUid"
-            style={inp}
-            value={adminUid}
-            onChange={(e) => setAdminUid(e.target.value)}
-            placeholder="Cognito sub of the tenant admin"
-            required
-          />
-          {error && (
-            <p style={{ color: 'var(--coral)', fontSize: 13, margin: '12px 0 0' }}>{error}</p>
-          )}
-          <button type="submit" disabled={busy} style={btn}>
-            {busy ? 'Creating…' : 'Create tenant'}
-          </button>
-        </form>
-      </div>
+              Admin Cognito user ID (sub)
+            </label>
+            <input
+              id="adminUid"
+              style={inp}
+              value={adminUid}
+              onChange={(e) => setAdminUid(e.target.value)}
+              placeholder="Cognito sub of the tenant admin"
+              required
+            />
+            {error && (
+              <p role="alert" style={{ color: 'var(--coral)', fontSize: 13, margin: '12px 0 0' }}>
+                {error}
+              </p>
+            )}
+            <button type="submit" disabled={busy} style={btn}>
+              {busy ? 'Creating…' : 'Create tenant'}
+            </button>
+          </form>
+        </div>
+      )}
 
       {result && (
         <div
@@ -138,7 +147,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: 'flex', gap: 8, padding: '3px 0' }}>
       <dt style={{ color: 'var(--t2)', minWidth: 90 }}>{label}</dt>
-      <dd style={{ margin: 0, fontFamily: 'IBM Plex Mono, monospace' }}>{value}</dd>
+      <dd style={{ margin: 0, fontFamily: 'var(--font-mono)' }}>{value}</dd>
     </div>
   );
 }

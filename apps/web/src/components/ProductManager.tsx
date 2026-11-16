@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { Check, ChevronRight, Package, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useBrand } from '@/lib/brand-context';
 import { Badge, Button, Input, Select } from '@/design-system';
 
 /**
@@ -70,6 +71,16 @@ export function ProductManager() {
     void load();
   }, [load]);
 
+  /* After any change, the shell's brand list is reloaded too. It used to keep the list it loaded at
+     sign-in, so a brand created here did not exist in the brand switcher — or in any view — until
+     the page was reloaded by hand. */
+  const { reload: reloadBrands } = useBrand();
+  const refresh = useCallback(async (): Promise<void> => {
+    await load();
+    reloadBrands();
+    setError(null);
+  }, [load, reloadBrands]);
+
   const rows = flatten(tree);
 
   async function create(e: React.FormEvent): Promise<void> {
@@ -88,8 +99,7 @@ export function ProductManager() {
         }),
       });
       setName('');
-      await load();
-      setError(null);
+      await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create.');
     } finally {
@@ -112,8 +122,7 @@ export function ProductManager() {
         body: JSON.stringify({ name: next, kind: draft.kind, isOwned: draft.isOwned }),
       });
       setEditingId(null);
-      await load();
-      setError(null);
+      await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save.');
     } finally {
@@ -126,8 +135,7 @@ export function ProductManager() {
     try {
       await apiFetch(`/brands/${id}`, { method: 'DELETE' });
       setConfirmingId(null);
-      await load();
-      setError(null);
+      await refresh();
     } catch (err) {
       /* The API's refusals name the specific thing in the way — children, collected signals, an
          assigned user — so they are shown verbatim. Replacing them with "could not delete" would
@@ -148,8 +156,7 @@ export function ProductManager() {
            without that a product could never be detached from its parent. */
         body: JSON.stringify({ parentId: newParent || null }),
       });
-      await load();
-      setError(null);
+      await refresh();
     } catch (err) {
       /* The most likely rejection is the cycle guard, and its message says exactly what happened,
          so it is shown verbatim rather than replaced with something generic. */
@@ -192,10 +199,20 @@ export function ProductManager() {
               }}
             >
               {depth > 0 && (
-                <ChevronRight size={14} strokeWidth={1.8} style={{ color: 'var(--t3)' }} aria-hidden="true" />
+                <ChevronRight
+                  size={14}
+                  strokeWidth={1.8}
+                  style={{ color: 'var(--t3)' }}
+                  aria-hidden="true"
+                />
               )}
               {node.kind === 'product' && (
-                <Package size={15} strokeWidth={1.8} style={{ color: 'var(--accent)' }} aria-hidden="true" />
+                <Package
+                  size={15}
+                  strokeWidth={1.8}
+                  style={{ color: 'var(--accent)' }}
+                  aria-hidden="true"
+                />
               )}
               {editingId === node.id ? (
                 <>
@@ -374,7 +391,12 @@ export function ProductManager() {
             <label style={lbl} htmlFor="entityKind">
               Type
             </label>
-            <Select id="entityKind" value={kind} onChange={(e) => setKind(e.target.value)} style={{ width: 130 }}>
+            <Select
+              id="entityKind"
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+              style={{ width: 130 }}
+            >
               <option value="product">Product</option>
               <option value="brand">Brand</option>
             </Select>

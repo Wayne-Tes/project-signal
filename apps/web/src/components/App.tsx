@@ -7,6 +7,8 @@ import { AppShell, Badge, Button, Row, useAppearance } from '@/design-system';
 import { allowedViews, navForRole, type ViewId } from '@/config/navigation';
 import { DrillDown } from './DrillDown';
 import { TerritoryPicker } from './TerritoryPicker';
+import { BrandSwitcher } from './BrandSwitcher';
+import { ViewErrorBoundary } from './ViewErrorBoundary';
 import { useBrand } from '@/lib/brand-context';
 import { useReportingPeriod } from '@/hooks/useReportingPeriod';
 import { csvFilename, downloadCsv, toCsv, type ExportableSignal } from '@/lib/export-csv';
@@ -47,6 +49,7 @@ export function App() {
   const { hero, animate } = useAppearance();
   const period = useReportingPeriod();
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   /* Export was a stub — rendered, and wired to nothing (docs/STUBS.md #1). It now pages the
      signals endpoint to completion and writes a CSV. Bounded at 20 pages so a brand with a very
@@ -54,6 +57,7 @@ export function App() {
   const exportSignals = async (): Promise<void> => {
     if (!selectedBrand || exporting) return;
     setExporting(true);
+    setExportError('');
     try {
       const rows: ExportableSignal[] = [];
       let cursor: string | null = null;
@@ -66,14 +70,12 @@ export function App() {
         cursor = res.nextCursor;
         if (!cursor) break;
       }
-      downloadCsv(
-        csvFilename(selectedBrand.name, new Date().toISOString()),
-        toCsv(rows),
-      );
-    } catch {
-      /* Deliberately silent beyond re-enabling the button: there is no toast system in this
-         app, and an alert() would block the browser event loop. A failed export leaves the
-         button clickable, which is the correct affordance — try again. */
+      downloadCsv(csvFilename(selectedBrand.name, new Date().toISOString()), toCsv(rows));
+    } catch (e) {
+      /* Said, in the top bar beside the button. It used to be silent — no toast system, and an
+         alert() would block the event loop — which left a click that downloaded nothing and
+         explained nothing. Inline text needs neither. */
+      setExportError(`Export failed: ${e instanceof Error ? e.message : 'unknown error'}`);
     } finally {
       setExporting(false);
     }
@@ -165,6 +167,7 @@ export function App() {
           {/* The territory lens sits with the period and the role: things that qualify WHAT you
               are looking at, rather than actions. Hides itself when the brand collects from
               fewer than two territories. */}
+          <BrandSwitcher />
           <TerritoryPicker />
 
           {period && <span className="ds-eyebrow">{period}</span>}
@@ -181,6 +184,11 @@ export function App() {
           >
             {exporting ? 'Exporting…' : 'Export'}
           </Button>
+          {exportError && (
+            <span className="ds-hint" role="alert" style={{ color: 'var(--status-critical)' }}>
+              {exportError}
+            </span>
+          )}
 
           {/* Help and the assistant sit in the top bar on EVERY view, because both answer
               questions that arise while looking at something. Moving either into a settings
@@ -254,25 +262,27 @@ export function App() {
       }
     >
       <div className="ds-content">
-        {activeView === 'dashboard' && (
-          // key remounts the view so entrance animations replay when the hero
-          // style or the animate preference changes — the prototype behaviour.
-          <Dashboard
-            key={`dashboard-${hero}-${animate}`}
-            nav={drill}
-            hero={hero === 'bars' ? 'Bars' : 'Radial gauge'}
-          />
-        )}
-        {activeView === 'trends' && <TrendsView nav={drill} />}
-        {activeView === 'brand-impact' && <BrandImpactView nav={drill} />}
-        {activeView === 'whats-changed' && <WhatsChangedView nav={drill} />}
-        {activeView === 'voice-of-customer' && <VoiceOfCustomerView nav={drill} />}
-        {activeView === 'roadmap' && <RoadmapView nav={drill} />}
-        {activeView === 'competitors' && <CompetitorsView />}
-        {activeView === 'report' && <ReportView />}
-        {activeView === 'assistant' && <AssistantView />}
-        {activeView === 'documentation' && <DocumentationView />}
-        {activeView === 'admin' && <AdminView />}
+        <ViewErrorBoundary resetKey={activeView}>
+          {activeView === 'dashboard' && (
+            // key remounts the view so entrance animations replay when the hero
+            // style or the animate preference changes — the prototype behaviour.
+            <Dashboard
+              key={`dashboard-${hero}-${animate}`}
+              nav={drill}
+              hero={hero === 'bars' ? 'Bars' : 'Radial gauge'}
+            />
+          )}
+          {activeView === 'trends' && <TrendsView nav={drill} />}
+          {activeView === 'brand-impact' && <BrandImpactView nav={drill} />}
+          {activeView === 'whats-changed' && <WhatsChangedView nav={drill} />}
+          {activeView === 'voice-of-customer' && <VoiceOfCustomerView nav={drill} />}
+          {activeView === 'roadmap' && <RoadmapView nav={drill} />}
+          {activeView === 'competitors' && <CompetitorsView />}
+          {activeView === 'report' && <ReportView />}
+          {activeView === 'assistant' && <AssistantView onOpenArticle={openArticle} />}
+          {activeView === 'documentation' && <DocumentationView />}
+          {activeView === 'admin' && <AdminView />}
+        </ViewErrorBoundary>
       </div>
 
       {path.length > 0 && <DrillDown path={path} nav={drill} />}

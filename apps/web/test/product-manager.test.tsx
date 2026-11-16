@@ -6,6 +6,7 @@ const apiFetch = vi.fn();
 vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }));
 
 const { ProductManager } = await import('../src/components/ProductManager');
+const { BrandProvider } = await import('../src/lib/brand-context');
 
 /**
  * Brand and product management.
@@ -64,7 +65,11 @@ beforeEach(() => {
 
 describe('finding the edit control', () => {
   it('shows a labelled Edit button on every row', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
 
     /* By accessible NAME. An icon with a visually-hidden label would satisfy a query for
@@ -74,7 +79,11 @@ describe('finding the edit control', () => {
   });
 
   it('renders the tree, parent under child', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(row('Tes')).toBeTruthy());
     expect(row('Class charts')).toBeTruthy();
   });
@@ -82,7 +91,11 @@ describe('finding the edit control', () => {
 
 describe('editing', () => {
   it('opens an editor pre-filled with the current values', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: 'Edit' }));
 
@@ -94,7 +107,11 @@ describe('editing', () => {
   it('saves name, type and ownership together', async () => {
     /* All three in one PATCH. The API accepts them together, and saving them one at a time would
        mean a half-applied edit if the second call failed. */
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: 'Edit' }));
 
@@ -116,7 +133,11 @@ describe('editing', () => {
   });
 
   it('saves on Enter', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: 'Edit' }));
 
@@ -130,7 +151,11 @@ describe('editing', () => {
   });
 
   it('abandons on Escape without sending anything', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: 'Edit' }));
     await userEvent.type(screen.getByLabelText('Name of Class charts'), 'zzz{Escape}');
@@ -142,7 +167,11 @@ describe('editing', () => {
   it('treats an emptied name as cancel, not as an error', async () => {
     /* Clearing the field and pressing Save is someone changing their mind. Rejecting it loudly
        would be a lecture; sending it would blank the name and rewrite the slug to "brand". */
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: 'Edit' }));
     await userEvent.clear(screen.getByLabelText('Name of Class charts'));
@@ -152,7 +181,11 @@ describe('editing', () => {
   });
 
   it('edits one row at a time', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: 'Edit' }));
     await userEvent.click(within(row('Tes')).getByRole('button', { name: 'Edit' }));
@@ -162,19 +195,30 @@ describe('editing', () => {
   });
 
   it('surfaces a failed save instead of silently closing', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: 'Edit' }));
     apiFetch.mockRejectedValueOnce(new Error('409: name already taken'));
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', '409: name already taken');
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      '409: name already taken',
+    );
   });
 });
 
 describe('deleting', () => {
   it('does NOT delete on the first click', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: /^Delete/ }));
 
@@ -183,7 +227,11 @@ describe('deleting', () => {
   });
 
   it('deletes on the second, confirming click', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: /^Delete/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
@@ -195,7 +243,11 @@ describe('deleting', () => {
   });
 
   it('backs out on Keep', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: /^Delete/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Keep' }));
@@ -208,7 +260,11 @@ describe('deleting', () => {
     /* "Cannot delete" on its own sends someone to a database they have no access to. The API
        names the specific blocker — children, collected signals, an assigned user — and that is
        the only part of the message worth reading. */
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: /^Delete/ }));
     apiFetch.mockRejectedValueOnce(
@@ -223,7 +279,11 @@ describe('deleting', () => {
   });
 
   it('arms only one row at a time', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.click(within(row('Class charts')).getByRole('button', { name: /^Delete/ }));
     await userEvent.click(within(row('Tes')).getByRole('button', { name: /^Delete/ }));
@@ -237,7 +297,11 @@ describe('re-parenting', () => {
     /* The API distinguishes "not supplied" from "promote to root". An empty string would be read
        as a lookup for an entity with that id and fail as a missing parent, which would make it
        impossible ever to detach a product. */
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
     await userEvent.selectOptions(within(row('Class charts')).getByLabelText('Parent'), '');
 
@@ -248,11 +312,13 @@ describe('re-parenting', () => {
   });
 
   it('never offers an entity itself as its own parent', async () => {
-    render(<ProductManager />);
+    render(
+      <BrandProvider>
+        <ProductManager />
+      </BrandProvider>,
+    );
     await waitFor(() => row('Class charts'));
-    const options = within(row('Class charts'))
-      .getByLabelText('Parent')
-      .querySelectorAll('option');
+    const options = within(row('Class charts')).getByLabelText('Parent').querySelectorAll('option');
 
     expect([...options].map((o) => o.textContent?.trim())).not.toContain('Class charts');
   });

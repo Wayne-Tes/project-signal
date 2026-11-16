@@ -6,6 +6,7 @@ const apiFetch = vi.fn();
 vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }));
 
 const { BrandManager } = await import('../src/components/BrandManager');
+const { BrandProvider } = await import('../src/lib/brand-context');
 
 /**
  * The feeds panel.
@@ -85,13 +86,21 @@ beforeEach(() => {
 
 describe('several feeds of the same type', () => {
   it('lists every RSS feed, not just one', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByText('Google News — Tes Global')).toBeTruthy());
     expect(screen.getByText('Google News — Tes MyConcern')).toBeTruthy();
   });
 
   it('groups them under the source type and counts them', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     /* Waits on a feed LABEL, not on 'News / RSS' — that string is also an <option> in the add
        form, so it is present before the feeds have loaded and would pass instantly against an
        empty list. */
@@ -102,13 +111,21 @@ describe('several feeds of the same type', () => {
 
   it('falls back to summarising the config when a feed has no name', async () => {
     /* An unnamed Reddit feed still has to be identifiable — "reddit" identifies nothing. */
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByText(/"Tes MyConcern" · TeachingUK/)).toBeTruthy());
   });
 
   it('shows whether a feed has ever run', async () => {
     /* A feed that has never run and a market where nobody is talking look identical otherwise. */
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getAllByText(/never run/).length).toBeGreaterThan(0));
   });
 });
@@ -117,14 +134,22 @@ describe('adding a feed', () => {
   it('offers Reddit as a type', async () => {
     /* Reddit was never in this codebase — not in the type union, not in COLLECTING_SOURCES, no
        adapter. It is where an education brand is discussed unprompted. */
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByLabelText('Feed type')).toBeTruthy());
     const options = within(screen.getByLabelText('Feed type')).getAllByRole('option');
     expect(options.map((o) => o.textContent)).toContain('Reddit');
   });
 
   it('asks for a search term and an optional subreddit', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByLabelText('Feed type')).toBeTruthy());
     await userEvent.selectOptions(screen.getByLabelText('Feed type'), 'reddit');
 
@@ -133,7 +158,11 @@ describe('adding a feed', () => {
   });
 
   it('sends the label alongside the config', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByLabelText('Feed URL')).toBeTruthy());
 
     await userEvent.type(screen.getByLabelText('Name (optional)'), 'Third feed');
@@ -155,7 +184,11 @@ describe('adding a feed', () => {
   });
 
   it('sends the territory chosen on the form', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByLabelText('Feed URL')).toBeTruthy());
 
     await userEvent.type(screen.getByLabelText('Feed URL'), 'https://d.example/feed.xml');
@@ -171,7 +204,11 @@ describe('adding a feed', () => {
   it('offers the territory by name, not by raw code', async () => {
     /* The stored value is the ISO code; the label is presentation. Showing "AU" in a dropdown
        makes the operator guess, and guessing is how "UK" ends up somewhere ISO calls "GB". */
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByLabelText('Territory')).toBeTruthy());
 
     const select = screen.getByLabelText('Territory') as HTMLSelectElement;
@@ -185,7 +222,11 @@ describe('adding a feed', () => {
   it('will not submit until every required field is filled', async () => {
     /* A feed missing a required field is stored happily and then throws inside a collection run,
        where the dispatcher records "source failed" and tells nobody why. */
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByLabelText('Feed URL')).toBeTruthy());
     expect(screen.getByRole('button', { name: 'Add feed' })).toHaveProperty('disabled', true);
 
@@ -194,7 +235,11 @@ describe('adding a feed', () => {
   });
 
   it('shows the API refusal of an exact duplicate verbatim', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByLabelText('Feed URL')).toBeTruthy());
     await userEvent.type(screen.getByLabelText('Feed URL'), 'https://a.example/feed.xml');
     apiFetch.mockRejectedValueOnce(
@@ -210,7 +255,11 @@ describe('editing one feed', () => {
   it('addresses it by its own id, not by the source type', async () => {
     /* The type used to be the key — /integrations/rss — which is precisely why only one could
        exist. */
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByText('Google News — Tes MyConcern')).toBeTruthy());
 
     await userEvent.click(
@@ -228,7 +277,11 @@ describe('editing one feed', () => {
   });
 
   it('toggles just that feed', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByText('Google News — Tes Global')).toBeTruthy());
 
     await userEvent.click(
@@ -243,10 +296,16 @@ describe('editing one feed', () => {
   });
 
   it('edits one row at a time', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByText('Google News — Tes Global')).toBeTruthy());
 
-    await userEvent.click(within(feedRow('Google News — Tes Global')).getByRole('button', { name: /^Edit/ }));
+    await userEvent.click(
+      within(feedRow('Google News — Tes Global')).getByRole('button', { name: /^Edit/ }),
+    );
     await userEvent.click(
       within(feedRow('Google News — Tes MyConcern')).getByRole('button', { name: /^Edit/ }),
     );
@@ -257,7 +316,11 @@ describe('editing one feed', () => {
 
 describe('removing a feed', () => {
   it('does not delete on the first click', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByText('Google News — Tes Global')).toBeTruthy());
 
     await userEvent.click(
@@ -269,7 +332,11 @@ describe('removing a feed', () => {
   });
 
   it('deletes on the confirming click, by id', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByText('Google News — Tes Global')).toBeTruthy());
 
     await userEvent.click(
@@ -283,7 +350,11 @@ describe('removing a feed', () => {
   });
 
   it('backs out on Keep', async () => {
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByText('Google News — Tes Global')).toBeTruthy());
 
     await userEvent.click(
@@ -300,9 +371,20 @@ describe('a source type this build does not know', () => {
     /* The API can return a source added to the backend before the front end is redeployed.
        Dropping it silently means a feed that is running, costing money and invisible. */
     route([
-      { id: 'cfg-9', source: 'tiktok', label: 'New thing', isEnabled: true, config: {}, lastFetchedAt: null },
+      {
+        id: 'cfg-9',
+        source: 'tiktok',
+        label: 'New thing',
+        isEnabled: true,
+        config: {},
+        lastFetchedAt: null,
+      },
     ]);
-    render(<BrandManager />);
+    render(
+      <BrandProvider>
+        <BrandManager />
+      </BrandProvider>,
+    );
     await waitFor(() => expect(screen.getByText('New thing')).toBeTruthy());
     expect(within(feedRow('New thing')).getByRole('button', { name: /^Remove/ })).toBeTruthy();
   });
