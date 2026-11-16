@@ -182,6 +182,10 @@ resource "aws_iam_role_policy" "task_api" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DeleteSecret",
           "secretsmanager:DescribeSecret",
+          # Reconnecting within a disconnect's recovery window restores the scheduled-for-deletion
+          # secret before rewriting it (apps/api/src/lib/crm-secrets.ts); without this the
+          # reconnect fails with AccessDenied.
+          "secretsmanager:RestoreSecret",
         ]
         Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}-crm/*"
       },

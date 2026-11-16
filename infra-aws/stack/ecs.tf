@@ -71,6 +71,16 @@ locals {
     # match the IAM prefix grant in iam.tf exactly, or every connect attempt fails with
     # AccessDenied at the point a customer is watching.
     { name = "CRM_SECRET_PREFIX", value = "${local.name_prefix}-crm" },
+    # The stack's mandatory tags, for resources the API creates at runtime (CRM token secrets),
+    # which default_tags cannot reach. Same variables as versions.tf default_tags, so the two
+    # cannot drift; the API adds ManagedBy=api. iam.tf requires the Project tag on CreateSecret.
+    { name = "RESOURCE_TAGS", value = jsonencode({
+      Project     = var.project
+      Owner       = var.owner
+      CostCentre  = var.cost_centre
+      Environment = var.environment
+      Expires     = var.expires
+    }) },
   ]
 
   # The web container is a Next.js server delivering a client-side SPA: every NEXT_PUBLIC_* value
