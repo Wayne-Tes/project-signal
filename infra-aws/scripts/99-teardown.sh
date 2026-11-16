@@ -42,7 +42,7 @@ for arg in "$@"; do
   esac
 done
 
-GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
+RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
 hr() { printf '\n== %s\n' "$1"; }
 
 command -v aws >/dev/null 2>&1       || { echo "FATAL: aws CLI not found on PATH."; exit 1; }
@@ -73,13 +73,32 @@ hr "2. What Terraform believes it manages"
 #
 # Each tag additionally carries prevent_destroy, so this is belt and braces. Do not "fix" that
 # by adding account/ to the loop below.
+#
+# `image_tag` is REQUIRED by the stack with no default (it guards against silent image rollbacks
+# on APPLY). A destroy never creates a task definition, so the value is never used — but without
+# one Terraform stops to prompt for it, and in the dry run below that prompt was hidden behind
+# `| tail` and looked like a hang. A fixed, obviously-not-a-commit value is passed for that reason.
+#
+# NO -auto-approve. CLAUDE.md forbids auto-approving an interactive apply, and a destroy is the
+# most destructive apply there is: Terraform prints the full plan and waits for a typed "yes".
+# Requires var.allow_force_destroy = true for this environment (envs/dev.stack.tfvars), or the
+# non-empty ECR repositories and versioned S3 buckets make the destroy fail part-way.
+TEARDOWN_TAG_ARG="-var=image_tag=teardown-unused"
+DESTROY_STATUS=0
 if [ "$EXECUTE" = "1" ]; then
   ( cd "$REPO_ROOT/infra-aws/stack" \
-    && terraform destroy -auto-approve -var-file="$ENV_FILE" -var-file="$STACK_VARS" )
-  echo "  terraform destroy exit: $?"
+    && terraform destroy "$TEARDOWN_TAG_ARG" -var-file="$ENV_FILE" -var-file="$STACK_VARS" )
+  DESTROY_STATUS=$?
+  if [ "$DESTROY_STATUS" -eq 0 ]; then
+    printf '  %sterraform destroy completed%s\n' "$GREEN" "$RESET"
+  else
+    printf '  %sterraform destroy FAILED (exit %s).%s Do NOT retry blindly — CLAUDE.md: a failed or\n' \
+      "$RED" "$DESTROY_STATUS" "$RESET"
+    echo "  partial destroy is stopped and reported. Step 3 below shows what is left."
+  fi
 else
   ( cd "$REPO_ROOT/infra-aws/stack" \
-    && terraform plan -destroy -var-file="$ENV_FILE" -var-file="$STACK_VARS" 2>&1 | tail -n 30 )
+    && terraform plan -destroy -input=false "$TEARDOWN_TAG_ARG" -var-file="$ENV_FILE" -var-file="$STACK_VARS" 2>&1 | tail -n 30 )
 fi
 
 hr "3. INDEPENDENT inventory — what actually carries our tag, whatever Terraform thinks"
@@ -106,6 +125,30 @@ echo "  S3 buckets named ${NAME_PREFIX}-*:"
 aws s3api list-buckets --query "Buckets[?starts_with(Name, '${NAME_PREFIX}')].Name" \
   --output text 2>/dev/null | tr '\t' '\n' | sed 's/^/    /'
 
+# BY NAME as well as by tag, because the tag inventory above only sees what was tagged. The API
+# creates one Secrets Manager secret per tenant CRM connection, at runtime, outside Terraform
+# (apps/api/src/lib/crm-secrets.ts, under ${NAME_PREFIX}-crm/). Secrets created before
+# 2026-11-16 carried NO tags, so they were invisible to step 3 and would have outlived the stack
+# in a shared account holding a customer's CRM credential. Includes secrets already scheduled for
+# deletion, which still hold their name for the recovery window.
+echo "  Secrets Manager secrets named ${NAME_PREFIX}-* (including CRM tokens and pending deletions):"
+aws secretsmanager list-secrets --region "$REGION" --include-planned-deletion \
+  --filters "Key=name,Values=${NAME_PREFIX}-" \
+  --query 'SecretList[].[Name,DeletedDate]' --output text 2>/dev/null | sed 's/^/    /'
+
+echo "  ECR repositories named ${NAME_PREFIX}/*:"
+aws ecr describe-repositories --region "$REGION" \
+  --query "repositories[?starts_with(repositoryName, '${NAME_PREFIX}/')].repositoryName" \
+  --output text 2>/dev/null | tr '\t' '\n' | sed 's/^/    /'
+
+# Log groups are tagged when Terraform creates them, but RDS creates its own export groups if
+# they do not exist yet, untagged — so these are inventoried by name.
+echo "  CloudWatch log groups for ${NAME_PREFIX}:"
+for prefix in "/${NAME_PREFIX}/" "/aws/rds/instance/${NAME_PREFIX}-"; do
+  aws logs describe-log-groups --region "$REGION" --log-group-name-prefix "$prefix" \
+    --query 'logGroups[].logGroupName' --output text 2>/dev/null | tr '\t' '\n' | sed 's/^/    /'
+done
+
 hr "4. State bucket"
 if [ "$INCLUDE_STATE_BUCKET" = "1" ] && [ "$EXECUTE" = "1" ]; then
   echo "  Removing the state bucket. This is irreversible and leaves nothing to manage the"
@@ -131,3 +174,7 @@ if [ "$EXECUTE" = "0" ]; then
 else
   echo "  Re-run WITHOUT --execute to confirm step 3 reports nothing remaining."
 fi
+
+# The exit status reflects the destroy. Before 2026-11-16 this script exited 0 whatever
+# `terraform destroy` did, so a failed teardown read as a clean one to anything that checked.
+exit "$DESTROY_STATUS"

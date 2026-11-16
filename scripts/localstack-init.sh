@@ -28,12 +28,18 @@ for q in item report scan; do
       --attribute-names QueueArn --region "$REGION" \
       --query 'Attributes.QueueArn' --output text)"
 
+  # Visibility timeouts MATCH the deployed queues (infra-aws/stack/sqs.tf), so a long scan sweep
+  # behaves locally exactly as it will in AWS: 300s for item/report, 1800s for scan, which carries
+  # whole collection sweeps. This was a flat 60s, which made a local sweep longer than a minute
+  # redeliver mid-run — a defect the deployed stack would not have shown, and vice versa.
+  if [ "$q" = "scan" ]; then VISIBILITY=1800; else VISIBILITY=300; fi
+
   # maxReceiveCount 5 matches the deployed policy, so the local stack fails the same way the
   # real one does. A worker that acks everything would never exercise this — see KNOWN-GAPS #9.
   awslocal sqs create-queue \
     --queue-name "psignal-local-${q}" \
     --region "$REGION" \
-    --attributes "{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"${DLQ_ARN}\\\",\\\"maxReceiveCount\\\":\\\"5\\\"}\",\"VisibilityTimeout\":\"60\"}" >/dev/null
+    --attributes "{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"${DLQ_ARN}\\\",\\\"maxReceiveCount\\\":\\\"5\\\"}\",\"VisibilityTimeout\":\"${VISIBILITY}\"}" >/dev/null
 done
 
 echo "LocalStack ready: bucket psignal-local-raw, queues psignal-local-{item,report,scan}(+dlq)"

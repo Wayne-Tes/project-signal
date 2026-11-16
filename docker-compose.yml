@@ -5,8 +5,11 @@ name: project-signal
 services:
   postgres:
     image: postgres:16-alpine
+    # Loopback only. Docker publishes on every interface by default, which put this database —
+    # with the well-known dev password below — on whatever network the laptop is attached to.
+    # Takes effect the next time the container is recreated (`docker compose up -d`).
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     environment:
       POSTGRES_DB: project_signal
       POSTGRES_USER: project_signal_app
@@ -25,7 +28,7 @@ services:
     # read path could only ever be exercised against mocks. It can now be run for real.
     image: localstack/localstack:3
     ports:
-      - '4566:4566'
+      - '127.0.0.1:4566:4566' # loopback only, as for Postgres
     environment:
       SERVICES: s3,sqs
       DEBUG: '0'
