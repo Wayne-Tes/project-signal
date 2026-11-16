@@ -2,7 +2,7 @@
 
 import { useApi } from './useApi';
 import { useBrand } from '@/lib/brand-context';
-import type { ApiDimensionRow } from '@/lib/brand-data';
+import { withTerritory, type ApiDimensionRow } from '@/lib/brand-data';
 
 /**
  * The window the brand's scored data actually covers, for the top-bar label.
@@ -16,9 +16,13 @@ import type { ApiDimensionRow } from '@/lib/brand-data';
  * date range for a brand with no scores is not.
  */
 export function useReportingPeriod(): string | null {
-  const { brandId } = useBrand();
+  const { brandId, territory } = useBrand();
+  /* No `?days=90`: the endpoint has no such parameter — it takes `from`/`to` and DEFAULTS to the
+     last 90 days — so the query string was silently ignored while reading as a contract.
+     Territory-filtered, so the period printed in the top bar is the period of the data under the
+     lens rather than of every territory. */
   const { data } = useApi<ApiDimensionRow[]>(
-    brandId ? `/brands/${brandId}/dimension-scores?days=90` : null,
+    brandId ? withTerritory(`/brands/${brandId}/dimension-scores`, territory) : null,
   );
 
   if (!data || data.length === 0) return null;

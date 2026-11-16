@@ -5,45 +5,59 @@ import { BarChart3 } from 'lucide-react';
 import { useInView } from '@/hooks/useInView';
 import { apiFetch } from '@/lib/api';
 import { useBrand } from '@/lib/brand-context';
-import { toCompetitorRows, type ApiBrandScore, type CompetitorRow } from '@/lib/brand-data';
+import {
+  toCompetitorRows,
+  withTerritory,
+  type ApiBrandScore,
+  type CompetitorRow,
+} from '@/lib/brand-data';
 import { ViewState } from '@/components/ViewState';
 import { Badge, Card, EmptyState, PageHeader, Stack, Trend } from '@/design-system';
 
 export function CompetitorsView() {
   const [ref, play] = useInView(0.1);
-  const { brands, loading: brandsLoading, error: brandsError } = useBrand();
+  const { brands, territory, loading: brandsLoading, error: brandsError } = useBrand();
   const [rows, setRows] = useState<CompetitorRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /** Brands whose score request FAILED — not the same as brands that have no score. */
+  const [failed, setFailed] = useState<string[]>([]);
 
   // One /score call per brand: the comparison is the same pipeline run across the
   // set, so there is no single endpoint for it. The competitive set is a handful
   // of brands, not a list that grows unbounded.
+  //
+  // TERRITORY-FILTERED like every other analytical view. It was not: under a UK lens this view
+  // compared every brand's global index while the rest of the app showed UK numbers.
   useEffect(() => {
     if (brands.length === 0) return;
     let cancelled = false;
+    setRows(null);
+    setFailed([]);
 
-    Promise.all(
+    void Promise.all(
       brands.map((b) =>
-        apiFetch<ApiBrandScore>(`/brands/${b.id}/score`)
-          .then((s) => [b.id, s] as const)
-          .catch(() => null),
+        apiFetch<ApiBrandScore>(withTerritory(`/brands/${b.id}/score`, territory))
+          .then((s) => ({ id: b.id, score: s }))
+          .catch(() => ({ id: b.id, score: null })),
       ),
-    )
-      .then((results) => {
-        if (cancelled) return;
-        const scores = new Map(results.filter((r): r is readonly [string, ApiBrandScore] => !!r));
-        setRows(toCompetitorRows(brands, scores));
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load scores');
-      });
+    ).then((results) => {
+      if (cancelled) return;
+      const scores = new Map<string, ApiBrandScore>();
+      const errored: string[] = [];
+      for (const r of results) {
+        if (r.score) scores.set(r.id, r.score);
+        else errored.push(r.id);
+      }
+      setRows(toCompetitorRows(brands, scores));
+      setFailed(errored);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [brands]);
+  }, [brands, territory]);
 
   const owned = rows?.find((r) => r.isOwned);
+  const failedNames = brands.filter((b) => failed.includes(b.id)).map((b) => b.name);
 
   return (
     <div ref={ref}>
@@ -54,10 +68,18 @@ export function CompetitorsView() {
       />
 
       <ViewState
-        loading={brandsLoading || (rows === null && !error && !brandsError)}
-        error={error ?? brandsError}
+        loading={brandsLoading || (rows === null && !brandsError)}
+        error={brandsError}
         empty={null}
       >
+        {failedNames.length > 0 && (
+          /* A failed request used to render as "not yet scored" — a statement about the brand,
+             made from an error. Said separately so the two are never confused. */
+          <p className="ds-hint" role="alert" style={{ color: 'var(--status-critical)' }}>
+            Scores could not be loaded for {failedNames.join(', ')}. Those rows show no score
+            because the request failed, not because the brand is unscored.
+          </p>
+        )}
         {rows?.length === 0 ? (
           <Card>
             <EmptyState
@@ -119,7 +141,9 @@ export function CompetitorsView() {
                     {c.score === null ? (
                       // Not yet scored is NOT a score of zero — say so rather than
                       // draw a bar at zero, which reads as a terrible result.
-                      <span className="ds-hint">not yet scored</span>
+                      <span className="ds-hint">
+                        {failed.includes(c.id) ? 'could not load' : 'not yet scored'}
+                      </span>
                     ) : (
                       <div className="ds-row" style={{ justifyContent: 'flex-end' }}>
                         <span

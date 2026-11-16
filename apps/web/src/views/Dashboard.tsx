@@ -8,6 +8,7 @@ import {
   toDimensionCards,
   toHeelCards,
   toHistory,
+  toDimensionMeanTrend,
   type ApiBrandScore,
   type ApiCluster,
   type ApiDimensionRow,
@@ -105,14 +106,25 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
   const [ref, play] = useInView(0.1);
   const { brandId, error: brandError, territory } = useBrand();
 
-  const score = useApi<ApiBrandScore>(brandId ? withTerritory(`/brands/${brandId}/score`, territory) : null);
-  const history = useApi<ApiDimensionRow[]>(brandId ? withTerritory(`/brands/${brandId}/dimension-scores`, territory) : null);
-  const stats = useApi<BrandStats>(brandId ? withTerritory(`/brands/${brandId}/stats`, territory) : null);
-  const heels = useApi<ApiCluster[]>(brandId ? withTerritory(`/brands/${brandId}/brand-impact`, territory) : null);
-  const strengths = useApi<ApiCluster[]>(brandId ? withTerritory(`/brands/${brandId}/strengths`, territory) : null);
+  const score = useApi<ApiBrandScore>(
+    brandId ? withTerritory(`/brands/${brandId}/score`, territory) : null,
+  );
+  const history = useApi<ApiDimensionRow[]>(
+    brandId ? withTerritory(`/brands/${brandId}/dimension-scores`, territory) : null,
+  );
+  const stats = useApi<BrandStats>(
+    brandId ? withTerritory(`/brands/${brandId}/stats`, territory) : null,
+  );
+  const heels = useApi<ApiCluster[]>(
+    brandId ? withTerritory(`/brands/${brandId}/brand-impact`, territory) : null,
+  );
+  const strengths = useApi<ApiCluster[]>(
+    brandId ? withTerritory(`/brands/${brandId}/strengths`, territory) : null,
+  );
 
   const cards = score.data ? toDimensionCards(score.data, score.data.previousDimensions) : [];
   const points = history.data ? toHistory(history.data) : [];
+  const trend = toDimensionMeanTrend(points);
   const chartRows = points.map((p) => ({ label: p.label, ...p.scores }));
   const composite = score.data?.score ?? null;
   const previous = score.data?.previousScore ?? null;
@@ -132,16 +144,29 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
 
   return (
     <div className="content view-enter" ref={ref}>
+      {/* Every request the page renders from is in the error set. Only `score` and `stats` were,
+          so a failed /brand-impact rendered "Nothing scored negatively in the window" — a
+          confident statement about the brand, made from an error. */}
       <ViewState
         loading={score.loading || stats.loading}
-        error={score.error ?? stats.error ?? brandError}
-        empty={
-          composite === null ? emptyScoreMessage(territory) : null
+        error={
+          score.error ??
+          stats.error ??
+          history.error ??
+          heels.error ??
+          strengths.error ??
+          brandError
         }
+        empty={composite === null ? emptyScoreMessage(territory) : null}
       >
         <div className="grid" style={{ gridTemplateColumns: '360px 1fr' }}>
+          {/* A real button: the hero card opens the drill-down, and a div with onClick could not
+              be reached or activated from the keyboard. */}
           <div
             className="card clickable"
+            role="button"
+            tabIndex={0}
+            aria-label="Brand Perception Index — open the drill-down"
             style={{
               padding: 24,
               display: 'flex',
@@ -150,6 +175,12 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
               cursor: 'pointer',
             }}
             onClick={nav.openOverview}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                nav.openOverview();
+              }
+            }}
           >
             <div
               style={{
@@ -195,16 +226,16 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
                   marginBottom: 4,
                 }}
               >
-                <span className="kicker">trend</span>
+                <span className="kicker">trend · mean of dimensions</span>
                 <span className="mono" style={{ fontSize: 11, color: 'var(--t3)' }}>
-                  {points.length} {points.length === 1 ? 'day' : 'days'}
+                  {trend.length} {trend.length === 1 ? 'day' : 'days'}
                 </span>
               </div>
-              {points.length >= 2 ? (
+              {trend.length >= 2 ? (
                 <Sparkline
-                  data={chartRows}
-                  dkey={cards[0]?.key ?? 'trust'}
-                  color={scoreColor(composite ?? 0)}
+                  data={trend}
+                  dkey="mean"
+                  color={scoreColor(trend[trend.length - 1]?.mean ?? 0)}
                   width={312}
                   height={56}
                   play={play}

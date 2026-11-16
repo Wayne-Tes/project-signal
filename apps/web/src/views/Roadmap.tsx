@@ -21,6 +21,8 @@ import { useAuth } from '@/lib/auth';
 import { ViewState } from '@/components/ViewState';
 import { Badge, Card, EmptyState, Grid, PageHeader, PanelHeader, Stack } from '@/design-system';
 import type { NavActions } from '@/lib/types';
+import { safeExternalHref } from '@/lib/safe-url';
+import { TERRITORY_ALL } from '@project-signal/shared-types';
 
 /**
  * Action roadmap — what to fix, what it is worth, and what you are aiming at.
@@ -50,12 +52,15 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
   const { data, loading, error, reload } = useApi<ApiRoadmap>(
     brandId ? withTerritory(`/brands/${brandId}/roadmap`, territory) : null,
   );
-  const tracked = useApi<ApiTrackedAction[]>(
-    brandId ? `/brands/${brandId}/roadmap/actions` : null,
-  );
+  const tracked = useApi<ApiTrackedAction[]>(brandId ? `/brands/${brandId}/roadmap/actions` : null);
 
-  /* Committed subjects, so an accepted action is not offered again as though nothing happened. */
-  const committed = new Set((tracked.data ?? []).map((a) => a.topic));
+  /* Committed subjects IN THE TERRITORY BEING VIEWED, so an accepted action is not offered again
+     as though nothing happened. An action is committed per territory (its baseline is that
+     territory's index), and matching on topic alone showed a UK commitment as "already doing this"
+     under the Australian lens — with the UK baseline and outcome printed beneath it. */
+  const scope = territory || TERRITORY_ALL;
+  const trackedHere = (tracked.data ?? []).filter((a) => a.territory === scope);
+  const committed = new Set(trackedHere.map((a) => a.topic));
   const [accepting, setAccepting] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState('');
 
@@ -116,9 +121,7 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
             <Card>
               <p className="chg-headline">{roadmapHeadline(data)}</p>
 
-              {achievableSummary(data) && (
-                <p className="rm-sub">{achievableSummary(data)}</p>
-              )}
+              {achievableSummary(data) && <p className="rm-sub">{achievableSummary(data)}</p>}
 
               {/* The finding worth interrupting for. Decay does NOT move this index — it is a
                   weighted mean, invariant under a uniform rescaling of its weights — so "wait and
@@ -126,9 +129,9 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
                   positive ones, doing nothing actively makes it worse. */}
               {data.projection?.decliningWithoutAction && (
                 <p className="rm-warn">
-                  <TrendingDown size={15} strokeWidth={1.9} aria-hidden="true" /> On current
-                  signals this declines without action — the older, more positive coverage is
-                  ageing out of the scoring window.
+                  <TrendingDown size={15} strokeWidth={1.9} aria-hidden="true" /> On current signals
+                  this declines without action — the older, more positive coverage is ageing out of
+                  the scoring window.
                 </p>
               )}
 
@@ -191,7 +194,11 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
                       </button>
                       {/* Clearing returns the brand to a competitor-derived default. Without a way
                           back, a target typed in error is permanent. */}
-                      <button type="button" className="ds-chip" onClick={() => void saveTarget(null)}>
+                      <button
+                        type="button"
+                        className="ds-chip"
+                        onClick={() => void saveTarget(null)}
+                      >
                         Clear
                       </button>
                     </>
@@ -215,7 +222,17 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
               )}
             </Card>
 
-            {acceptError && <p className="rm-error">{acceptError}</p>}
+            {acceptError && (
+              <p className="rm-error" role="alert">
+                {acceptError}
+              </p>
+            )}
+            {tracked.error && (
+              <p className="rm-error" role="alert">
+                Committed actions could not be loaded, so this page cannot show which you are
+                already doing: {tracked.error}
+              </p>
+            )}
 
             {data.actions.length === 0 ? (
               <Card>
@@ -233,7 +250,7 @@ export function RoadmapView({ nav }: { nav: NavActions }) {
                     action={a}
                     rank={i + 1}
                     onOpen={() => nav.openTopic(a.topic)}
-                    tracked={(tracked.data ?? []).find((t) => t.topic === a.topic) ?? null}
+                    tracked={trackedHere.find((t) => t.topic === a.topic) ?? null}
                     committed={committed.has(a.topic)}
                     accepting={accepting === a.topic}
                     onAccept={() => void accept(a.topic)}
@@ -284,10 +301,12 @@ function ActionCard({
      which already stands on its own. */
   const [adaptation, setAdaptation] = useState<Adaptation | null>(null);
   const [adapting, setAdapting] = useState(false);
+  const [adaptError, setAdaptError] = useState('');
 
   const tailor = async (): Promise<void> => {
     if (!brandId) return;
     setAdapting(true);
+    setAdaptError('');
     try {
       const result = await apiFetch<Adaptation>(`/brands/${brandId}/roadmap/adapt`, {
         method: 'POST',
@@ -298,15 +317,21 @@ function ActionCard({
       });
       setAdaptation(result);
     } catch {
-      /* Silent by design: the curated steps are still on screen and still correct. An error
-         banner would imply the advice had failed when only the rewording did. */
+      /* Said quietly and specifically: the curated steps are still on screen and still correct,
+         so this must not read as the advice having failed — only the rewording did. It used to say
+         nothing at all, and a button that does nothing when clicked reads as broken. */
+      setAdaptError('Could not reword this just now — the standard steps above still apply.');
     } finally {
       setAdapting(false);
     }
   };
 
+  /* NOT a clickable card. The card used to be one big <button> holding further buttons, links,
+     lists and paragraphs — invalid HTML that screen readers announce as a single button with the
+     whole card as its name, and where clicking a citation also opened the drill-down. The
+     drill-down now has its own explicit control. */
   return (
-    <Card accent={rank === 1 ? 'critical' : rank === 2 ? 'warn' : 'info'} onClick={onOpen}>
+    <Card accent={rank === 1 ? 'critical' : rank === 2 ? 'warn' : 'info'}>
       <PanelHeader
         title={action.topic}
         subtitle={`${action.volume} signal${action.volume === 1 ? '' : 's'} · ${action.damageShare.toFixed(0)}% of current damage`}
@@ -315,9 +340,8 @@ function ActionCard({
 
       {worth > 0 ? (
         <p className="rm-worth">
-          Resolving this moves the index from{' '}
-          <strong>{action.ifResolved!.from.toFixed(1)}</strong> to{' '}
-          <strong>{action.ifResolved!.to.toFixed(1)}</strong>
+          Resolving this moves the index from <strong>{action.ifResolved!.from.toFixed(1)}</strong>{' '}
+          to <strong>{action.ifResolved!.to.toFixed(1)}</strong>
           <span className="rm-delta"> +{worth.toFixed(1)}</span>
           {/* THE CEILING, NOT A FORECAST. The `+3.4 pts` this replaces was believed precisely
               because it looked like a prediction, so the qualifier is not optional copy. */}
@@ -335,7 +359,10 @@ function ActionCard({
 
       <p className="rm-evidence">
         Based on {action.ifResolved?.affectedSignals ?? 0} negative signal
-        {(action.ifResolved?.affectedSignals ?? 0) === 1 ? '' : 's'}. Open to read them.
+        {(action.ifResolved?.affectedSignals ?? 0) === 1 ? '' : 's'}.{' '}
+        <button type="button" className="ds-chip" onClick={onOpen}>
+          Read the signals
+        </button>
       </p>
 
       {/* THE PART THE OWNER ASKED FOR: not what the feedback is, but what to do about it.
@@ -362,7 +389,7 @@ function ActionCard({
             ))}
           </ol>
 
-          <div className="rm-commit" onClick={(e) => e.stopPropagation()}>
+          <div className="rm-commit">
             {adaptation ? (
               /* Says which version is on screen. Implying a tailoring that did not happen would
                  be a small lie that undermines every other claim on the card. */
@@ -372,9 +399,19 @@ function ActionCard({
                   : 'Showing the standard wording; it could not be tailored just now.'}
               </span>
             ) : (
-              <button type="button" className="ds-chip" disabled={adapting} onClick={() => void tailor()}>
+              <button
+                type="button"
+                className="ds-chip"
+                disabled={adapting}
+                onClick={() => void tailor()}
+              >
                 {adapting ? 'Rewording…' : 'Reword for my signals'}
               </button>
+            )}
+            {adaptError && (
+              <span className="rm-error" role="alert">
+                {adaptError}
+              </span>
             )}
           </div>
           <p className="rm-measure">
@@ -384,11 +421,25 @@ function ActionCard({
               pretending otherwise, and a client who catches one invented citation stops believing
               every number beside it. */}
           <p className="rm-caveat">{evidenceNote(action.play)}</p>
-          {action.play.evidence.map((c) => (
-            <a key={c.url} className="rm-cite" href={c.url} target="_blank" rel="noreferrer noopener">
-              {c.title} — {c.source} ↗
-            </a>
-          ))}
+          {action.play.evidence.map((c) => {
+            /* Curated, but still data reaching an href — through the same check as everything else. */
+            const href = safeExternalHref(c.url);
+            return href ? (
+              <a
+                key={c.url}
+                className="rm-cite"
+                href={href}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                {c.title} — {c.source} ↗
+              </a>
+            ) : (
+              <span key={c.url} className="rm-cite">
+                {c.title} — {c.source}
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -404,7 +455,7 @@ function ActionCard({
           records what was tried or from what starting point, so "does this work?" can never be
           answered. Accepting stamps an immutable baseline from the numbers on screen right now —
           which is why it cannot be added retrospectively. */}
-      <div className="rm-commit" onClick={(e) => e.stopPropagation()}>
+      <div className="rm-commit">
         {committed && tracked ? (
           <>
             <span className="rm-outcome" style={{ color: outcomeTone(tracked.outcome.verdict) }}>

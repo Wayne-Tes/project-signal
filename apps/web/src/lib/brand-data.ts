@@ -186,6 +186,29 @@ export function toHistory(rows: readonly ApiDimensionRow[]): HistoryPoint[] {
     .map(([date, scores]) => ({ date, label: formatDayLabel(date), scores }));
 }
 
+/**
+ * One value per day — the mean of the dimensions that day's rollup scored — for the index card's
+ * sparkline.
+ *
+ * WHY. The sparkline under the index plotted `cards[0]` — whichever dimension happened to sort
+ * first — coloured by the composite, so it looked like the index's history and was one
+ * dimension's. A per-day composite with the brand's own weights would need the weights, which no
+ * endpoint returns; the unweighted mean is what is computable, and the view labels it as such
+ * rather than calling it the index.
+ *
+ * Days with no scored dimension are dropped: a gap is not a zero.
+ */
+export function toDimensionMeanTrend(
+  points: readonly HistoryPoint[],
+): { label: string; mean: number }[] {
+  return points.flatMap((p) => {
+    const values = Object.values(p.scores).filter((v): v is number => typeof v === 'number');
+    if (values.length === 0) return [];
+    const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
+    return [{ label: p.label, mean: roundScore(mean) }];
+  });
+}
+
 /** `2026-08-06` → `6 Aug`. Kept here so the chart axis and tooltips cannot drift apart. */
 export function formatDayLabel(isoDate: string): string {
   const parsed = new Date(`${isoDate}T00:00:00Z`);
@@ -468,9 +491,7 @@ export function changeHeadline(data: ApiWhatsNew | null | undefined, days: numbe
 
   const newCount = data.newTopics.length;
   const subjects =
-    newCount === 0
-      ? 'no subjects are new'
-      : `${newCount} new subject${newCount === 1 ? '' : 's'}`;
+    newCount === 0 ? 'no subjects are new' : `${newCount} new subject${newCount === 1 ? '' : 's'}`;
 
   return `${collected}${backfill}. ${movement}, and ${subjects}.`;
 }

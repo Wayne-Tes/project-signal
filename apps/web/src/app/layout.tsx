@@ -22,9 +22,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Poppins (display, to 800 for the extra-bold headings and metric
           figures) + Open Sans (body) — the house typefaces from the Aurora
           design system. Poppins stands in for the licensed Museo Sans.
+
+          Space Grotesk, IBM Plex Sans and Sora are the other font pairs the
+          Appearance popover offers (personalisation.ts FONT_PAIR_STACK). They
+          were offered but never loaded, so choosing one silently fell back to a
+          system font — a setting that visibly did nothing. `display=swap` keeps
+          first paint on the fallback, so the extra families cost no blocking.
         */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Open+Sans:wght@400;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Open+Sans:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
         {/*

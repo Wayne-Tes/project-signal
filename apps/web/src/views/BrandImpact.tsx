@@ -5,7 +5,7 @@ import { useApi } from '@/hooks/useApi';
 import { useBrand } from '@/lib/brand-context';
 import { withTerritory, toHeelCards, type ApiCluster } from '@/lib/brand-data';
 import { ViewState } from '@/components/ViewState';
-import { Badge, Card, EmptyState, Grid, PageHeader, Row, Trend } from '@/design-system';
+import { Badge, Card, EmptyState, Grid, PageHeader, Row } from '@/design-system';
 import type { NavActions } from '@/lib/types';
 
 /**
@@ -45,12 +45,10 @@ export function BrandImpactView({ nav }: { nav: NavActions }) {
         ) : (
           <Grid min="320px">
             {clusters.map((c, i) => (
-              <Card
-                key={c.topic}
-                accent="critical"
-                stagger={i * 40}
-                onClick={c.dimensionKey ? () => nav.openDimension(c.dimensionKey!) : undefined}
-              >
+              /* Not a clickable card: it holds a heading, and a heading inside a <button> is
+                 invalid HTML that assistive technology flattens into one long button label. The
+                 evidence has its own control below. */
+              <Card key={c.topic} accent="critical" stagger={i * 40}>
                 <Row gap="var(--s-4)">
                   <div style={{ flex: '1 1 auto', minWidth: 0 }}>
                     <Row gap="var(--s-2)">
@@ -71,18 +69,28 @@ export function BrandImpactView({ nav }: { nav: NavActions }) {
                     <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
                       {c.volume.toLocaleString()} signals · mean sentiment {c.sentiment.toFixed(2)}
                     </p>
+                    <button
+                      type="button"
+                      className="ds-chip"
+                      style={{ marginTop: 'var(--s-3)' }}
+                      onClick={() =>
+                        c.dimensionKey
+                          ? nav.openCluster(c.topic, c.dimensionKey)
+                          : nav.openTopic(c.topic)
+                      }
+                    >
+                      Read the signals
+                    </button>
                   </div>
 
+                  {/* No trend arrow. One used to be hard-coded to "up" on every cluster: Brand
+                      impact is a snapshot and the API returns no change for it, so the arrow
+                      asserted a rise nobody measured. Movement lives in What's changed. */}
                   <div style={{ textAlign: 'right', flex: '0 0 auto' }}>
                     <div className="ds-kpi__value" style={{ color: 'var(--status-critical)' }}>
                       {c.damage}
                     </div>
                     <div className="ds-eyebrow">damage</div>
-                    {/* Damage rising is bad, so the trend must not colour a rise
-                        green — hence upIsGood={false}. */}
-                    <div style={{ marginTop: 'var(--s-1)' }}>
-                      <Trend direction="up" value="" upIsGood={false} />
-                    </div>
                   </div>
                 </Row>
               </Card>
