@@ -12,5 +12,16 @@ pnpm-lock.yaml
 *.log
 .env
 **/.env
+# Next.js reads .env.local during `next build`. A developer's local file (local auth mode, local
+# API URL, local Cognito ids) must never be baked into an image — the image takes its
+# NEXT_PUBLIC_* values from build args only (apps/web/Dockerfile).
+**/.env.local
+**/.env.*.local
 docs
 infra
+infra-aws
+design
+coverage
+**/coverage
+**/test-results
+**/playwright-report

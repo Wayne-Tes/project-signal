@@ -1,6 +1,10 @@
 # Build the monorepo with Yarn 4 (node-modules linker), then ship a slim runtime.
-FROM node:20-alpine AS base
-RUN corepack enable
+FROM node:26-alpine AS base
+# Node 25+ no longer bundles corepack, so it is installed explicitly and PINNED: an unpinned
+# install would make the image depend on whatever npm serves on the day of the build. 0.36.0 is
+# the version verified on the development host on 2026-11-16 to provide yarn 4.9.2 from the
+# root package.json "packageManager" field.
+RUN npm install -g corepack@0.36.0 && corepack enable
 WORKDIR /app
 
 FROM base AS builder
@@ -27,7 +31,7 @@ COPY apps/ apps/
 COPY libs/ libs/
 RUN yarn workspaces focus @project-signal/ingestion --production
 
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -40,5 +44,5 @@ COPY --from=builder /app/apps/ingestion/package.json ./apps/ingestion/
 RUN addgroup -S signal && adduser -S signal -G signal
 USER signal
 
-EXPOSE 8080
+EXPOSE 8081
 CMD ["node", "apps/ingestion/dist/main.js"]
