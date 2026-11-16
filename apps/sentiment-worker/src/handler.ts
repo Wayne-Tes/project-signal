@@ -7,17 +7,30 @@ import {
   signalMentions,
 } from '@project-signal/db';
 import { getObjectStore, keyFromRef } from '@project-signal/storage';
+import { LlmResponseError } from '@project-signal/llm';
 import type { Voice } from '@project-signal/shared-types';
 import { and, eq, ne } from 'drizzle-orm';
-import { scoreSignal, resolveMentions, type MentionCandidate } from './scorer.js';
+import {
+  scoreSignal,
+  resolveMentions,
+  ScoreValidationError,
+  type MentionCandidate,
+} from './scorer.js';
+
+/** The logging surface this handler needs — satisfied by Fastify's pino logger. */
+export interface WorkerLog {
+  info: (obj: object, msg: string) => void;
+  warn: (obj: object, msg: string) => void;
+  error: (obj: object, msg: string) => void;
+}
 
 /**
- * Thrown for failures that will never succeed on retry: a missing signal row, an unresolvable
- * storage reference, or output the model returned in a shape we cannot parse.
+ * Thrown for failures that will never succeed on retry: an unresolvable storage reference, a
+ * payload with no text, or a model answer that is truncated, missing, or fails validation.
  *
  * The caller acks these — redelivering them five times and dead-lettering them adds noise
  * without adding information. Everything NOT wrapped in this is treated as transient and
- * rethrown so Pub/Sub retries and eventually dead-letters (KNOWN-GAPS #9).
+ * rethrown so SQS retries and eventually dead-letters (KNOWN-GAPS #9).
  */
 export class PermanentScoringError extends Error {
   constructor(
@@ -34,11 +47,17 @@ interface RawPayload {
   text?: string;
 }
 
-export async function handlePubSubMessage(signalId: string): Promise<void> {
+/**
+ * Scores one signal from the item queue.
+ *
+ * Named for what it handles. It was `handlePubSubMessage`, from the GCP design in which Pub/Sub
+ * pushed to an HTTP endpoint; on AWS the SQS consumer pulls, and the push route is gone.
+ */
+export async function handleItemMessage(signalId: string, log: WorkerLog): Promise<void> {
   const [signal] = await db.get().select().from(signals).where(eq(signals.id, signalId));
   if (!signal) {
     // Permanent: the row is not coming back. Ack and move on.
-    console.warn(`Signal not found, acking: ${signalId}`);
+    log.warn({ signalId }, 'signal not found — acking');
     return;
   }
 
@@ -77,12 +96,16 @@ export async function handlePubSubMessage(signalId: string): Promise<void> {
        the account manager's tone rather than the customer's view. */
     result = await scoreSignal(text, candidates, (signal.voice ?? 'direct') as Voice);
   } catch (err) {
-    // The model returning non-JSON is a permanent failure for this message: retrying sends
-    // the identical prompt and gets the identical garbage.
-    if (err instanceof SyntaxError) {
-      throw new PermanentScoringError(`Model returned unparseable output for ${signalId}`, err);
+    /* An unusable answer is permanent: retrying sends the identical prompt and gets an answer of
+       the identical kind. `LlmResponseError` — no tool call, or one truncated at the output
+       ceiling — and `ScoreValidationError` — a label or number that is not one — are those cases.
+       (A `SyntaxError` branch used to live here; forced tool use removed JSON parsing, so it
+       could no longer fire, while these two real permanent cases went five times round the
+       redrive policy to the DLQ.) */
+    if (err instanceof LlmResponseError || err instanceof ScoreValidationError) {
+      throw new PermanentScoringError(`Unusable model output for ${signalId}: ${err.message}`, err);
     }
-    // Quota, network, 5xx — rethrow so Pub/Sub retries and eventually dead-letters.
+    // Quota, network, 5xx — rethrow so SQS retries and eventually dead-letters.
     throw err;
   }
 
@@ -93,9 +116,7 @@ export async function handlePubSubMessage(signalId: string): Promise<void> {
      would be worse than a visible gap, and `GET /brands/:id/stats` now reports the gap as
      `classifiedSignals` against `scoredSignals`. */
   if (result.dimensions.length === 0) {
-    console.warn(
-      `Signal ${signalId} scored with no dimensions — it will not contribute to any rollup`,
-    );
+    log.warn({ signalId }, 'scored with no dimensions — it will not contribute to any rollup');
   }
 
   await db
@@ -144,13 +165,15 @@ export async function handlePubSubMessage(signalId: string): Promise<void> {
         /* Re-scoring a signal must not duplicate its mentions. */
         .onConflictDoNothing();
     } catch (err) {
-      console.error(`Could not record mentions for ${signalId}`, err);
+      log.error({ err, signalId }, 'could not record mentions');
     }
   }
 
-  console.warn(
-    `Scored signal ${signalId}: ${result.label} (${result.score})` +
-      (mentions.length ? `, ${mentions.length} mention(s)` : ''),
+  /* `info`, not `warn`: a successful score is the normal case, and logging it as a warning made
+     every healthy signal look like a problem in the log stream. */
+  log.info(
+    { signalId, label: result.label, score: result.score, mentions: mentions.length },
+    'signal scored',
   );
 }
 

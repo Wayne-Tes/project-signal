@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as StorageModule from '@project-signal/storage';
+import type * as ScorerModule from '../src/scorer.js';
 
 const { mockScoreSignal, mockGet } = vi.hoisted(() => ({
   mockScoreSignal: vi.fn(),
@@ -11,7 +12,15 @@ const _dbRowQueue: unknown[][] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
-  ['select', 'from', 'where', 'insert', 'values', 'onConflictDoUpdate', 'onConflictDoNothing'].forEach((m) => {
+  [
+    'select',
+    'from',
+    'where',
+    'insert',
+    'values',
+    'onConflictDoUpdate',
+    'onConflictDoNothing',
+  ].forEach((m) => {
     chain[m] = vi.fn(() => chain);
   });
   const nextRows = () => (_dbRowQueue.length ? _dbRowQueue.shift()! : _dbRows);
@@ -39,14 +48,22 @@ vi.mock('@project-signal/storage', async (importOriginal) => {
   };
 });
 
-vi.mock('../src/scorer.js', () => ({
-  scoreSignal: mockScoreSignal,
-  /* The handler resolves detected names to entity ids before writing signal_mentions. The real
-     implementation is unit-tested in scorer.test.ts; here it only needs to exist. */
-  resolveMentions: vi.fn(() => []),
-}));
+vi.mock('../src/scorer.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof ScorerModule>();
+  return {
+    scoreSignal: mockScoreSignal,
+    /* The real error class: the handler's classification is what is under test. */
+    ScoreValidationError: actual.ScoreValidationError,
+    /* Unit-tested in scorer.test.ts; here it only needs to exist. */
+    resolveMentions: vi.fn(() => []),
+  };
+});
 
-import { handlePubSubMessage, PermanentScoringError } from '../src/handler.js';
+import { LlmResponseError } from '@project-signal/llm';
+import { handleItemMessage, PermanentScoringError } from '../src/handler.js';
+import { ScoreValidationError } from '../src/scorer.js';
+
+const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
 const now = new Date();
 const mockSignal = {
@@ -61,8 +78,9 @@ const mockScore = {
   label: 'positive' as const,
   score: 0.85,
   confidence: 0.9,
-  dimensions: {},
+  dimensions: ['service'],
   topics: [],
+  mentions: [],
   modelVersion: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0',
 };
 
@@ -73,103 +91,130 @@ beforeEach(() => {
   mockGet.mockResolvedValue(JSON.stringify({ text: 'The app keeps crashing.' }));
 });
 
-describe('handlePubSubMessage', () => {
+describe('handleItemMessage', () => {
   // KNOWN-GAPS #4 — the worker scored signal.sourceUrl, so every stored sentiment score was
-  // Gemini's opinion of a URL string, written with real-looking labels and confidences.
+  // the model's opinion of a URL string, written with real-looking labels and confidences.
   it('scores the stored raw text, not the source URL', async () => {
     _dbRows = [mockSignal];
     mockScoreSignal.mockResolvedValueOnce(mockScore);
 
-    await handlePubSubMessage('signal-1');
+    await handleItemMessage('signal-1', log);
 
     expect(mockGet).toHaveBeenCalledWith('tenant-1/brand-1/rss/ext-1.json');
-    /* Second argument is the mention candidates — the tenant's other entities, loaded per
-       signal so a product added in Admin is detected on the very next one. */
-    /* Third argument is the signal's VOICE. A CRM note scored with the review prompt measures the
-       account manager's tone rather than the customer's view, so the prompt is chosen per signal
-       and public sources default to 'direct'. */
-    expect(mockScoreSignal).toHaveBeenCalledWith('The app keeps crashing.', expect.any(Array), 'direct');
+    /* Second argument is the mention candidates; third is the signal's VOICE, which picks the
+       prompt — a CRM note scored as a review measures the account manager's tone. */
+    expect(mockScoreSignal).toHaveBeenCalledWith(
+      'The app keeps crashing.',
+      expect.any(Array),
+      'direct',
+    );
     expect(mockScoreSignal).not.toHaveBeenCalledWith(mockSignal.sourceUrl);
   });
 
   /**
-   * `minItems: 1` on the tool schema is a request to the model, not a guarantee from it.
-   *
-   * A signal that comes back with no dimensions contributes to no index, no cluster and no
-   * drill-down, and used to do so in total silence — which is how two brands ended up with zero
-   * rollup rows and nothing anywhere saying why. It is still STORED (refusing it would lose a
-   * real sentiment score, and inventing a dimension would be fabrication), but it must be
-   * audible: in the log here, and as `classifiedSignals` on `GET /brands/:id/stats`.
+   * `minItems: 1` on the tool schema is a request to the model, not a guarantee from it. A
+   * signal with no dimensions is still STORED (refusing it would lose a real sentiment score,
+   * and inventing a dimension would be fabrication), but it must be audible (KNOWN-GAPS #30).
    */
   it('warns, but still stores, when the model returns no dimensions', async () => {
     _dbRows = [mockSignal];
     mockScoreSignal.mockResolvedValueOnce({ ...mockScore, dimensions: [] });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await handlePubSubMessage('signal-1');
+    await handleItemMessage('signal-1', log);
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no dimensions'));
-
+    expect(log.warn).toHaveBeenCalledWith(
+      { signalId: 'signal-1' },
+      expect.stringContaining('no dimensions'),
+    );
     const { db } = await import('@project-signal/db');
     const chain = db.get() as unknown as { values: ReturnType<typeof vi.fn> };
     expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ dimensions: [] }));
-
-    warn.mockRestore();
   });
 
-  it('persists the sentiment result', async () => {
+  it('persists the sentiment result and logs success at info, not warn', async () => {
     _dbRows = [mockSignal];
     mockScoreSignal.mockResolvedValueOnce(mockScore);
 
-    await handlePubSubMessage('signal-1');
+    await handleItemMessage('signal-1', log);
 
     const { db } = await import('@project-signal/db');
     const chain = db.get() as unknown as { values: ReturnType<typeof vi.fn> };
     expect(chain.values).toHaveBeenCalledWith(
       expect.objectContaining({ signalId: 'signal-1', label: 'positive', score: 0.85 }),
     );
+    /* A healthy score logged as a warning made every normal signal look like a problem. */
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({ signalId: 'signal-1', label: 'positive' }),
+      'signal scored',
+    );
+    expect(log.warn).not.toHaveBeenCalled();
   });
 
   it('acks a missing signal rather than retrying forever', async () => {
     _dbRows = [];
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await expect(handlePubSubMessage('missing-id')).resolves.toBeUndefined();
+    await expect(handleItemMessage('missing-id', log)).resolves.toBeUndefined();
     expect(mockScoreSignal).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
+    expect(log.warn).toHaveBeenCalledWith({ signalId: 'missing-id' }, expect.any(String));
+  });
+
+  it('keeps the committed score when writing mentions fails, and says so', async () => {
+    const { resolveMentions } = await import('../src/scorer.js');
+    vi.mocked(resolveMentions).mockReturnValueOnce([{ brandEntityId: 'p-1', confidence: 0.8 }]);
+    _dbRows = [mockSignal];
+    mockScoreSignal.mockResolvedValueOnce(mockScore);
+    const { db } = await import('@project-signal/db');
+    const chain = db.get() as unknown as { onConflictDoNothing: ReturnType<typeof vi.fn> };
+    chain.onConflictDoNothing.mockImplementationOnce(() => {
+      throw new Error('fk violation');
+    });
+
+    await expect(handleItemMessage('signal-1', log)).resolves.toBeUndefined();
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ signalId: 'signal-1' }),
+      'could not record mentions',
+    );
   });
 });
 
-// KNOWN-GAPS #9 — the handler caught every error and returned normally, so Pub/Sub saw every
-// delivery as a success. The DLQ, max_delivery_attempts and the retry backoff configured in
-// Terraform could never fire.
+// KNOWN-GAPS #9 — the handler caught every error and returned normally, so every delivery looked
+// like a success and the DLQ could never fire.
 describe('failure classification', () => {
-  it('rethrows a transient scoring failure so Pub/Sub retries', async () => {
+  it('rethrows a transient scoring failure so SQS retries', async () => {
     _dbRows = [mockSignal];
     mockScoreSignal.mockRejectedValueOnce(new Error('429 quota exceeded'));
 
-    await expect(handlePubSubMessage('signal-1')).rejects.toThrow('429 quota exceeded');
+    await expect(handleItemMessage('signal-1', log)).rejects.toThrow('429 quota exceeded');
   });
 
-  it('rethrows a transient storage failure so Pub/Sub retries', async () => {
+  it('rethrows a transient storage failure so SQS retries', async () => {
     _dbRows = [mockSignal];
     mockGet.mockRejectedValueOnce(new Error('503 backend error'));
 
-    await expect(handlePubSubMessage('signal-1')).rejects.toThrow('503 backend error');
+    await expect(handleItemMessage('signal-1', log)).rejects.toThrow('503 backend error');
   });
 
-  it('raises a permanent error when the model returns unparseable output', async () => {
+  it('treats a missing or truncated tool call as permanent', async () => {
+    /* `LlmResponseError` was documented as permanent and never caught, so it went five times
+       round the redrive policy — five more Bedrock calls — to the DLQ. */
     _dbRows = [mockSignal];
-    mockScoreSignal.mockRejectedValueOnce(new SyntaxError('Unexpected token < in JSON'));
+    mockScoreSignal.mockRejectedValueOnce(new LlmResponseError('hit the output ceiling'));
 
-    await expect(handlePubSubMessage('signal-1')).rejects.toBeInstanceOf(PermanentScoringError);
+    await expect(handleItemMessage('signal-1', log)).rejects.toBeInstanceOf(PermanentScoringError);
+  });
+
+  it('treats an answer that fails validation as permanent', async () => {
+    _dbRows = [mockSignal];
+    mockScoreSignal.mockRejectedValueOnce(new ScoreValidationError('invalid label'));
+
+    await expect(handleItemMessage('signal-1', log)).rejects.toBeInstanceOf(PermanentScoringError);
   });
 
   it('raises a permanent error for a legacy URL rawStorageRef', async () => {
     // Rows written before #4 was fixed hold a bare URL, which is not a storage key.
     _dbRows = [{ ...mockSignal, rawStorageRef: 'https://example.com/review/1' }];
 
-    await expect(handlePubSubMessage('signal-1')).rejects.toBeInstanceOf(PermanentScoringError);
+    await expect(handleItemMessage('signal-1', log)).rejects.toBeInstanceOf(PermanentScoringError);
     expect(mockScoreSignal).not.toHaveBeenCalled();
   });
 
@@ -177,30 +222,27 @@ describe('failure classification', () => {
     _dbRows = [mockSignal];
     mockGet.mockResolvedValueOnce('not json at all');
 
-    await expect(handlePubSubMessage('signal-1')).rejects.toBeInstanceOf(PermanentScoringError);
+    await expect(handleItemMessage('signal-1', log)).rejects.toBeInstanceOf(PermanentScoringError);
   });
 
   it('raises a permanent error when the stored payload has no text', async () => {
     _dbRows = [mockSignal];
     mockGet.mockResolvedValueOnce(JSON.stringify({ url: 'https://example.com' }));
 
-    await expect(handlePubSubMessage('signal-1')).rejects.toBeInstanceOf(PermanentScoringError);
+    await expect(handleItemMessage('signal-1', log)).rejects.toBeInstanceOf(PermanentScoringError);
   });
 });
 
 /**
- * The voice decides which prompt the scorer uses.
- *
- * A public review is the customer speaking; a CRM note is an employee's account of what a customer
- * said. Scoring the second with the first's prompt measures the wrong person, and produces a
- * number indistinguishable from a real one.
+ * The voice decides which prompt the scorer uses. A public review is the customer speaking; a
+ * CRM note is an employee's account of what a customer said.
  */
 describe('voice', () => {
   it('passes the signal’s voice through to the scorer', async () => {
     _dbRows = [{ ...mockSignal, voice: 'reported' }];
     mockScoreSignal.mockResolvedValueOnce(mockScore);
 
-    await handlePubSubMessage('signal-1');
+    await handleItemMessage('signal-1', log);
 
     expect(mockScoreSignal).toHaveBeenCalledWith(
       'The app keeps crashing.',
@@ -210,12 +252,12 @@ describe('voice', () => {
   });
 
   /* Every public source is direct, and a column added for the CRM must not silently reclassify
-     four hundred existing signals. */
+     existing signals. */
   it('defaults to direct when a signal predates the column', async () => {
     _dbRows = [{ ...mockSignal, voice: undefined }];
     mockScoreSignal.mockResolvedValueOnce(mockScore);
 
-    await handlePubSubMessage('signal-1');
+    await handleItemMessage('signal-1', log);
 
     expect(mockScoreSignal).toHaveBeenCalledWith(
       'The app keeps crashing.',
