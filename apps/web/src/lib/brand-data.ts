@@ -186,27 +186,23 @@ export function toHistory(rows: readonly ApiDimensionRow[]): HistoryPoint[] {
     .map(([date, scores]) => ({ date, label: formatDayLabel(date), scores }));
 }
 
+/** One day of `GET /brands/:id/score-history`: the Brand Perception Index on that date. */
+export interface ApiScorePoint {
+  date: string;
+  score: number;
+  signalCount: number;
+}
+
 /**
- * One value per day — the mean of the dimensions that day's rollup scored — for the index card's
- * sparkline.
+ * The index's daily history for the sparkline under the index card.
  *
- * WHY. The sparkline under the index plotted `cards[0]` — whichever dimension happened to sort
- * first — coloured by the composite, so it looked like the index's history and was one
- * dimension's. A per-day composite with the brand's own weights would need the weights, which no
- * endpoint returns; the unweighted mean is what is computable, and the view labels it as such
- * rather than calling it the index.
- *
- * Days with no scored dimension are dropped: a gap is not a zero.
+ * The API computes each day's composite with the brand's own weights, exactly as the headline
+ * number is computed, so the line and the number above it agree. It used to plot `cards[0]` (one
+ * dimension) and then the unweighted mean of the dimensions, because no endpoint returned the
+ * per-day index.
  */
-export function toDimensionMeanTrend(
-  points: readonly HistoryPoint[],
-): { label: string; mean: number }[] {
-  return points.flatMap((p) => {
-    const values = Object.values(p.scores).filter((v): v is number => typeof v === 'number');
-    if (values.length === 0) return [];
-    const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
-    return [{ label: p.label, mean: roundScore(mean) }];
-  });
+export function toIndexTrend(points: readonly ApiScorePoint[]): { label: string; score: number }[] {
+  return points.map((p) => ({ label: formatDayLabel(p.date), score: roundScore(p.score) }));
 }
 
 /** `2026-08-06` → `6 Aug`. Kept here so the chart axis and tooltips cannot drift apart. */

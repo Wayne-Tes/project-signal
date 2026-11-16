@@ -12,7 +12,7 @@ import { apiFetch } from '@/lib/api';
  * ONLY OFFERS TERRITORIES THE BRAND ACTUALLY COLLECTS FROM. A full ISO list would be a dozen
  * options, eleven of which return an empty dashboard — and an empty dashboard is
  * indistinguishable from a broken one, so every one of those is a support question. The options
- * come from the brand's configured feeds, so choosing one always leads somewhere.
+ * come from the brand's feeds and collected signals, so choosing one always leads somewhere.
  *
  * `unknown` is offered when it is present, and labelled "Not set" rather than hidden. Signals
  * collected before the column existed, and feeds nobody has classified, sit there — and hiding
@@ -32,11 +32,12 @@ export function TerritoryPicker() {
 
     void (async () => {
       try {
-        const feeds = await apiFetch<{ data: { territory?: string }[] }>(
-          `/brands/${brandId}/integrations`,
+        /* Brand-scoped and open to every role. This used to read /integrations, which is
+           admin-only, so a plain `user` never saw the lens at all. */
+        const { territories } = await apiFetch<{ territories: string[] }>(
+          `/brands/${brandId}/territories`,
         );
-        const found = [...new Set((feeds.data ?? []).map((f) => f.territory).filter(Boolean))];
-        if (!cancelled) setAvailable(found as string[]);
+        if (!cancelled) setAvailable(territories ?? []);
       } catch {
         /* A failure here must not break the page. With no options the picker hides itself, which
            is the same state as a brand with one territory — the dashboard still works, it just
@@ -61,8 +62,7 @@ export function TerritoryPicker() {
      single option invites a click that changes nothing. */
   if (available.length < 2) return null;
 
-  const label = (code: string): string =>
-    TERRITORY_LABELS[code as Territory] ?? code;
+  const label = (code: string): string => TERRITORY_LABELS[code as Territory] ?? code;
 
   return (
     <label className="terr-picker" title="Filter every view to one territory">

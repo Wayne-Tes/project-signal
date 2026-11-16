@@ -8,10 +8,11 @@ import {
   toDimensionCards,
   toHeelCards,
   toHistory,
-  toDimensionMeanTrend,
+  toIndexTrend,
   type ApiBrandScore,
   type ApiCluster,
   type ApiDimensionRow,
+  type ApiScorePoint,
   type ApiStats,
   type DimensionCard,
   coverageFooter,
@@ -112,6 +113,9 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
   const history = useApi<ApiDimensionRow[]>(
     brandId ? withTerritory(`/brands/${brandId}/dimension-scores`, territory) : null,
   );
+  const indexHistory = useApi<ApiScorePoint[]>(
+    brandId ? withTerritory(`/brands/${brandId}/score-history`, territory) : null,
+  );
   const stats = useApi<BrandStats>(
     brandId ? withTerritory(`/brands/${brandId}/stats`, territory) : null,
   );
@@ -124,7 +128,7 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
 
   const cards = score.data ? toDimensionCards(score.data, score.data.previousDimensions) : [];
   const points = history.data ? toHistory(history.data) : [];
-  const trend = toDimensionMeanTrend(points);
+  const trend = indexHistory.data ? toIndexTrend(indexHistory.data) : [];
   const chartRows = points.map((p) => ({ label: p.label, ...p.scores }));
   const composite = score.data?.score ?? null;
   const previous = score.data?.previousScore ?? null;
@@ -153,6 +157,7 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
           score.error ??
           stats.error ??
           history.error ??
+          indexHistory.error ??
           heels.error ??
           strengths.error ??
           brandError
@@ -226,7 +231,7 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
                   marginBottom: 4,
                 }}
               >
-                <span className="kicker">trend · mean of dimensions</span>
+                <span className="kicker">trend · index</span>
                 <span className="mono" style={{ fontSize: 11, color: 'var(--t3)' }}>
                   {trend.length} {trend.length === 1 ? 'day' : 'days'}
                 </span>
@@ -234,8 +239,8 @@ export function Dashboard({ nav, hero = 'Radial gauge' }: { nav: NavActions; her
               {trend.length >= 2 ? (
                 <Sparkline
                   data={trend}
-                  dkey="mean"
-                  color={scoreColor(trend[trend.length - 1]?.mean ?? 0)}
+                  dkey="score"
+                  color={scoreColor(trend[trend.length - 1]?.score ?? 0)}
                   width={312}
                   height={56}
                   play={play}

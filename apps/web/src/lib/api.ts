@@ -47,8 +47,8 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
  * The API answers a failure with a JSON envelope, and this used to be shown to the user raw.
  * Adding a feed that already existed produced, on screen, in red:
  *
- *   API 409: {"status":"error","error":"This exact feed is already configured for this
- *   brand.","data":{"id":"089b9c69-b327-4671-9a90-cf66c37d3de2"}}
+ *   API 409: {"statusCode":409,"error":"Conflict","message":"This exact feed is already
+ *   configured for this brand."}
  *
  * The sentence a person needs is in there, wrapped in punctuation and a uuid that means nothing
  * to them. Every caller in the app shows these messages verbatim — deliberately, because the API
@@ -64,8 +64,11 @@ function messageFrom(body: string): string {
     const parsed: unknown = JSON.parse(body);
     if (parsed && typeof parsed === 'object') {
       const record = parsed as Record<string, unknown>;
-      /* Fastify's own errors use `message`; this codebase's envelopes use `error`. */
-      for (const key of ['error', 'message']) {
+      /* Every API error is `{ statusCode, error, message }`: `message` is the sentence, `error`
+         only the HTTP reason phrase ("Conflict"). `message` is read first — reading `error` first
+         showed users "Conflict" instead of what was in the way. `error` remains the fallback
+         for a body that carries only that. */
+      for (const key of ['message', 'error']) {
         const value = record[key];
         if (typeof value === 'string' && value.length > 0) return value;
       }

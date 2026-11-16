@@ -39,18 +39,18 @@ const FEED = {
   config: { feedUrl: 'https://example.com/feed' },
   lastFetchedAt: null,
 };
-const FEEDS = {
-  status: 'ok',
-  data: [
-    { ...FEED, id: 'f1', territory: 'GB' },
-    { ...FEED, id: 'f2', territory: 'AU' },
-  ],
-};
+const FEEDS = [
+  { ...FEED, id: 'f1', territory: 'GB' },
+  { ...FEED, id: 'f2', territory: 'AU' },
+];
 
 function routes(overrides: Record<string, unknown> = {}) {
   return brandRoutes({
     '/brands/brand-1/integrations': FEEDS,
-    '/brands/brand-2/integrations': { status: 'ok', data: [] },
+    '/brands/brand-1/territories': { territories: ['AU', 'GB'] },
+    '/brands/brand-2/integrations': [],
+    '/brands/brand-2/territories': { territories: [] },
+    '/brands/brand-2/score-history': [],
     '/brands/brand-2/dimension-scores': [],
     '/brands/brand-2/stats': {
       signalsThisWeek: 0,
@@ -242,3 +242,15 @@ describe('the appearance popover', () => {
 });
 
 void SCORE;
+
+describe('the territory lens for a plain user', () => {
+  it('is offered from the brand-scoped endpoint, not the admin-only feed list', async () => {
+    /* REGRESSION. The picker read /integrations, which is admin-only, so a `user` never saw the
+       lens. It now reads /territories, which requireBrandAccess opens to every role. */
+    auth.role = 'user';
+    render(<ClientApp />);
+    expect(await screen.findByLabelText('Territory')).toBeInTheDocument();
+    expect(paths()).toContain('/brands/brand-1/territories');
+    expect(paths()).not.toContain('/brands/brand-1/integrations');
+  });
+});

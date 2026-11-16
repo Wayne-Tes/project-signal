@@ -62,10 +62,9 @@ const FEEDS: Feed[] = [
 function route(feeds: Feed[] = FEEDS) {
   apiFetch.mockImplementation(async (url: string, init?: { method?: string }) => {
     if (url === '/brands') return BRANDS;
-    if (url.endsWith('/integrations') && (!init || init.method === undefined))
-      return { status: 'ok', data: feeds };
-    if (url.endsWith('/aliases')) return { status: 'ok', data: [] };
-    return { status: 'ok', data: {} };
+    if (url.endsWith('/integrations') && (!init || init.method === undefined)) return feeds;
+    if (url.endsWith('/aliases')) return [];
+    return {};
   });
 }
 

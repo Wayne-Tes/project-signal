@@ -29,9 +29,9 @@ const { UserManager } = await import('../src/components/UserManager');
 const { ScanPanel } = await import('../src/components/ScanPanel');
 
 const USERS = [
-  { id: 'u1', firebaseUid: 'sub-owner', tenantId: 't1', role: 'owner', brandEntityId: null },
-  { id: 'u2', firebaseUid: 'sub-admin', tenantId: 't1', role: 'admin', brandEntityId: null },
-  { id: 'u3', firebaseUid: 'sub-user', tenantId: 't1', role: 'user', brandEntityId: 'brand-2' },
+  { id: 'u1', cognitoSub: 'sub-owner', tenantId: 't1', role: 'owner', brandEntityId: null },
+  { id: 'u2', cognitoSub: 'sub-admin', tenantId: 't1', role: 'admin', brandEntityId: null },
+  { id: 'u3', cognitoSub: 'sub-user', tenantId: 't1', role: 'user', brandEntityId: 'brand-2' },
 ];
 
 beforeEach(() => {
@@ -86,20 +86,17 @@ describe('UserManager', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/role updated/i);
   });
 
-  it('provisions a user with no pin by default', async () => {
+  it('provisions a user with no pin, no email and no client-chosen tenant', async () => {
     render(<UserManager />);
     await screen.findByText('sub-admin');
     expect(screen.getByLabelText(/pinned brand/i)).toHaveValue('');
     await userEvent.type(screen.getByLabelText(/cognito user id/i), 'sub-new');
-    await userEvent.type(screen.getByLabelText('Email'), 'new@example.com');
     await userEvent.click(screen.getByRole('button', { name: /provision user/i }));
     await waitFor(() => {
       const post = apiFetch.mock.calls.find((c) => c[1]?.method === 'POST');
       expect(JSON.parse(String(post?.[1]?.body))).toEqual({
-        firebaseUid: 'sub-new',
-        email: 'new@example.com',
+        cognitoSub: 'sub-new',
         role: 'user',
-        tenantId: 't1',
       });
     });
   });
@@ -112,7 +109,6 @@ describe('UserManager', () => {
     render(<UserManager />);
     await screen.findByText('sub-admin');
     await userEvent.type(screen.getByLabelText(/cognito user id/i), 'sub-admin');
-    await userEvent.type(screen.getByLabelText('Email'), 'a@example.com');
     await userEvent.click(screen.getByRole('button', { name: /provision user/i }));
     expect(await screen.findByRole('alert')).toHaveTextContent('409: That user already exists');
     await userEvent.selectOptions(screen.getByLabelText('Role for sub-admin'), 'user');

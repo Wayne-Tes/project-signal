@@ -60,7 +60,7 @@ export function SignIn() {
 
   return (
     <div style={wrap}>
-      <form onSubmit={submit} style={card} aria-labelledby="signin-title">
+      <form onSubmit={(e) => void submit(e)} style={card} aria-labelledby="signin-title">
         {local && (
           <p style={localBadge} data-testid="local-auth-badge">
             Local development sign-in

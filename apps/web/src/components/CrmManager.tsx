@@ -178,7 +178,7 @@ export function CrmManager() {
         </div>
       )}
 
-      <form onSubmit={connect} className="crm-form">
+      <form onSubmit={(e) => void connect(e)} className="crm-form">
         <div>
           <label style={lbl} htmlFor="crmProvider">
             CRM

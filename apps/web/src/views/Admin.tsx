@@ -10,12 +10,9 @@ import { UserManager } from '@/components/UserManager';
 import { CrmManager } from '@/components/CrmManager';
 
 type CreatedTenant = {
-  status: string;
-  data: {
-    tenant: { id: string; name: string; slug: string };
-    brand: { id: string; name: string };
-    user: { id: string; role: string };
-  };
+  tenant: { id: string; name: string; slug: string };
+  brand: { id: string; name: string };
+  user: { id: string; role: string };
 };
 
 export function AdminView() {
@@ -43,7 +40,7 @@ export function AdminView() {
         body: JSON.stringify({
           tenantName,
           brandName,
-          adminFirebaseUid: adminUid,
+          adminCognitoSub: adminUid,
         }),
       });
       setResult(data);
@@ -66,7 +63,7 @@ export function AdminView() {
           <p style={{ color: 'var(--t2)', fontSize: 13, margin: '0 0 20px' }}>
             Provisions a tenant, its owned brand, and an admin user.
           </p>
-          <form onSubmit={submit}>
+          <form onSubmit={(e) => void submit(e)}>
             <label style={lbl} htmlFor="tenantName">
               Tenant name
             </label>
@@ -90,10 +87,6 @@ export function AdminView() {
               required
             />
             <label style={lbl} htmlFor="adminUid">
-              {/* The value is the Cognito `sub`. The wire field and the database column
-                are still named firebaseUid — see KNOWN-GAPS #25 — but showing an admin a
-                label naming an identity provider this product no longer uses is a defect
-                they cannot work around. */}
               Admin Cognito user ID (sub)
             </label>
             <input
@@ -126,10 +119,10 @@ export function AdminView() {
         >
           <h3 style={{ fontSize: 14, margin: '0 0 8px', color: 'var(--mint)' }}>Tenant created</h3>
           <dl style={{ margin: 0, fontSize: 13, color: 'var(--t2)' }}>
-            <Row label="Tenant" value={`${result.data.tenant.name} (${result.data.tenant.slug})`} />
-            <Row label="Tenant ID" value={result.data.tenant.id} />
-            <Row label="Brand" value={result.data.brand.name} />
-            <Row label="Admin role" value={result.data.user.role} />
+            <Row label="Tenant" value={`${result.tenant.name} (${result.tenant.slug})`} />
+            <Row label="Tenant ID" value={result.tenant.id} />
+            <Row label="Brand" value={result.brand.name} />
+            <Row label="Admin role" value={result.user.role} />
           </dl>
         </div>
       )}

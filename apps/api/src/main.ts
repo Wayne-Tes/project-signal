@@ -20,4 +20,5 @@ const start = async () => {
   }
 };
 
-start();
+// start() handles every failure itself (logs, exits 1); `void` marks that as deliberate.
+void start();

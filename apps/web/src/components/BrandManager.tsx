@@ -19,7 +19,6 @@ type SourceConfig = {
   lastError: string | null;
 };
 type Alias = { id: string; alias: string };
-type Envelope<T> = { status: string; data: T };
 
 /**
  * Config fields each source type needs. Drives both the add form and the inline editor.
@@ -207,8 +206,8 @@ function SourcesPanel({ brandId }: { brandId: string }) {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    apiFetch<Envelope<SourceConfig[]>>(`/brands/${brandId}/integrations`)
-      .then((r) => setSources(r.data))
+    apiFetch<SourceConfig[]>(`/brands/${brandId}/integrations`)
+      .then(setSources)
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load sources'));
   }, [brandId]);
 
@@ -478,7 +477,7 @@ function SourcesPanel({ brandId }: { brandId: string }) {
         </div>
       )}
 
-      <form onSubmit={addSource} style={{ marginTop: 16 }}>
+      <form onSubmit={(e) => void addSource(e)} style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div>
             <label style={lbl} htmlFor="sourceType">
@@ -575,8 +574,8 @@ function AliasesPanel({ brandId }: { brandId: string }) {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
-    apiFetch<Envelope<Alias[]>>(`/brands/${brandId}/aliases`)
-      .then((r) => setAliases(r.data))
+    apiFetch<Alias[]>(`/brands/${brandId}/aliases`)
+      .then(setAliases)
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load aliases'));
   }, [brandId]);
 
@@ -623,7 +622,7 @@ function AliasesPanel({ brandId }: { brandId: string }) {
           <span key={a.id} style={chip}>
             {a.alias}
             <button
-              onClick={() => remove(a.id)}
+              onClick={() => void remove(a.id)}
               aria-label={`Remove alias ${a.alias}`}
               style={chipX}
             >
@@ -632,7 +631,10 @@ function AliasesPanel({ brandId }: { brandId: string }) {
           </span>
         ))}
       </div>
-      <form onSubmit={add} style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+      <form
+        onSubmit={(e) => void add(e)}
+        style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}
+      >
         <div>
           <label style={lbl} htmlFor="aliasInput">
             Add alias

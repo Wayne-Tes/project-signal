@@ -41,6 +41,12 @@ export const HISTORY = [
   { dimension: 'service', score: 41.5, date: '2026-11-15', signalCount: 8 },
 ];
 
+/** The per-day Brand Perception Index (GET /brands/:id/score-history). */
+export const INDEX_HISTORY = [
+  { date: '2026-11-08', score: 53, signalCount: 17 },
+  { date: '2026-11-15', score: 55.85, signalCount: 20 },
+];
+
 export const STATS = {
   signalsThisWeek: 30,
   signalsPreviousWeek: 20,
@@ -191,13 +197,15 @@ export function brandRoutes(overrides: Record<string, Handler> = {}): Record<str
     '/brands/brand-1/score': SCORE,
     '/brands/brand-2/score': UNSCORED,
     '/brands/brand-1/dimension-scores': HISTORY,
+    '/brands/brand-1/score-history': INDEX_HISTORY,
+    '/brands/brand-1/territories': { territories: [] },
     '/brands/brand-1/stats': STATS,
     '/brands/brand-1/brand-impact': CLUSTERS,
     '/brands/brand-1/strengths': STRENGTHS,
     '/brands/brand-1/roadmap': ROADMAP,
     '/brands/brand-1/roadmap/actions': [],
     '/brands/brand-1/voice-of-customer': VOICE,
-    '/brands/brand-1/integrations': { status: 'ok', data: [] },
+    '/brands/brand-1/integrations': [],
     ...overrides,
   };
 }

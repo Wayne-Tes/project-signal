@@ -21,6 +21,13 @@ export default [
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/consistent-type-imports": "error",
+      // Type-aware: `parserOptions.project` already pays for type information, and these are
+      // the two rules it buys that catch real defects here — a promise nobody awaits fails
+      // silently, and an async handler passed where a void callback is expected (onSubmit,
+      // onClick) turns a rejection into an unhandled one. Fire-and-forget must be explicit:
+      // `void promise`.
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": "error",
       "no-console": ["warn", { allow: ["warn", "error"] }],
     },
   },

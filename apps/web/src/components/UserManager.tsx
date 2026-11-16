@@ -9,8 +9,8 @@ type Role = 'owner' | 'admin' | 'user';
 
 type User = {
   id: string;
-  /** The identity provider's user id (the Cognito `sub`). Wire name kept until KNOWN-GAPS #25. */
-  firebaseUid: string;
+  /** The identity provider's user id: the Cognito `sub` (or a local username). */
+  cognitoSub: string;
   tenantId: string;
   role: Role;
   brandEntityId: string | null;
@@ -38,7 +38,6 @@ export function UserManager() {
   const [busy, setBusy] = useState(false);
 
   const [subject, setSubject] = useState('');
-  const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('user');
   const [brandEntityId, setBrandEntityId] = useState('');
 
@@ -60,21 +59,17 @@ export function UserManager() {
     setNotice('');
     setBusy(true);
     try {
-      const tenantId = users[0]?.tenantId ?? '';
       await apiFetch<User>('/admin/users', {
         method: 'POST',
         body: JSON.stringify({
-          /* `firebaseUid` is the API's field name for the identity provider's user id; the value
-             is the Cognito sub (or a local username). Renaming the wire field is KNOWN-GAPS #25. */
-          firebaseUid: subject,
-          email,
+          /* No tenantId: the API places the user in the caller's own tenant. Sending
+             `users[0]?.tenantId` sent an empty string for a tenant with no users yet. */
+          cognitoSub: subject,
           role,
-          tenantId,
           ...(brandEntityId ? { brandEntityId } : {}),
         }),
       });
       setSubject('');
-      setEmail('');
       setBrandEntityId('');
       setNotice('User provisioned. They must sign in again for the new claims to apply.');
       await load();
@@ -134,7 +129,7 @@ export function UserManager() {
           <tbody>
             {users.map((u) => (
               <tr key={u.id}>
-                <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{u.firebaseUid}</td>
+                <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{u.cognitoSub}</td>
                 <td style={td}>
                   {u.role === 'owner' ? (
                     /* An owner's role is shown, not offered: it is not changeable from here, and
@@ -143,7 +138,7 @@ export function UserManager() {
                     <span title="Owner is a platform role and is not managed here">owner</span>
                   ) : (
                     <select
-                      aria-label={`Role for ${u.firebaseUid}`}
+                      aria-label={`Role for ${u.cognitoSub}`}
                       style={select}
                       value={u.role}
                       onChange={(e) => void changeRole(u.id, e.target.value as Role)}
@@ -165,7 +160,7 @@ export function UserManager() {
         </table>
       )}
 
-      <form onSubmit={create} style={{ marginTop: 20 }}>
+      <form onSubmit={(e) => void create(e)} style={{ marginTop: 20 }}>
         <label style={lbl} htmlFor="newUserUid">
           Cognito user ID (sub)
         </label>
@@ -175,18 +170,6 @@ export function UserManager() {
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
           placeholder="Cognito sub of the new user"
-          required
-        />
-        <label style={lbl} htmlFor="newUserEmail">
-          Email
-        </label>
-        <input
-          id="newUserEmail"
-          type="email"
-          style={inp}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="person@example.com"
           required
         />
         <label style={lbl} htmlFor="newUserRole">

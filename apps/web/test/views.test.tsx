@@ -61,7 +61,10 @@ describe('Dashboard', () => {
     const n = nav();
     withBrand(<Dashboard nav={n} />);
     expect(await screen.findByText('Brand Perception Index')).toBeInTheDocument();
-    expect(screen.getByText(/trend · mean of dimensions/i)).toBeInTheDocument();
+    /* The line under the index is the index: the per-day weighted composite from the API, not a
+       first-dimension or unweighted-mean stand-in. */
+    expect(screen.getByText(/trend · index/i)).toBeInTheDocument();
+    expect(calledPaths()).toContain('/brands/brand-1/score-history');
     expect((await screen.findAllByText(/billing delays/i)).length).toBeGreaterThan(0);
     expect((await screen.findAllByText(/helpful staff/i)).length).toBeGreaterThan(0);
   });
@@ -387,7 +390,7 @@ describe('Admin', () => {
         '/brands/tree': [],
         '/crm/connections': [],
         '/brands/brand-1/scans': [],
-        '/brands/brand-1/aliases': { status: 'ok', data: [] },
+        '/brands/brand-1/aliases': [],
       }),
     );
   });
@@ -400,14 +403,11 @@ describe('Admin', () => {
         '/brands/tree': [],
         '/crm/connections': [],
         '/brands/brand-1/scans': [],
-        '/brands/brand-1/aliases': { status: 'ok', data: [] },
+        '/brands/brand-1/aliases': [],
         'POST /admin/tenants': {
-          status: 'ok',
-          data: {
-            tenant: { id: 't-9', name: 'Acme', slug: 'acme' },
-            brand: { id: 'b-9', name: 'Acme' },
-            user: { id: 'u-9', role: 'admin' },
-          },
+          tenant: { id: 't-9', name: 'Acme', slug: 'acme' },
+          brand: { id: 'b-9', name: 'Acme' },
+          user: { id: 'u-9', role: 'admin' },
         },
       }),
     );
@@ -430,7 +430,7 @@ describe('Admin', () => {
         '/brands/tree': [],
         '/crm/connections': [],
         '/brands/brand-1/scans': [],
-        '/brands/brand-1/aliases': { status: 'ok', data: [] },
+        '/brands/brand-1/aliases': [],
         'POST /admin/tenants': new Error('409: slug taken'),
       }),
     );

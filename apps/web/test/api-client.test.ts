@@ -62,7 +62,9 @@ describe('apiFetch', () => {
     /* DELETE returns 204. Calling .json() on it throws a SyntaxError, which surfaces to the user
        as a failed operation that in fact succeeded — the conversation really was deleted. */
     respond(204, null);
-    await expect(apiFetch('/assistant/conversations/c1', { method: 'DELETE' })).resolves.toBeUndefined();
+    await expect(
+      apiFetch('/assistant/conversations/c1', { method: 'DELETE' }),
+    ).resolves.toBeUndefined();
   });
 
   it('returns undefined for an explicitly empty body', async () => {
@@ -115,10 +117,10 @@ describe('error messages', () => {
       text: async () => '{"statusCode":400,"error":"Bad Request","message":"body must be object"}',
     });
 
-    /* `error` wins over `message` here by design — this codebase’s envelopes put the useful
-       sentence in `error`, and Fastify puts a bare status phrase there. Either is far better than
-       the raw JSON, and the ordering is asserted so it cannot flip silently. */
-    await expect(apiFetch('/x')).rejects.toThrow('400: Bad Request');
+    /* `message` wins: in Fastify's `{ statusCode, error, message }` — the one shape every API
+       error now uses — `error` is only the HTTP reason phrase. Reading `error` first showed users
+       "Bad Request" / "Conflict" instead of the sentence explaining what was wrong. */
+    await expect(apiFetch('/x')).rejects.toThrow('400: body must be object');
   });
 
   it('shows a non-JSON body as it came', async () => {
