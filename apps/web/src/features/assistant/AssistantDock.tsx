@@ -3,8 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { CornerDownLeft, Sparkles, X } from 'lucide-react';
 import { Button } from '@/design-system';
-import { apiFetch } from '@/lib/api';
-import { Markdown } from '../help/Markdown';
+import {
+  AssistantAnswer,
+  SUGGESTIONS,
+  askAssistant,
+  assistantErrorMessage,
+  type Citation,
+} from './shared';
 
 /**
  * The assistant dock.
@@ -28,14 +33,6 @@ import { Markdown } from '../help/Markdown';
  * record that was actually fetched, and each one opens.
  */
 
-interface Citation {
-  id: string;
-  kind: string;
-  title: string;
-  detail?: string;
-  href?: string;
-}
-
 interface Exchange {
   question: string;
   answer?: string;
@@ -55,26 +52,6 @@ export interface AssistantDockProps {
   /** Opens a help article from a citation. */
   onOpenArticle?: (slug: string) => void;
 }
-
-/** Offered when the conversation is empty. Concrete, because vague prompts get vague answers. */
-const SUGGESTIONS = [
-  'What is my Brand Perception Index and what is it built on?',
-  'Which dimension has moved most recently, and why?',
-  'What is hurting my brand most right now?',
-  'How is the index actually calculated?',
-];
-
-const TOOL_LABELS: Record<string, string> = {
-  search_help: 'Read the help centre',
-  list_brands: 'Listed your brands',
-  get_brand_score: 'Read the index',
-  get_dimension_scores: 'Read dimension history',
-  get_brand_impact: 'Read Brand impact',
-  get_strengths: 'Read strengths',
-  get_sentiment_summary: 'Read sentiment mix',
-  get_brand_stats: 'Checked signal volume',
-  get_signals: 'Read individual signals',
-};
 
 export function AssistantDock({ open, onClose, view, brandId, onOpenArticle }: AssistantDockProps) {
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
@@ -122,48 +99,25 @@ export function AssistantDock({ open, onClose, view, brandId, onOpenArticle }: A
     setExchanges((prev) => [...prev, pending]);
 
     try {
-      const result = await apiFetch<{
-        conversationId: string;
-        answer: string;
-        citations: Citation[];
-        steps: string[];
-        truncated: boolean;
-      }>('/assistant/messages', {
-        method: 'POST',
-        body: JSON.stringify({
-          /* ONLY the new question, plus the id of the conversation it belongs to. Prior turns
-             come from the server's own record; the client's copy is neither sent nor trusted, so
-             a forged assistant turn cannot be replayed to the model as established fact.
-
-             This component used to send its own history INSTEAD of the id. The API discards that
-             history by design, so the model received no context whatsoever — which is why a
-             follow-up, or "that is not what I meant", got the same answer again. */
-          messages: [{ role: 'user', content: trimmed }],
-          conversationId: conversationId.current ?? undefined,
-          view,
-          brandId,
-        }),
+      /* This component used to send its own history INSTEAD of the conversation id. The API
+         discards client history by design, so the model received no context whatsoever — which is
+         why a follow-up, or "that is not what I meant", got the same answer again. */
+      const result = await askAssistant({
+        question: trimmed,
+        conversationId: conversationId.current,
+        view,
+        brandId,
       });
 
       /* Recorded before the next question can be asked, so the second turn lands in the same
          conversation as the first. */
       conversationId.current ??= result.conversationId;
 
-      setExchanges((prev) =>
-        prev.map((e, i) => (i === prev.length - 1 ? { ...e, ...result } : e)),
-      );
+      setExchanges((prev) => prev.map((e, i) => (i === prev.length - 1 ? { ...e, ...result } : e)));
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       setExchanges((prev) =>
         prev.map((e, i) =>
-          i === prev.length - 1
-            ? {
-                ...e,
-                error: message.includes('503')
-                  ? 'The assistant is unavailable — this environment does not currently have access to the configured model.'
-                  : 'Something went wrong answering that. Try again, or rephrase the question.',
-              }
-            : e,
+          i === prev.length - 1 ? { ...e, error: assistantErrorMessage(err) } : e,
         ),
       );
     } finally {
@@ -207,7 +161,12 @@ export function AssistantDock({ open, onClose, view, brandId, onOpenArticle }: A
               </p>
               <div className="ds-assistant__suggestions">
                 {SUGGESTIONS.map((s) => (
-                  <button type="button" key={s} className="ds-assistant__suggestion" onClick={() => void send(s)}>
+                  <button
+                    type="button"
+                    key={s}
+                    className="ds-assistant__suggestion"
+                    onClick={() => void send(s)}
+                  >
                     {s}
                   </button>
                 ))}
@@ -229,69 +188,13 @@ export function AssistantDock({ open, onClose, view, brandId, onOpenArticle }: A
                 </p>
               ) : (
                 <div className="ds-assistant__answer">
-                  <Markdown onNavigate={(href) => onOpenArticle?.(href.replace('/help/', ''))}>
-                    {e.answer}
-                  </Markdown>
-
-                  {e.truncated && (
-                    /* Stated plainly rather than hidden. A partial answer presented as complete
-                       is the failure mode that makes an assistant untrustworthy. */
-                    <p className="ds-assistant__note">
-                      This answer is partial — the assistant ran out of research steps.
-                    </p>
-                  )}
-
-                  {e.steps && e.steps.length > 0 && (
-                    <details className="ds-assistant__steps">
-                      <summary>What it looked at</summary>
-                      <ul>
-                        {[...new Set(e.steps)].map((s) => (
-                          <li key={s}>{TOOL_LABELS[s] ?? s}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-
-                  {e.citations && e.citations.length > 0 && (
-                    <div className="ds-assistant__citations">
-                      <span className="ds-eyebrow">Sources</span>
-                      <ul>
-                        {e.citations.map((c) => {
-                          const isHelp = c.href?.startsWith('/help/');
-                          const label = (
-                            <>
-                              <span className="ds-assistant__citation-title">{c.title}</span>
-                              {c.detail && <span className="ds-assistant__citation-detail">{c.detail}</span>}
-                            </>
-                          );
-                          return (
-                            <li key={c.id}>
-                              {isHelp && onOpenArticle ? (
-                                <button
-                                  type="button"
-                                  className="ds-assistant__citation"
-                                  onClick={() => onOpenArticle(c.href!.replace('/help/', ''))}
-                                >
-                                  {label}
-                                </button>
-                              ) : c.href?.startsWith('http') ? (
-                                <a
-                                  className="ds-assistant__citation"
-                                  href={c.href}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  {label}
-                                </a>
-                              ) : (
-                                <span className="ds-assistant__citation">{label}</span>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
+                  <AssistantAnswer
+                    answer={e.answer}
+                    steps={e.steps}
+                    citations={e.citations}
+                    truncated={e.truncated}
+                    onOpenArticle={onOpenArticle}
+                  />
                 </div>
               )}
             </div>

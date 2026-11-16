@@ -10,7 +10,7 @@ import {
   type HelpArticle,
 } from '@project-signal/help-content';
 import { Card, EmptyState, Input, PageHeader } from '@/design-system';
-import { Markdown } from '@/features/help/Markdown';
+import { ArticleView } from '@/features/help/ArticleView';
 
 /**
  * Documentation — the help corpus as a page you go to, rather than a panel you summon.
@@ -59,7 +59,7 @@ export function DocumentationView() {
                   <li key={a.slug}>
                     <button
                       type="button"
-                      className={`ds-docs__link${a.slug === slug ? ' ds-docs__link--active' : ''}`}
+                      className={`ds-docs__link${a.slug === slug ? 'ds-docs__link--active' : ''}`}
                       onClick={() => setSlug(a.slug)}
                     >
                       {a.title}
@@ -84,7 +84,7 @@ export function DocumentationView() {
                     <li key={a.slug}>
                       <button
                         type="button"
-                        className={`ds-docs__link${a.slug === slug ? ' ds-docs__link--active' : ''}`}
+                        className={`ds-docs__link${a.slug === slug ? 'ds-docs__link--active' : ''}`}
                         onClick={() => setSlug(a.slug)}
                       >
                         {a.title}
@@ -99,32 +99,7 @@ export function DocumentationView() {
 
         <Card className="ds-docs__article">
           {article ? (
-            <article>
-              <h2 className="ds-docs__title">{article.title}</h2>
-              <p className="ds-docs__summary">{article.summary}</p>
-              <Markdown onNavigate={(href) => setSlug(href.replace('/help/', ''))}>
-                {article.body}
-              </Markdown>
-
-              {article.related && article.related.length > 0 && (
-                <nav className="ds-docs__related" aria-label="Related articles">
-                  <span className="ds-eyebrow">Related</span>
-                  {article.related.map((s) => {
-                    const rel = getArticle(s);
-                    return rel ? (
-                      <button
-                        type="button"
-                        key={s}
-                        className="ds-docs__related-item"
-                        onClick={() => setSlug(s)}
-                      >
-                        {rel.title}
-                      </button>
-                    ) : null;
-                  })}
-                </nav>
-              )}
-            </article>
+            <ArticleView article={article} onOpen={setSlug} variant="page" />
           ) : (
             <EmptyState
               icon={<BookOpen size={22} strokeWidth={1.8} />}

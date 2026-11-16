@@ -11,7 +11,7 @@ import {
   type HelpArticle,
 } from '@project-signal/help-content';
 import { Button, Input } from '@/design-system';
-import { Markdown } from './Markdown';
+import { ArticleView } from './ArticleView';
 
 /**
  * The help centre.
@@ -102,33 +102,7 @@ export function HelpCentre({ open, onClose, view, initialSlug, onStartTour }: He
 
         <div className="ds-drawer__body">
           {article ? (
-            <article>
-              <h2 className="ds-drawer__article-title">{article.title}</h2>
-              <p className="ds-drawer__article-summary">{article.summary}</p>
-              <Markdown onNavigate={(href) => setSlug(href.replace('/help/', ''))}>
-                {article.body}
-              </Markdown>
-
-              {article.related && article.related.length > 0 && (
-                <nav className="ds-help__related" aria-label="Related articles">
-                  <span className="ds-eyebrow">Related</span>
-                  {article.related.map((s) => {
-                    const rel = getArticle(s);
-                    if (!rel) return null;
-                    return (
-                      <button
-                        type="button"
-                        key={s}
-                        className="ds-help__related-item"
-                        onClick={() => setSlug(s)}
-                      >
-                        {rel.title}
-                      </button>
-                    );
-                  })}
-                </nav>
-              )}
-            </article>
+            <ArticleView article={article} onOpen={setSlug} variant="drawer" />
           ) : (
             <>
               <div className="ds-help__search">
@@ -147,7 +121,11 @@ export function HelpCentre({ open, onClose, view, initialSlug, onStartTour }: He
                   <ul className="ds-help__results">
                     {results.map(({ article: a }) => (
                       <li key={a.slug}>
-                        <button type="button" className="ds-help__result" onClick={() => setSlug(a.slug)}>
+                        <button
+                          type="button"
+                          className="ds-help__result"
+                          onClick={() => setSlug(a.slug)}
+                        >
                           <span className="ds-help__result-title">{a.title}</span>
                           <span className="ds-help__result-summary">{a.summary}</span>
                         </button>
@@ -159,8 +137,8 @@ export function HelpCentre({ open, onClose, view, initialSlug, onStartTour }: He
                      answer things the corpus does not cover, and this is the moment a user
                      most needs to know that. */
                   <p className="ds-help__empty">
-                    Nothing in the help centre matches “{query.trim()}”. Try fewer words, or ask
-                    the assistant — it can answer questions about your own data.
+                    Nothing in the help centre matches “{query.trim()}”. Try fewer words, or ask the
+                    assistant — it can answer questions about your own data.
                   </p>
                 )
               ) : (
