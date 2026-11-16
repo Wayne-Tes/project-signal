@@ -2,18 +2,16 @@
 /**
  * Seed the local database with a usable demo tenant.
  *
- * Creates one tenant, an owned brand with aliases and source configs, and three competitor
- * brands. Names deliberately match the placeholder dashboard data in
- * `apps/web/src/lib/data.ts` so that swapping those views onto the live API (Epic 6) lines
- * up rather than looking like a different product.
+ * Creates one tenant, an owned brand with aliases and source configs, three competitor brands,
+ * and three LOCAL USERS — one per role — for AUTH_MODE=local sign-in.
  *
- * **Idempotent.** Every insert is `onConflictDoNothing`, keyed on the natural unique
- * constraints (tenants.slug, brand_aliases (brand,alias), source_configs (brand,source)).
- * Re-running it is safe and will not duplicate rows. Brands have no unique constraint on
- * slug, so they are looked up before insert.
+ * **Idempotent.** Tenants, aliases and users are `onConflictDoNothing` on their unique
+ * constraints (tenants.slug, brand_aliases (brand,alias), users.firebase_uid). Brands and source
+ * configs have no unique constraint — source_configs deliberately, since a brand may carry many
+ * feeds of one type — so both are looked up before insert. Re-running it never duplicates a row.
  *
- * Usage:  yarn db:seed          (requires docker compose postgres to be running)
- * Reset:  yarn db:seed --reset  (deletes seeded rows first — LOCAL ONLY, refuses in prod)
+ * Usage:  yarn db:seed          (requires the API to have booted once, to apply migrations)
+ * Reset:  yarn db:seed --reset  (deletes seeded aliases + feeds first — LOCAL ONLY, refuses in prod)
  */
 import { and, eq } from 'drizzle-orm';
 import {
@@ -23,7 +21,20 @@ import {
   brandEntities,
   brandAliases,
   sourceConfigs,
+  users,
 } from '@project-signal/db';
+
+/**
+ * Local sign-in identities (AUTH_MODE=local). The username is the `users.firebase_uid` value,
+ * which in a deployed environment holds a Cognito `sub`; here it is a readable name. All three
+ * sign in with LOCAL_AUTH_PASSWORD from the repo-root .env.
+ */
+const LOCAL_USERS: Array<{ username: string; role: 'owner' | 'admin' | 'user'; pinned: boolean }> =
+  [
+    { username: 'local-owner', role: 'owner', pinned: false },
+    { username: 'local-admin', role: 'admin', pinned: false },
+    { username: 'local-user', role: 'user', pinned: true },
+  ];
 
 const TENANT = { name: 'Project Signal Demo', slug: 'project-signal-demo' };
 
@@ -39,18 +50,21 @@ const ALIASES = ['Cadence Bank', 'CDN', 'cadence.app'];
 // Placeholder identifiers — real ones must be supplied before ingestion will return data.
 // The RSS feed is a real, public, no-auth endpoint so at least one source works end to end
 // without any API key.
-const SOURCE_CONFIGS: Array<{ source: string; config: Record<string, string>; isEnabled: boolean }> =
-  [
-    {
-      source: 'rss',
-      config: { feedUrl: 'https://feeds.bbci.co.uk/news/business/rss.xml' },
-      isEnabled: true,
-    },
-    { source: 'google_reviews', config: { placeId: 'REPLACE_ME' }, isEnabled: false },
-    { source: 'app_store', config: { appId: 'REPLACE_ME', country: 'gb' }, isEnabled: false },
-    { source: 'play_store', config: { appId: 'REPLACE_ME' }, isEnabled: false },
-    { source: 'youtube', config: { channelId: 'REPLACE_ME' }, isEnabled: false },
-  ];
+const SOURCE_CONFIGS: Array<{
+  source: string;
+  config: Record<string, string>;
+  isEnabled: boolean;
+}> = [
+  {
+    source: 'rss',
+    config: { feedUrl: 'https://feeds.bbci.co.uk/news/business/rss.xml' },
+    isEnabled: true,
+  },
+  { source: 'google_reviews', config: { placeId: 'REPLACE_ME' }, isEnabled: false },
+  { source: 'app_store', config: { appId: 'REPLACE_ME', country: 'gb' }, isEnabled: false },
+  { source: 'play_store', config: { appId: 'REPLACE_ME' }, isEnabled: false },
+  { source: 'youtube', config: { channelId: 'REPLACE_ME' }, isEnabled: false },
+];
 
 const reset = process.argv.includes('--reset');
 
@@ -107,28 +121,62 @@ async function main(): Promise<void> {
   console.log(`aliases:     ${ALIASES.join(', ')}`);
 
   // --- source configs -----------------------------------------------------
-  await database
-    .insert(sourceConfigs)
-    .values(
-      SOURCE_CONFIGS.map((s) => ({
+  /* Looked up, not onConflictDoNothing: source_configs has NO unique constraint (a brand may carry
+     many feeds of one type), so the conflict clause matched nothing and every re-run of this
+     script added another five feeds. A feed is "the same" when its source and config match. */
+  const existingFeeds = await database
+    .select({ source: sourceConfigs.source, config: sourceConfigs.config })
+    .from(sourceConfigs)
+    .where(and(eq(sourceConfigs.tenantId, tenant.id), eq(sourceConfigs.brandEntityId, brand.id)));
+  const seen = new Set(existingFeeds.map((f) => `${f.source}|${JSON.stringify(f.config)}`));
+  const missing = SOURCE_CONFIGS.filter(
+    (s) => !seen.has(`${s.source}|${JSON.stringify(s.config)}`),
+  );
+  if (missing.length > 0) {
+    await database.insert(sourceConfigs).values(
+      missing.map((s) => ({
         tenantId: tenant.id,
         brandEntityId: brand.id,
         source: s.source,
         config: s.config,
         isEnabled: s.isEnabled,
       })),
-    )
-    .onConflictDoNothing();
+    );
+  }
   const enabled = SOURCE_CONFIGS.filter((s) => s.isEnabled).map((s) => s.source);
   const disabled = SOURCE_CONFIGS.filter((s) => !s.isEnabled).map((s) => s.source);
-  console.log(`sources:     enabled=[${enabled.join(', ')}] disabled=[${disabled.join(', ')}]`);
+  console.log(
+    `sources:     enabled=[${enabled.join(', ')}] disabled=[${disabled.join(', ')}] (${missing.length} added)`,
+  );
+
+  // --- local users (AUTH_MODE=local) ----------------------------------------
+  await database
+    .insert(users)
+    .values(
+      LOCAL_USERS.map((u) => ({
+        firebaseUid: u.username,
+        tenantId: tenant.id,
+        role: u.role,
+        brandEntityId: u.pinned ? brand.id : null,
+      })),
+    )
+    .onConflictDoNothing();
+  for (const u of LOCAL_USERS) {
+    console.log(
+      `local user:  ${u.username.padEnd(12)} role=${u.role}${u.pinned ? ` pinned to ${brand.name}` : ''}`,
+    );
+  }
 
   console.log('\nSeed complete.');
   console.log('Disabled sources need real identifiers — set them in the Admin UI or via');
-  console.log('PATCH /brands/:id/integrations/:source, then flip isEnabled to true.');
+  console.log('PATCH /brands/:id/integrations/:configId, then flip isEnabled to true.');
+  console.log(
+    '\nWith AUTH_MODE=local, sign in as any local user above with LOCAL_AUTH_PASSWORD from .env.',
+  );
   const devToken = `dev:owner:${tenant.id}:${brand.id}`;
-  console.log(`\nDev token for this tenant:  ${devToken}`);
-  console.log(`Try it:  curl -H "Authorization: Bearer ${devToken}" http://localhost:8080/brands`);
+  console.log(
+    `Or call the API directly:  curl -H "Authorization: Bearer ${devToken}" http://localhost:9080/brands`,
+  );
 }
 
 main()

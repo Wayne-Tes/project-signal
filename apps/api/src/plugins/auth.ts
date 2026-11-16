@@ -3,7 +3,14 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
 import { getEnv } from '@project-signal/config';
 
-export type UserRole = 'owner' | 'admin' | 'user';
+export const USER_ROLES = ['owner', 'admin', 'user'] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+
+export function isUserRole(value: unknown): value is UserRole {
+  return typeof value === 'string' && (USER_ROLES as readonly string[]).includes(value);
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type UserClaims = {
   uid: string;
@@ -18,9 +25,26 @@ declare module 'fastify' {
   }
 }
 
-const DEV_TOKEN_PREFIX = 'dev:';
-const PUBLIC_ROUTE_PREFIXES = ['/health', '/ready', '/docs'];
+export const DEV_TOKEN_PREFIX = 'dev:';
 const USER_KEY = Symbol('user');
+
+/** The one route that is public in local mode: it is how a local session starts. */
+export const LOCAL_SIGN_IN_PATH = '/auth/local/sign-in';
+
+/**
+ * Is this request path public?
+ *
+ * Matched on the PATH ONLY (query string removed) and exactly: `/health`, `/ready`, and `/docs`
+ * or anything beneath `/docs/`. This used to be `url.startsWith('/health')` and so on — which
+ * also made `/healthcheck-admin`, `/readyz`, `/docsets` or any future route sharing a prefix
+ * unauthenticated by accident. Nothing collided yet; that is exactly when to close it.
+ */
+export function isPublicPath(url: string, localMode: boolean): boolean {
+  const path = url.split('?')[0] ?? '';
+  if (path === '/health' || path === '/ready') return true;
+  if (path === '/docs' || path.startsWith('/docs/')) return true;
+  return localMode && path === LOCAL_SIGN_IN_PATH;
+}
 
 /**
  * Cognito custom attributes arrive on the ID token prefixed with `custom:`. The prefix is added
@@ -46,18 +70,41 @@ const CLAIM_BRAND = 'custom:brandEntityId';
 const NO_TENANT = '00000000-0000-0000-0000-000000000000';
 
 /**
- * Parse a development-only token of the form `dev:<role>:<tenantId>[:<brandEntityId>]`.
+ * Builds a local-mode token: `dev:<role>:<tenantId>[:<brandEntityId>][:<uid>]`.
  *
- * The delimiter is `:` rather than `-` precisely because tenant and brand ids are UUIDs,
- * which contain hyphens — a hyphen-delimited token silently truncated the id at its first
- * segment, producing a tenantId that matched no rows.
+ * The delimiter is `:` rather than `-` precisely because tenant and brand ids are UUIDs, which
+ * contain hyphens — a hyphen-delimited token silently truncated the id at its first segment.
+ * The optional trailing uid lets a local session keep a stable identity (conversations are
+ * stored per uid); an empty brand segment means "unpinned".
  */
-function parseDevToken(token: string): UserClaims {
-  const [role, tenantId, brandEntityId] = token.slice(DEV_TOKEN_PREFIX.length).split(':');
+export function devToken(claims: {
+  role: UserRole;
+  tenantId: string;
+  brandEntityId?: string | null;
+  uid?: string;
+}): string {
+  const parts = [claims.role, claims.tenantId, claims.brandEntityId ?? ''];
+  if (claims.uid) parts.push(claims.uid);
+  else if (!claims.brandEntityId) parts.pop();
+  return `${DEV_TOKEN_PREFIX}${parts.join(':')}`;
+}
+
+/**
+ * Parses a local-mode token, or returns null if it is malformed.
+ *
+ * Strict, because the token is unsigned: the role must be one of the three, and the tenant and
+ * any brand pin must be uuids. The previous parser accepted anything — `dev:superuser:x` became a
+ * request with role "superuser", which `requireBrandAccess` then treated as unconstrained because
+ * it only constrains the literal `'user'`.
+ */
+export function parseDevToken(token: string): UserClaims | null {
+  const [role, tenantId, brandEntityId, uid] = token.slice(DEV_TOKEN_PREFIX.length).split(':');
+  if (!isUserRole(role) || !tenantId || !UUID_RE.test(tenantId)) return null;
+  if (brandEntityId && !UUID_RE.test(brandEntityId)) return null;
   return {
-    uid: `dev-uid-${tenantId ?? 'unknown'}`,
-    role: (role ?? 'user') as UserRole,
-    tenantId: tenantId ?? 'unknown',
+    uid: uid || `dev-uid-${tenantId}`,
+    role,
+    tenantId,
     brandEntityId: brandEntityId || undefined,
   };
 }
@@ -77,11 +124,17 @@ function parseDevToken(token: string): UserClaims {
  */
 const authPlugin: FastifyPluginAsync = async (fastify) => {
   const env = getEnv();
+  /* Local mode is an explicit opt-in (AUTH_MODE=local), never inferred from NODE_ENV. It used to
+     be `NODE_ENV === 'development'` — the schema's DEFAULT — so any process started without
+     NODE_ENV accepted unsigned tokens naming any tenant and any role. libs/config refuses
+     AUTH_MODE=local outright when NODE_ENV=production. */
+  const localMode = env.AUTH_MODE === 'local';
 
   // Built once at plugin registration, not per request: the verifier caches the JWKS, and
-  // constructing it per request would fetch the key set on every call.
+  // constructing it per request would fetch the key set on every call. Not built at all in local
+  // mode, where no Cognito token is ever accepted.
   const verifier =
-    env.COGNITO_USER_POOL_ID && env.COGNITO_CLIENT_ID
+    !localMode && env.COGNITO_USER_POOL_ID && env.COGNITO_CLIENT_ID
       ? CognitoJwtVerifier.create({
           userPoolId: env.COGNITO_USER_POOL_ID,
           clientId: env.COGNITO_CLIENT_ID,
@@ -89,11 +142,12 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
         })
       : null;
 
-  if (!verifier && env.NODE_ENV === 'production') {
+  if (!localMode && !verifier) {
     // Fail at boot rather than 401-ing every request in a way that looks like a client problem.
     throw new Error(
-      'COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID are required in production — no identity ' +
-        'provider is configured, so no request could ever be authorised.',
+      'COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID are required when AUTH_MODE=cognito — no ' +
+        'identity provider is configured, so no request could ever be authorised. For a ' +
+        'developer machine with no identity provider, set AUTH_MODE=local.',
     );
   }
 
@@ -107,8 +161,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
-    const isPublic = PUBLIC_ROUTE_PREFIXES.some((p) => request.url.startsWith(p));
-    if (isPublic) return;
+    if (isPublicPath(request.url, localMode)) return;
 
     const auth = request.headers.authorization;
     if (!auth?.startsWith('Bearer ')) {
@@ -116,8 +169,10 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     }
     const token = auth.slice(7);
 
-    if (env.NODE_ENV === 'development' && token.startsWith(DEV_TOKEN_PREFIX)) {
-      request.user = parseDevToken(token);
+    if (localMode) {
+      const claims = token.startsWith(DEV_TOKEN_PREFIX) ? parseDevToken(token) : null;
+      if (!claims) return reply.unauthorized('Invalid token');
+      request.user = claims;
       return;
     }
 
@@ -136,6 +191,12 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       // of a signature alone.
       if (typeof role !== 'string') {
         return reply.unauthorized('Token is missing the role claim');
+      }
+      /* And it must be one of the three. `requireBrandAccess` constrains only the literal
+         `'user'`, so an unrecognised role string — a typo in a Cognito attribute, or a role this
+         code has never heard of — would otherwise be treated as unconstrained. */
+      if (!isUserRole(role)) {
+        return reply.unauthorized('Token carries an unrecognised role');
       }
 
       const hasTenant = typeof tenantId === 'string' && tenantId !== '';
@@ -163,11 +224,12 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       request.user = {
         uid: payload.sub,
         tenantId: hasTenant ? tenantId : NO_TENANT,
-        role: role as UserRole,
+        role,
         // An unpinned user must be `undefined`, not `''`. requireBrandAccess treats a falsy pin
         // as tenant-wide access, and an empty string would compare unequal to every brand id and
         // lock the user out of everything.
-        brandEntityId: typeof brandEntityId === 'string' && brandEntityId ? brandEntityId : undefined,
+        brandEntityId:
+          typeof brandEntityId === 'string' && brandEntityId ? brandEntityId : undefined,
       };
     } catch {
       return reply.unauthorized('Invalid token');

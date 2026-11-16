@@ -70,4 +70,15 @@ describe('setUserClaims', () => {
     ).rejects.toThrow(/COGNITO_USER_POOL_ID/);
     expect(mockSend).not.toHaveBeenCalled();
   });
+
+  it('writes nothing to Cognito in local mode, where the users row is the claim', async () => {
+    // Local sign-in reads role/tenant/pin from the row the caller is writing in the same
+    // transaction, so there is no second system to keep in step — and no pool to write to.
+    mockEnv.value = { AUTH_MODE: 'local' };
+
+    await expect(
+      setUserClaims('local-owner', { role: 'owner', tenantId: 'tenant-1' }),
+    ).resolves.toBeUndefined();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
 });

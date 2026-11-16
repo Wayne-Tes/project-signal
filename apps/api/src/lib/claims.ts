@@ -54,6 +54,13 @@ function client(): CognitoIdentityProviderClient {
  */
 export async function setUserClaims(sub: string, claims: UserClaims): Promise<void> {
   const env = getEnv();
+
+  /* AUTH_MODE=local has no identity provider: POST /auth/local/sign-in reads the role, tenant
+     and pin straight from the `users` row, so the row the caller is writing IS the claim, and
+     the transaction that writes it is already the atomic unit. There is nothing else to keep in
+     step. (libs/config refuses local mode in production, so this branch never runs deployed.) */
+  if (env.AUTH_MODE === 'local') return;
+
   if (!env.COGNITO_USER_POOL_ID) {
     throw new Error(
       'COGNITO_USER_POOL_ID is not set — cannot write authorisation claims. Refusing rather ' +

@@ -127,4 +127,82 @@ describe('getEnv', () => {
     expect(getEnv().ITEM_QUEUE_URL).toBeUndefined();
     expect(getEnv().REPORT_QUEUE_URL).toBeUndefined();
   });
+
+  describe('AUTH_MODE', () => {
+    beforeEach(() => {
+      // The repo-root .env may set these for local development; every case states its own.
+      delete process.env['AUTH_MODE'];
+      delete process.env['LOCAL_AUTH_PASSWORD'];
+      delete process.env['NODE_ENV'];
+    });
+
+    it('defaults to cognito, so unsigned tokens are never accepted by accident', async () => {
+      const { getEnv } = await import('../src/index.js');
+      expect(getEnv().AUTH_MODE).toBe('cognito');
+    });
+
+    it('accepts local mode with a password of at least 12 characters', async () => {
+      process.env['AUTH_MODE'] = 'local';
+      process.env['LOCAL_AUTH_PASSWORD'] = 'twelve-chars';
+      const { getEnv } = await import('../src/index.js');
+      expect(getEnv().AUTH_MODE).toBe('local');
+    });
+
+    it('refuses local mode with no password', async () => {
+      process.env['AUTH_MODE'] = 'local';
+      const { getEnv } = await import('../src/index.js');
+      expect(() => getEnv()).toThrow(/LOCAL_AUTH_PASSWORD/);
+    });
+
+    it('refuses local mode with a short password', async () => {
+      process.env['AUTH_MODE'] = 'local';
+      process.env['LOCAL_AUTH_PASSWORD'] = 'short';
+      const { getEnv } = await import('../src/index.js');
+      expect(() => getEnv()).toThrow(/LOCAL_AUTH_PASSWORD/);
+    });
+
+    it('refuses local mode in production, whatever the password', async () => {
+      process.env['AUTH_MODE'] = 'local';
+      process.env['LOCAL_AUTH_PASSWORD'] = 'a-perfectly-long-password';
+      process.env['NODE_ENV'] = 'production';
+      const { getEnv } = await import('../src/index.js');
+      expect(() => getEnv()).toThrow(/AUTH_MODE=local is refused/);
+    });
+
+    it('rejects an unknown mode', async () => {
+      process.env['AUTH_MODE'] = 'none';
+      const { getEnv } = await import('../src/index.js');
+      expect(() => getEnv()).toThrow(/Invalid environment/);
+    });
+  });
+
+  describe('RESOURCE_TAGS', () => {
+    it('accepts a JSON object of strings', async () => {
+      process.env['RESOURCE_TAGS'] = '{"Project":"project-signal","Environment":"dev"}';
+      const { getEnv } = await import('../src/index.js');
+      expect(getEnv().RESOURCE_TAGS).toBe('{"Project":"project-signal","Environment":"dev"}');
+    });
+
+    it('rejects malformed JSON', async () => {
+      process.env['RESOURCE_TAGS'] = '{not json';
+      const { getEnv } = await import('../src/index.js');
+      expect(() => getEnv()).toThrow(/RESOURCE_TAGS/);
+    });
+
+    it('rejects non-string values and arrays', async () => {
+      process.env['RESOURCE_TAGS'] = '{"Project":1}';
+      let mod = await import('../src/index.js');
+      expect(() => mod.getEnv()).toThrow(/RESOURCE_TAGS/);
+      vi.resetModules();
+      process.env['RESOURCE_TAGS'] = '["a"]';
+      mod = await import('../src/index.js');
+      expect(() => mod.getEnv()).toThrow(/RESOURCE_TAGS/);
+    });
+
+    it('treats unset or empty as no tags', async () => {
+      process.env['RESOURCE_TAGS'] = '';
+      const { getEnv } = await import('../src/index.js');
+      expect(getEnv().RESOURCE_TAGS).toBe('');
+    });
+  });
 });
