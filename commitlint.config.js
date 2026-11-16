@@ -15,6 +15,7 @@ export default {
         "config",
         "llm",
         "help-content",
+        "playbook",
         "assistant",
         "e2e",
         "messaging",
