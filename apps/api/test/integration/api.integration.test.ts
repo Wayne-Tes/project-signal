@@ -6,6 +6,7 @@ import {
   brandEntities,
   client,
   db,
+  dimensionScores,
   scanRuns,
   signals,
   sourceConfigs,
@@ -52,8 +53,14 @@ beforeAll(async () => {
   await app.ready();
 
   const database = db.get();
-  const [a] = await database.insert(tenants).values({ name: 'Tenant A', slug: 'tenant-a' }).returning();
-  const [b] = await database.insert(tenants).values({ name: 'Tenant B', slug: 'tenant-b' }).returning();
+  const [a] = await database
+    .insert(tenants)
+    .values({ name: 'Tenant A', slug: 'tenant-a' })
+    .returning();
+  const [b] = await database
+    .insert(tenants)
+    .values({ name: 'Tenant B', slug: 'tenant-b' })
+    .returning();
   ids.tenantA = a!.id;
   ids.tenantB = b!.id;
 
@@ -75,15 +82,20 @@ beforeAll(async () => {
 
   const [adminA] = await database
     .insert(users)
-    .values({ firebaseUid: 'int-admin-a', tenantId: ids.tenantA, role: 'admin' })
+    .values({ cognitoSub: 'int-admin-a', tenantId: ids.tenantA, role: 'admin' })
     .returning();
   const [userA] = await database
     .insert(users)
-    .values({ firebaseUid: 'int-user-a', tenantId: ids.tenantA, role: 'user', brandEntityId: ids.brandA })
+    .values({
+      cognitoSub: 'int-user-a',
+      tenantId: ids.tenantA,
+      role: 'user',
+      brandEntityId: ids.brandA,
+    })
     .returning();
   const [adminB] = await database
     .insert(users)
-    .values({ firebaseUid: 'int-admin-b', tenantId: ids.tenantB, role: 'admin' })
+    .values({ cognitoSub: 'int-admin-b', tenantId: ids.tenantB, role: 'admin' })
     .returning();
   ids.adminA = adminA!.id;
   ids.userA = userA!.id;
@@ -138,7 +150,7 @@ describe('local sign-in, end to end', () => {
 });
 
 describe('THE MASS-ASSIGNMENT DEFECT — PATCH /admin/users/:id', () => {
-  it("cannot move a user into another tenant or onto another identity", async () => {
+  it('cannot move a user into another tenant or onto another identity', async () => {
     /* Before the fix: the body was spread into the UPDATE and the schema let undeclared keys
        through, so this request moved admin A into tenant B (and the claims call would then have
        minted admin claims there). */
@@ -146,13 +158,13 @@ describe('THE MASS-ASSIGNMENT DEFECT — PATCH /admin/users/:id', () => {
       method: 'PATCH',
       url: `/admin/users/${ids.adminA}`,
       headers: AUTH(adminAToken),
-      payload: { role: 'admin', tenantId: ids.tenantB, firebaseUid: 'int-admin-b-hijack' },
+      payload: { role: 'admin', tenantId: ids.tenantB, cognitoSub: 'int-admin-b-hijack' },
     });
     expect(res.statusCode).toBe(200);
 
     const [row] = await db.get().select().from(users).where(eq(users.id, ids.adminA));
     expect(row!.tenantId).toBe(ids.tenantA);
-    expect(row!.firebaseUid).toBe('int-admin-a');
+    expect(row!.cognitoSub).toBe('int-admin-a');
   });
 
   it("cannot pin a user to another tenant's brand", async () => {
@@ -171,7 +183,12 @@ describe('THE MASS-ASSIGNMENT DEFECT — PATCH /admin/users/:id', () => {
     const [temp] = await db
       .get()
       .insert(users)
-      .values({ firebaseUid: 'int-temp', tenantId: ids.tenantA, role: 'user', brandEntityId: ids.brandA })
+      .values({
+        cognitoSub: 'int-temp',
+        tenantId: ids.tenantA,
+        role: 'user',
+        brandEntityId: ids.brandA,
+      })
       .returning();
     const res = await app.inject({
       method: 'PATCH',
@@ -200,7 +217,9 @@ describe('THE MASS-ASSIGNMENT DEFECT — PATCH /admin/users/:id', () => {
 describe('tenant isolation on reads', () => {
   it("GET /brands returns only the caller's tenant", async () => {
     const res = await app.inject({ method: 'GET', url: '/brands', headers: AUTH(adminAToken) });
-    const got = JSON.parse(res.body).map((b: { id: string }) => b.id).sort();
+    const got = JSON.parse(res.body)
+      .map((b: { id: string }) => b.id)
+      .sort();
     expect(got).toEqual([ids.brandA, ids.brandA2].sort());
   });
 
@@ -214,7 +233,11 @@ describe('tenant isolation on reads', () => {
   });
 
   it('GET /brands/tree gives a pinned user only their brand — not the tenant', async () => {
-    const res = await app.inject({ method: 'GET', url: '/brands/tree', headers: AUTH(pinnedUserAToken) });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/tree',
+      headers: AUTH(pinnedUserAToken),
+    });
     const tree = JSON.parse(res.body) as { id: string }[];
     expect(tree.map((n) => n.id)).toEqual([ids.brandA]);
   });
@@ -256,7 +279,11 @@ describe('tenant isolation on writes — a foreign brand id is refused and NOTHI
       payload: { alias: 'hijack' },
     });
     expect(res.statusCode).toBe(404);
-    const rows = await db.get().select().from(brandAliases).where(eq(brandAliases.brandEntityId, ids.brandB));
+    const rows = await db
+      .get()
+      .select()
+      .from(brandAliases)
+      .where(eq(brandAliases.brandEntityId, ids.brandB));
     expect(rows).toHaveLength(0);
   });
 
@@ -268,7 +295,11 @@ describe('tenant isolation on writes — a foreign brand id is refused and NOTHI
       payload: { source: 'rss', config: { feedUrl: 'https://example.test/feed.xml' } },
     });
     expect(res.statusCode).toBe(404);
-    const rows = await db.get().select().from(sourceConfigs).where(eq(sourceConfigs.brandEntityId, ids.brandB));
+    const rows = await db
+      .get()
+      .select()
+      .from(sourceConfigs)
+      .where(eq(sourceConfigs.brandEntityId, ids.brandB));
     expect(rows).toHaveLength(0);
   });
 
@@ -279,14 +310,22 @@ describe('tenant isolation on writes — a foreign brand id is refused and NOTHI
       headers: AUTH(adminAToken),
     });
     expect(res.statusCode).toBe(404);
-    const rows = await db.get().select().from(scanRuns).where(eq(scanRuns.brandEntityId, ids.brandB));
+    const rows = await db
+      .get()
+      .select()
+      .from(scanRuns)
+      .where(eq(scanRuns.brandEntityId, ids.brandB));
     expect(rows).toHaveLength(0);
   });
 });
 
 describe('input validation reaches the client as 4xx, never as a 500 with SQL', () => {
   it('a malformed id is a 400', async () => {
-    const res = await app.inject({ method: 'GET', url: '/brands/not-a-uuid', headers: AUTH(adminAToken) });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/not-a-uuid',
+      headers: AUTH(adminAToken),
+    });
     expect(res.statusCode).toBe(400);
     expect(res.body).not.toContain('Failed query');
   });
@@ -301,16 +340,139 @@ describe('input validation reaches the client as 4xx, never as a 500 with SQL', 
   });
 
   it('a real unique violation from Postgres is a 409 with no SQL in it', async () => {
-    // Two users with the same identity: users.firebase_uid is unique.
+    // Two users with the same identity: users.cognito_sub is unique.
     const res = await app.inject({
       method: 'POST',
       url: '/admin/users',
       headers: AUTH(adminAToken),
-      payload: { firebaseUid: 'int-admin-a', email: 'x@y.z', role: 'user', tenantId: ids.tenantA },
+      payload: { cognitoSub: 'int-admin-a', role: 'user' },
     });
     expect(res.statusCode).toBe(409);
     expect(res.body).not.toContain('Failed query');
-    expect(res.body).not.toContain('firebase_uid');
+    expect(res.body).not.toContain('cognito_sub');
+  });
+});
+
+describe('POST /admin/users takes the tenant from the caller', () => {
+  it("lands an admin's new user in the admin's own tenant when none is named", async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/users',
+      headers: AUTH(adminAToken),
+      payload: { cognitoSub: 'int-new-a', role: 'user' },
+    });
+    expect(res.statusCode).toBe(201);
+    const [row] = await db.get().select().from(users).where(eq(users.cognitoSub, 'int-new-a'));
+    expect(row?.tenantId).toBe(ids.tenantA);
+  });
+
+  it('refuses an admin naming another tenant, and writes nothing', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/users',
+      headers: AUTH(adminAToken),
+      payload: { cognitoSub: 'int-hijack-b', role: 'user', tenantId: ids.tenantB },
+    });
+    expect(res.statusCode).toBe(403);
+    const rows = await db.get().select().from(users).where(eq(users.cognitoSub, 'int-hijack-b'));
+    expect(rows).toHaveLength(0);
+  });
+});
+
+describe('territory lens and index history, against real SQL', () => {
+  it("lists a brand's territories from feeds and signals, tenant-scoped, without 'all'", async () => {
+    const database = db.get();
+    await database.insert(sourceConfigs).values({
+      tenantId: ids.tenantA,
+      brandEntityId: ids.brandA,
+      source: 'rss',
+      territory: 'GB',
+      config: { feedUrl: 'https://example.test/terr.xml' },
+    });
+    await database.insert(signals).values({
+      tenantId: ids.tenantA,
+      brandEntityId: ids.brandA,
+      source: 'rss',
+      territory: 'AU',
+      sourceUrl: 'https://example.test/terr-a',
+      rawStorageRef: 's3://bucket/terr-a.json',
+      publishedAt: new Date(),
+    });
+    // Tenant B's territory must never leak into tenant A's lens.
+    await database.insert(signals).values({
+      tenantId: ids.tenantB,
+      brandEntityId: ids.brandB,
+      source: 'rss',
+      territory: 'NZ',
+      sourceUrl: 'https://example.test/terr-b',
+      rawStorageRef: 's3://bucket/terr-b.json',
+      publishedAt: new Date(),
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/brands/${ids.brandA}/territories`,
+      headers: AUTH(pinnedUserAToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const { territories } = res.json() as { territories: string[] };
+    expect(territories).toEqual(expect.arrayContaining(['AU', 'GB']));
+    expect(territories).not.toContain('NZ');
+    expect(territories).not.toContain('all');
+  });
+
+  it('returns the weighted composite per day from real dimension_scores rows', async () => {
+    const database = db.get();
+    await database
+      .update(brandEntities)
+      .set({ dimensionWeights: { trust: 3, quality: 1 } })
+      .where(eq(brandEntities.id, ids.brandA));
+    const today = new Date().toISOString().slice(0, 10);
+    await database.insert(dimensionScores).values([
+      {
+        tenantId: ids.tenantA,
+        brandEntityId: ids.brandA,
+        date: today,
+        dimension: 'trust',
+        territory: 'all',
+        score: 80,
+        signalCount: 3,
+      },
+      {
+        tenantId: ids.tenantA,
+        brandEntityId: ids.brandA,
+        date: today,
+        dimension: 'quality',
+        territory: 'all',
+        score: 40,
+        signalCount: 1,
+      },
+      // A per-territory row for the same day must not be mixed into the aggregate.
+      {
+        tenantId: ids.tenantA,
+        brandEntityId: ids.brandA,
+        date: today,
+        dimension: 'trust',
+        territory: 'GB',
+        score: 0,
+        signalCount: 9,
+      },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/brands/${ids.brandA}/score-history`,
+      headers: AUTH(adminAToken),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([{ date: today, score: 70, signalCount: 4 }]);
+
+    // Leave brand A as the later suites expect it.
+    await database.delete(dimensionScores).where(eq(dimensionScores.brandEntityId, ids.brandA));
+    await database
+      .update(brandEntities)
+      .set({ dimensionWeights: null })
+      .where(eq(brandEntities.id, ids.brandA));
   });
 });
 
@@ -321,37 +483,71 @@ describe('DELETE /brands/:id against real foreign keys', () => {
     const [row] = await db
       .get()
       .insert(brandEntities)
-      .values({ tenantId: ids.tenantA, name: 'Disposable', slug: `disposable-${Date.now()}`, isOwned: true })
+      .values({
+        tenantId: ids.tenantA,
+        name: 'Disposable',
+        slug: `disposable-${Date.now()}`,
+        isOwned: true,
+      })
       .returning();
     brand = row!.id;
-    await db.get().insert(brandAliases).values({ tenantId: ids.tenantA, brandEntityId: brand, alias: 'D' });
-    await db.get().insert(sourceConfigs).values({
-      tenantId: ids.tenantA,
-      brandEntityId: brand,
-      source: 'rss',
-      config: { feedUrl: 'https://example.test/d.xml' },
-    });
+    await db
+      .get()
+      .insert(brandAliases)
+      .values({ tenantId: ids.tenantA, brandEntityId: brand, alias: 'D' });
+    await db
+      .get()
+      .insert(sourceConfigs)
+      .values({
+        tenantId: ids.tenantA,
+        brandEntityId: brand,
+        source: 'rss',
+        config: { feedUrl: 'https://example.test/d.xml' },
+      });
   });
 
   it('refuses a brand with a committed roadmap action, and leaves its configuration intact', async () => {
     /* The regression: tracked_actions was not a blocker, so this deleted the feeds and aliases
        and THEN failed on the foreign key. */
-    await db.get().insert(trackedActions).values({ tenantId: ids.tenantA, brandEntityId: brand, topic: 'fees' });
+    await db
+      .get()
+      .insert(trackedActions)
+      .values({ tenantId: ids.tenantA, brandEntityId: brand, topic: 'fees' });
 
-    const res = await app.inject({ method: 'DELETE', url: `/brands/${brand}`, headers: AUTH(ownerAToken) });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/brands/${brand}`,
+      headers: AUTH(ownerAToken),
+    });
     expect(res.statusCode).toBe(409);
 
-    const aliasesLeft = await db.get().select().from(brandAliases).where(eq(brandAliases.brandEntityId, brand));
-    const feedsLeft = await db.get().select().from(sourceConfigs).where(eq(sourceConfigs.brandEntityId, brand));
+    const aliasesLeft = await db
+      .get()
+      .select()
+      .from(brandAliases)
+      .where(eq(brandAliases.brandEntityId, brand));
+    const feedsLeft = await db
+      .get()
+      .select()
+      .from(sourceConfigs)
+      .where(eq(sourceConfigs.brandEntityId, brand));
     expect(aliasesLeft).toHaveLength(1);
     expect(feedsLeft).toHaveLength(1);
   });
 
   it('deletes an unused brand together with its aliases and feeds', async () => {
-    const res = await app.inject({ method: 'DELETE', url: `/brands/${brand}`, headers: AUTH(ownerAToken) });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/brands/${brand}`,
+      headers: AUTH(ownerAToken),
+    });
     expect(res.statusCode).toBe(204);
     const left = await db.get().select().from(brandEntities).where(eq(brandEntities.id, brand));
-    const feedsLeft = await db.get().select().from(sourceConfigs).where(eq(sourceConfigs.brandEntityId, brand));
+    const feedsLeft = await db
+      .get()
+      .select()
+      .from(sourceConfigs)
+      .where(eq(sourceConfigs.brandEntityId, brand));
     expect(left).toHaveLength(0);
     expect(feedsLeft).toHaveLength(0);
   });
@@ -362,7 +558,13 @@ describe('tenant scoping of the portfolio rollup read', () => {
     const [child] = await db
       .get()
       .insert(brandEntities)
-      .values({ tenantId: ids.tenantA, name: 'Child', slug: `child-${Date.now()}`, parentId: ids.brandA, kind: 'product' })
+      .values({
+        tenantId: ids.tenantA,
+        name: 'Child',
+        slug: `child-${Date.now()}`,
+        parentId: ids.brandA,
+        kind: 'product',
+      })
       .returning();
     await db.get().execute(sql`
       insert into dimension_scores (tenant_id, brand_entity_id, date, dimension, territory, score, signal_count)
@@ -381,6 +583,9 @@ describe('tenant scoping of the portfolio rollup read', () => {
     expect(member.score).toBe(70);
     // Clean up so later suites see an unchanged tenant.
     await db.get().execute(sql`delete from dimension_scores where brand_entity_id = ${child!.id}`);
-    await db.get().delete(brandEntities).where(and(eq(brandEntities.id, child!.id), eq(brandEntities.tenantId, ids.tenantA)));
+    await db
+      .get()
+      .delete(brandEntities)
+      .where(and(eq(brandEntities.id, child!.id), eq(brandEntities.tenantId, ids.tenantA)));
   });
 });

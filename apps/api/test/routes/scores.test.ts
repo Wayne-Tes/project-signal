@@ -6,7 +6,16 @@ const _queue: unknown[][] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
-  ['select', 'from', 'where', 'innerJoin', 'leftJoin', 'orderBy', 'limit'].forEach((m) => {
+  [
+    'select',
+    'selectDistinct',
+    'from',
+    'where',
+    'innerJoin',
+    'leftJoin',
+    'orderBy',
+    'limit',
+  ].forEach((m) => {
     chain[m] = vi.fn(() => chain);
   });
   const next = () => (_queue.length ? _queue.shift()! : _rows);
@@ -429,6 +438,105 @@ describe('GET /brands/:id/stats', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/brands/b2222222-2222-4222-8222-222222222222/stats',
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('GET /brands/:id/score-history', () => {
+  const URL = '/brands/b1111111-1111-4111-8111-111111111111/score-history';
+
+  it('returns the weighted composite per day, the same number /score reports', async () => {
+    /* Brand weights trust 3 : quality 1. An unweighted mean of 80 and 40 would be 60; the index
+       with these weights is (80×3 + 40×1) / 4 = 70. The sparkline used to plot the former. */
+    _queue.push([{ weights: { trust: 3, quality: 1 } }]);
+    _queue.push([
+      row({ date: '2026-08-05', dimension: 'trust', score: 80, signalCount: 4 }),
+      row({ date: '2026-08-05', dimension: 'quality', score: 40, signalCount: 2 }),
+      row({ date: '2026-08-06', dimension: 'trust', score: 60, signalCount: 1 }),
+    ]);
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: URL });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual([
+      { date: '2026-08-05', score: 70, signalCount: 6 },
+      { date: '2026-08-06', score: 60, signalCount: 1 },
+    ]);
+  });
+
+  it('scores a day with only unweighted dimensions exactly as /score would, never as 0', async () => {
+    /* quality carries no weight; compositeScore falls back to the unweighted mean for that day
+       rather than reporting nothing or zero — the same rule the headline uses. */
+    _queue.push([{ weights: { trust: 1 } }]);
+    _queue.push([
+      row({ date: '2026-08-05', dimension: 'quality', score: 90 }),
+      row({ date: '2026-08-06', dimension: 'trust', score: 50 }),
+    ]);
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: URL });
+
+    expect(JSON.parse(res.body)).toEqual([
+      { date: '2026-08-05', score: 90, signalCount: 4 },
+      { date: '2026-08-06', score: 50, signalCount: 4 },
+    ]);
+  });
+
+  it('returns an empty history for a brand never rolled up', async () => {
+    _queue.push([{ weights: null }], []);
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: URL });
+    expect(JSON.parse(res.body)).toEqual([]);
+  });
+
+  it('is brand-scoped', async () => {
+    const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/score-history',
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('rejects a malformed date at the schema', async () => {
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: `${URL}?from=garbage` });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('GET /brands/:id/territories', () => {
+  it('merges feed and signal territories, de-duplicated and sorted, without the aggregate', async () => {
+    _queue.push(
+      [{ territory: 'GB' }, { territory: 'unknown' }],
+      [{ territory: 'AU' }, { territory: 'GB' }, { territory: null }, { territory: 'all' }],
+    );
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/territories',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ territories: ['AU', 'GB', 'unknown'] });
+  });
+
+  it('is open to a plain user on their own brand — the lens was admin-only before', async () => {
+    _queue.push([{ territory: 'GB' }], []);
+    const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/territories',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ territories: ['GB'] });
+  });
+
+  it('refuses a pinned user another brand', async () => {
+    const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/territories',
     });
     expect(res.statusCode).toBe(403);
   });

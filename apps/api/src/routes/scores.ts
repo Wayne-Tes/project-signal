@@ -148,6 +148,165 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   /**
+   * The Brand Perception Index per day, for the dashboard sparkline and trend line.
+   *
+   * The index itself is never stored — `dimension_scores` holds the parts — so it is computed here
+   * per date with the brand's own weights, exactly as `/score` computes the headline. The
+   * dashboard previously plotted a stand-in (the first dimension, later the unweighted mean of
+   * dimensions) because no endpoint returned this; a line labelled as the index has to BE the
+   * index, or it moves for reasons the headline number does not.
+   */
+  fastify.get(
+    '/brands/:id/score-history',
+    {
+      preHandler: requireBrandAccess,
+      schema: {
+        security: [{ BearerAuth: [] }],
+        params: ID_PARAMS,
+        querystring: {
+          type: 'object',
+          properties: {
+            territory: {
+              type: 'string',
+              description:
+                "Restrict to one territory (ISO 3166-1 alpha-2, or GLOBAL). Omit, or pass 'all', for every territory combined.",
+            },
+            from: { ...DATE, description: 'Inclusive YYYY-MM-DD. Defaults to 90 days ago.' },
+            to: { ...DATE, description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
+          },
+        },
+        response: {
+          200: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                date: { type: 'string' },
+                score: { type: 'number' },
+                signalCount: { type: 'integer' },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const { from, to, territory } = request.query as {
+        from?: string;
+        to?: string;
+        territory?: string;
+      };
+      const database = db.get();
+
+      const [brand] = await database
+        .select({ weights: brandEntities.dimensionWeights })
+        .from(brandEntities)
+        .where(and(eq(brandEntities.id, id), eq(brandEntities.tenantId, request.user.tenantId)));
+      const weights = parseWeights(brand?.weights);
+
+      const rows = await database
+        .select({
+          dimension: dimensionScores.dimension,
+          score: dimensionScores.score,
+          date: dimensionScores.date,
+          signalCount: dimensionScores.signalCount,
+        })
+        .from(dimensionScores)
+        .where(
+          and(
+            eq(dimensionScores.tenantId, request.user.tenantId),
+            eq(dimensionScores.brandEntityId, id),
+            // The aggregate unless a territory is asked for — see /dimension-scores.
+            eq(dimensionScores.territory, territory || TERRITORY_ALL),
+            gte(dimensionScores.date, from ?? daysAgo(DEFAULT_HISTORY_DAYS)),
+            lte(dimensionScores.date, to ?? toDateKey(new Date())),
+          ),
+        )
+        .orderBy(asc(dimensionScores.date));
+
+      const byDate = new Map<string, DimensionRollup[]>();
+      for (const r of rows) {
+        const list = byDate.get(r.date) ?? [];
+        list.push({
+          dimension: r.dimension as Dimension,
+          score: r.score,
+          signalCount: r.signalCount,
+        });
+        byDate.set(r.date, list);
+      }
+
+      const points: { date: string; score: number; signalCount: number }[] = [];
+      for (const [date, rollups] of byDate) {
+        /* Same function and weights as /score, so the line and the headline agree — including its
+           fallback to an unweighted mean when a day's dimensions all carry zero weight. Null only
+           for an empty day, which grouping cannot produce; checked for the type. */
+        const score = compositeScore(rollups, weights);
+        if (score === null) continue;
+        points.push({
+          date,
+          score,
+          signalCount: rollups.reduce((sum, r) => sum + r.signalCount, 0),
+        });
+      }
+      return points;
+    },
+  );
+
+  /**
+   * Which territories this brand actually has data in, for the territory lens.
+   *
+   * Brand-scoped and open to every role. The lens used to read `/integrations`, which is
+   * admin-only, so a plain `user` never saw it at all. Territories come from the brand's feeds
+   * (what it is configured to collect) and from the signals attributed to it (what it has), so a
+   * territory reached only through mentions or a since-deleted feed is still offered — and every
+   * option leads to data rather than an empty dashboard.
+   */
+  fastify.get(
+    '/brands/:id/territories',
+    {
+      preHandler: requireBrandAccess,
+      schema: {
+        security: [{ BearerAuth: [] }],
+        params: ID_PARAMS,
+        response: {
+          200: {
+            type: 'object',
+            properties: { territories: { type: 'array', items: { type: 'string' } } },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const tenantId = request.user.tenantId;
+      const database = db.get();
+
+      const [feeds, collected] = await Promise.all([
+        database
+          .selectDistinct({ territory: sourceConfigs.territory })
+          .from(sourceConfigs)
+          .where(and(eq(sourceConfigs.tenantId, tenantId), eq(sourceConfigs.brandEntityId, id))),
+        database
+          .selectDistinct({ territory: signals.territory })
+          .from(signals)
+          .where(attributedTo(id, tenantId)),
+      ]);
+
+      const territories = [
+        ...new Set(
+          [...feeds, ...collected]
+            .map((r) => r.territory)
+            /* 'all' names the aggregate row on dimension_scores; it is never a real territory. */
+            .filter((t): t is string => Boolean(t) && t !== TERRITORY_ALL),
+        ),
+      ].sort();
+
+      return { territories };
+    },
+  );
+
+  /**
    * The Brand Perception Index headline: the composite for the most recent rollup, its
    * per-dimension breakdown, and the comparison point roughly a week earlier.
    *
