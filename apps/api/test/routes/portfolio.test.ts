@@ -7,7 +7,17 @@ const rowQueue: unknown[][] = [];
 
 vi.mock('@project-signal/db', () => {
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'insert', 'values', 'update', 'set', 'delete', 'orderBy', 'limit']) {
+  for (const m of [
+    'select',
+    'from',
+    'insert',
+    'values',
+    'update',
+    'set',
+    'delete',
+    'orderBy',
+    'limit',
+  ]) {
     chain[m] = vi.fn(() => chain);
   }
   chain['where'] = vi.fn((c: unknown) => {
@@ -19,11 +29,33 @@ vi.mock('@project-signal/db', () => {
   chain['then'] = (r: unknown, j?: unknown) => Promise.resolve(next()).then(r as never, j as never);
   return {
     db: { get: vi.fn(() => chain) },
-    brandEntities: { id: 'id', tenantId: 'tenant_id', name: 'name', kind: 'kind', parentId: 'parent_id' },
-    dimensionScores: { brandEntityId: 'brand_entity_id', tenantId: 'tenant_id', date: 'date', dimension: 'dimension', score: 'score', signalCount: 'signal_count' },
-    tenants: {}, signals: {}, users: {}, sentimentResults: {}, sourceConfigs: {},
-    brandAliases: {}, signalMentions: {}, scanRuns: {},
-    conversations: {}, conversationMessages: {}, client: { get: vi.fn() },
+    brandEntities: {
+      id: 'id',
+      tenantId: 'tenant_id',
+      name: 'name',
+      kind: 'kind',
+      parentId: 'parent_id',
+    },
+    dimensionScores: {
+      brandEntityId: 'brand_entity_id',
+      tenantId: 'tenant_id',
+      date: 'date',
+      dimension: 'dimension',
+      score: 'score',
+      signalCount: 'signal_count',
+      territory: 'territory',
+    },
+    tenants: {},
+    signals: {},
+    users: {},
+    sentimentResults: {},
+    sourceConfigs: {},
+    brandAliases: {},
+    signalMentions: {},
+    scanRuns: {},
+    conversations: {},
+    conversationMessages: {},
+    client: { get: vi.fn() },
   };
 });
 
@@ -51,19 +83,24 @@ describe('descendantsOf', () => {
     /* brand → division → product. Depth is arbitrary by design, so the walk must not stop at
        one level. */
     rowQueue.push([{ id: 'division' }], [{ id: 'product' }], []);
-    expect(await descendantsOf('tenant-1', 'root')).toEqual(['division', 'product']);
+    expect(await descendantsOf('11111111-1111-4111-8111-111111111111', 'root')).toEqual([
+      'division',
+      'product',
+    ]);
   });
 
   it('returns nothing for a leaf', async () => {
     rowQueue.push([]);
-    expect(await descendantsOf('tenant-1', 'leaf')).toEqual([]);
+    expect(await descendantsOf('11111111-1111-4111-8111-111111111111', 'leaf')).toEqual([]);
   });
 
   it('terminates on cyclic data rather than hanging', async () => {
     /* The API's cycle guard should make this impossible, but if a cycle ever reaches the table
        by another path this read must still finish. A visited set, not recursion into the data. */
     for (let i = 0; i < 40; i += 1) rowQueue.push([{ id: 'a' }, { id: 'b' }]);
-    await expect(descendantsOf('tenant-1', 'a')).resolves.toEqual(['b']);
+    await expect(descendantsOf('11111111-1111-4111-8111-111111111111', 'a')).resolves.toEqual([
+      'b',
+    ]);
   });
 });
 
@@ -73,7 +110,11 @@ describe('GET /brands/:id/portfolio', () => {
        very different statements, and zero is the second one. */
     rowQueue.push([]);
     const app = await buildTestApp(portfolioRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/b1/portfolio', headers: AUTH });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/portfolio',
+      headers: AUTH,
+    });
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
@@ -93,12 +134,32 @@ describe('GET /brands/:id/portfolio', () => {
         { id: 'quiet', name: 'Quiet', kind: 'product' },
       ],
       [
-        { brandEntityId: 'loud', date: '2026-08-09', dimension: 'trust', score: 40, signalCount: 1000 },
-        { brandEntityId: 'quiet', date: '2026-08-09', dimension: 'trust', score: 90, signalCount: 10 },
+        {
+          brandEntityId: 'loud',
+          date: '2026-08-09',
+          dimension: 'trust',
+          score: 40,
+          signalCount: 1000,
+        },
+        {
+          brandEntityId: 'quiet',
+          date: '2026-08-09',
+          dimension: 'trust',
+          score: 90,
+          signalCount: 10,
+        },
       ],
     );
     const app = await buildTestApp(portfolioRoutes, DEFAULT_ADMIN);
-    const body = JSON.parse((await app.inject({ method: 'GET', url: '/brands/b1/portfolio', headers: AUTH })).body);
+    const body = JSON.parse(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/brands/b1111111-1111-4111-8111-111111111111/portfolio',
+          headers: AUTH,
+        })
+      ).body,
+    );
 
     expect(body.score).toBe(40.5);
     expect(body.signalCount).toBe(1010);
@@ -118,7 +179,15 @@ describe('GET /brands/:id/portfolio', () => {
       ],
     );
     const app = await buildTestApp(portfolioRoutes, DEFAULT_ADMIN);
-    const body = JSON.parse((await app.inject({ method: 'GET', url: '/brands/b1/portfolio', headers: AUTH })).body);
+    const body = JSON.parse(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/brands/b1111111-1111-4111-8111-111111111111/portfolio',
+          headers: AUTH,
+        })
+      ).body,
+    );
     expect(body.score).toBe(80);
   });
 
@@ -131,15 +200,75 @@ describe('GET /brands/:id/portfolio', () => {
       [{ id: 'p1', name: 'P1', kind: 'product' }],
       [
         { brandEntityId: 'p1', date: '2026-08-09', dimension: 'trust', score: 60, signalCount: 50 },
-        { brandEntityId: 'p1', date: '2026-08-09', dimension: 'quality', score: 80, signalCount: 50 },
+        {
+          brandEntityId: 'p1',
+          date: '2026-08-09',
+          dimension: 'quality',
+          score: 80,
+          signalCount: 50,
+        },
       ],
     );
     const app = await buildTestApp(portfolioRoutes, DEFAULT_ADMIN);
-    const body = JSON.parse((await app.inject({ method: 'GET', url: '/brands/b1/portfolio', headers: AUTH })).body);
+    const body = JSON.parse(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/brands/b1111111-1111-4111-8111-111111111111/portfolio',
+          headers: AUTH,
+        })
+      ).body,
+    );
 
     expect(body.signalCount, 'not 100').toBe(50);
-    /* And the entity's own index is the mean of its dimensions. */
+    /* And with default weights the entity's index is the mean of its dimensions. */
     expect(body.members[0].score).toBe(70);
+  });
+
+  it('scores each member with ITS OWN dimension weights, exactly as its dashboard does', async () => {
+    /* A plain mean made the portfolio disagree with the number shown for the same product one
+       click away. 0.75 × 60 + 0.25 × 80 = 65, not the unweighted 70. */
+    rowQueue.push(
+      [{ id: 'p1' }],
+      [],
+      [{ id: 'p1', name: 'P1', kind: 'product', weights: { trust: 0.75, quality: 0.25 } }],
+      [
+        { brandEntityId: 'p1', date: '2026-08-09', dimension: 'trust', score: 60, signalCount: 50 },
+        {
+          brandEntityId: 'p1',
+          date: '2026-08-09',
+          dimension: 'quality',
+          score: 80,
+          signalCount: 50,
+        },
+      ],
+    );
+    const app = await buildTestApp(portfolioRoutes, DEFAULT_ADMIN);
+    const body = JSON.parse(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/brands/b1111111-1111-4111-8111-111111111111/portfolio',
+          headers: AUTH,
+        })
+      ).body,
+    );
+    expect(body.members[0].score).toBe(65);
+  });
+
+  it("reads only the 'all' aggregate, never the per-territory rows beside it", async () => {
+    /* dimension_scores holds a row per territory PLUS the 'all' row. Reading it unfiltered
+       averaged the aggregate with its own parts. */
+    rowQueue.push([{ id: 'p1' }], [], [{ id: 'p1', name: 'P1', kind: 'product' }], []);
+    const app = await buildTestApp(portfolioRoutes, DEFAULT_ADMIN);
+    await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/portfolio',
+      headers: AUTH,
+    });
+    const where = JSON.stringify(whereCalls);
+    expect(where).toContain('territory');
+    expect(where).toContain('"all"');
   });
 
   it('reports an unscored product as null, and excludes it from the index', async () => {
@@ -152,10 +281,26 @@ describe('GET /brands/:id/portfolio', () => {
         { id: 'scored', name: 'Scored', kind: 'product' },
         { id: 'new', name: 'New', kind: 'product' },
       ],
-      [{ brandEntityId: 'scored', date: '2026-08-09', dimension: 'trust', score: 70, signalCount: 20 }],
+      [
+        {
+          brandEntityId: 'scored',
+          date: '2026-08-09',
+          dimension: 'trust',
+          score: 70,
+          signalCount: 20,
+        },
+      ],
     );
     const app = await buildTestApp(portfolioRoutes, DEFAULT_ADMIN);
-    const body = JSON.parse((await app.inject({ method: 'GET', url: '/brands/b1/portfolio', headers: AUTH })).body);
+    const body = JSON.parse(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/brands/b1111111-1111-4111-8111-111111111111/portfolio',
+          headers: AUTH,
+        })
+      ).body,
+    );
 
     expect(body.score).toBe(70);
     expect(body.memberCount).toBe(2);
@@ -179,7 +324,15 @@ describe('GET /brands/:id/portfolio', () => {
       ],
     );
     const app = await buildTestApp(portfolioRoutes, DEFAULT_ADMIN);
-    const body = JSON.parse((await app.inject({ method: 'GET', url: '/brands/b1/portfolio', headers: AUTH })).body);
+    const body = JSON.parse(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/brands/b1111111-1111-4111-8111-111111111111/portfolio',
+          headers: AUTH,
+        })
+      ).body,
+    );
     expect(body.score).toBe(50);
     expect(Number.isNaN(body.score)).toBe(false);
   });
@@ -187,7 +340,11 @@ describe('GET /brands/:id/portfolio', () => {
   it('is tenant-scoped at every step', async () => {
     rowQueue.push([{ id: 'p1' }], [], [{ id: 'p1', name: 'P1', kind: 'product' }], []);
     const app = await buildTestApp(portfolioRoutes, DEFAULT_ADMIN);
-    await app.inject({ method: 'GET', url: '/brands/b1/portfolio', headers: AUTH });
+    await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/portfolio',
+      headers: AUTH,
+    });
     /* Descendant walk, entity load and score load each filter tenant independently — none of
        them relies on an earlier query having done it. */
     expect(JSON.stringify(whereCalls)).toContain('tenant_id');

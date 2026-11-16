@@ -21,8 +21,16 @@ vi.mock('@project-signal/db', async (importOriginal) => {
       _voiceArgs.push(a);
       return { _attributedTo: true };
     }),
+    /* The REAL filter, observed: what matters is that the route delegates to it, because it is
+       the one place `'all'` means "no restriction". */
+    territoryFilter: vi.fn((t: string | undefined) => {
+      _territoryFilters.push({ in: t, out: actual.territoryFilter(t) });
+      return actual.territoryFilter(t);
+    }),
   };
 });
+
+const _territoryFilters: { in: unknown; out: unknown }[] = [];
 
 import voiceRoutes from '../../src/routes/voice.js';
 
@@ -39,7 +47,34 @@ beforeEach(() => {
   _rows = [];
   _queue.length = 0;
   _voiceArgs.length = 0;
+  _territoryFilters.length = 0;
   vi.clearAllMocks();
+});
+
+describe('GET /brands/:id/voice-of-customer — territory', () => {
+  it('treats territory=all as no restriction, as every other view does', async () => {
+    /* A bare `eq(signals.territory, 'all')` matched no signal at all, so the view the territory
+       picker sends by default reported "no CRM data". */
+    _queue.push([]);
+    const app = await buildTestApp(voiceRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/voice-of-customer?territory=all',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(_territoryFilters).toEqual([{ in: 'all', out: undefined }]);
+  });
+
+  it('still narrows to a real territory', async () => {
+    _queue.push([]);
+    const app = await buildTestApp(voiceRoutes, DEFAULT_ADMIN);
+    await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/voice-of-customer?territory=GB',
+    });
+    expect(_territoryFilters[0]?.in).toBe('GB');
+    expect(_territoryFilters[0]?.out).toBeDefined();
+  });
 });
 
 describe('GET /brands/:id/voice-of-customer', () => {
@@ -50,7 +85,10 @@ describe('GET /brands/:id/voice-of-customer', () => {
   it('reports not-connected rather than an empty result', async () => {
     _queue.push([]);
     const app = await buildTestApp(voiceRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/voice-of-customer' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/voice-of-customer',
+    });
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
@@ -67,7 +105,10 @@ describe('GET /brands/:id/voice-of-customer', () => {
     _queue.push([reported()]);
     _queue.push([]);
     const app = await buildTestApp(voiceRoutes, DEFAULT_ADMIN);
-    await app.inject({ method: 'GET', url: '/brands/brand-1/voice-of-customer' });
+    await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/voice-of-customer',
+    });
 
     expect(_voiceArgs[0]![2]).toBe('reported');
   });
@@ -76,7 +117,10 @@ describe('GET /brands/:id/voice-of-customer', () => {
     _queue.push([reported()]);
     _queue.push([{ topics: ['pricing'], score: -0.3 }]);
     const app = await buildTestApp(voiceRoutes, DEFAULT_ADMIN);
-    await app.inject({ method: 'GET', url: '/brands/brand-1/voice-of-customer' });
+    await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/voice-of-customer',
+    });
 
     expect(_voiceArgs[1]![2]).toBe('direct');
   });
@@ -85,7 +129,10 @@ describe('GET /brands/:id/voice-of-customer', () => {
     _queue.push([reported(), reported({ accountId: 'acc-2', arrBand: '<10k' })]);
     _queue.push([]);
     const app = await buildTestApp(voiceRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/voice-of-customer' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/voice-of-customer',
+    });
 
     const body = JSON.parse(res.body);
     expect(body.connected).toBe(true);
@@ -97,7 +144,10 @@ describe('GET /brands/:id/voice-of-customer', () => {
     _queue.push([reported()]);
     _queue.push([{ topics: ['pricing'], score: -0.2 }]);
     const app = await buildTestApp(voiceRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/voice-of-customer' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/voice-of-customer',
+    });
 
     const [c] = JSON.parse(res.body).corroborated;
     expect(c.topic).toBe('pricing');
@@ -110,13 +160,19 @@ describe('GET /brands/:id/voice-of-customer', () => {
   it('does not read the public side when there is nothing to corroborate against', async () => {
     _queue.push([]);
     const app = await buildTestApp(voiceRoutes, DEFAULT_ADMIN);
-    await app.inject({ method: 'GET', url: '/brands/brand-1/voice-of-customer' });
+    await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/voice-of-customer',
+    });
     expect(_voiceArgs).toHaveLength(1);
   });
 
   it('is brand-scoped', async () => {
     const app = await buildTestApp(voiceRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/voice-of-customer' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/voice-of-customer',
+    });
     expect(res.statusCode).toBe(403);
   });
 });

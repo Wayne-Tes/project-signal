@@ -33,9 +33,10 @@ import {
   type Territory,
 } from '@project-signal/shared-types';
 import { bestPlayFor } from '@project-signal/playbook';
-import { and, desc, eq, gte, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, max, ne } from 'drizzle-orm';
 import { requireBrandAccess, requireRole } from '../plugins/auth.js';
 import { adaptPlay } from '../lib/adapt-play.js';
+import { ID_PARAMS, UUID } from '../lib/http.js';
 
 /**
  * The action roadmap — what to fix, what it is worth, and what to aim at.
@@ -55,6 +56,9 @@ import { adaptPlay } from '../lib/adapt-play.js';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const LOOKBACK_DAYS = HALF_LIFE_DAYS * 4;
+
+/** Per-user ceiling on play rewording: one model call each. */
+export const ADAPT_RATE_LIMIT = { max: 20, timeWindow: '1 minute' } as const;
 
 /** How many actions the roadmap ranks. Wider than Brand impact's three — this is the work list. */
 const DEFAULT_ACTION_LIMIT = 8;
@@ -175,6 +179,8 @@ export async function readBenchmarks(
   tenantId: string,
   brandEntityId: string,
   latestDate: string | null,
+  /** The BRAND's dimension weights, so its territories are combined as its own index is. */
+  brandWeights?: Readonly<Partial<Record<Dimension, number>>>,
 ): Promise<Benchmarks> {
   const database = db.get();
 
@@ -197,6 +203,20 @@ export async function readBenchmarks(
 
   const competitorScores: number[] = [];
   for (const c of competitors) {
+    const scope = and(
+      eq(dimensionScores.tenantId, tenantId),
+      eq(dimensionScores.brandEntityId, c.id),
+      eq(dimensionScores.territory, TERRITORY_ALL),
+    );
+    /* The competitor's LATEST rollup date, then exactly that date's rows. This used to be
+       `ORDER BY date DESC LIMIT 5`, which meant "the latest five rows", not "the latest date's
+       dimensions": a competitor scored on only three dimensions that day had two rows from an
+       earlier day mixed into its composite. */
+    const [latest] = await database
+      .select({ date: max(dimensionScores.date) })
+      .from(dimensionScores)
+      .where(scope);
+    if (!latest?.date) continue;
     const rows = await database
       .select({
         dimension: dimensionScores.dimension,
@@ -204,15 +224,7 @@ export async function readBenchmarks(
         signalCount: dimensionScores.signalCount,
       })
       .from(dimensionScores)
-      .where(
-        and(
-          eq(dimensionScores.tenantId, tenantId),
-          eq(dimensionScores.brandEntityId, c.id),
-          eq(dimensionScores.territory, TERRITORY_ALL),
-        ),
-      )
-      .orderBy(desc(dimensionScores.date))
-      .limit(5);
+      .where(and(scope, eq(dimensionScores.date, latest.date)));
     if (rows.length === 0) continue;
     const composite = compositeScore(
       rows.map((r) => ({
@@ -265,7 +277,10 @@ export async function readBenchmarks(
          goal anyone can act on, and it would frequently be the strongest scope simply because it
          holds the most volume. */
       if (territory === 'unknown') continue;
-      const composite = compositeScore(rollups);
+      /* With the BRAND's weights. Combined with default weights, a territory's composite was not
+         comparable with the brand's own index — which IS weighted — so "your best territory"
+         could beat or trail the headline number purely because of how it was averaged. */
+      const composite = compositeScore(rollups, brandWeights);
       if (composite === null) continue;
       if (internalBest === null || composite > internalBest.value) {
         internalBest = {
@@ -293,7 +308,7 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
         security: [{ BearerAuth: [] }],
         description:
           'What to fix, what each is worth as a computed counterfactual, the target and where it came from, and where the index goes with no action. Every figure is measured or computed inside the product — none is an imported "industry standard", because none exists for this index.',
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         querystring: {
           type: 'object',
           properties: {
@@ -375,7 +390,7 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
         .orderBy(desc(dimensionScores.date))
         .limit(1);
 
-      const benchmarks = await readBenchmarks(tenantId, id, latest?.date ?? null);
+      const benchmarks = await readBenchmarks(tenantId, id, latest?.date ?? null, weights);
       const target = resolveTarget(brand?.targetScore ?? null, benchmarks);
 
       const clusters = clusterTopics(items, asOf);
@@ -430,12 +445,13 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch(
     '/brands/:id/target',
     {
-      preHandler: requireRole('admin', 'owner'),
+      preHandler: [requireBrandAccess, requireRole('admin', 'owner')],
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         body: {
           type: 'object',
+          additionalProperties: false,
           properties: { targetScore: { type: 'number', nullable: true, minimum: 0, maximum: 100 } },
           required: ['targetScore'],
         },
@@ -478,13 +494,22 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/brands/:id/roadmap/adapt',
     {
+      /* Every role, deliberately — it rewords a play the caller can already see, over signals
+         they can already read, so restricting it to admins would buy no confidentiality. What it
+         does cost is a paid model call, so it is rate-limited per user instead: the guard fits
+         the actual risk, which is spend, not access. */
       preHandler: requireBrandAccess,
+      config: { rateLimit: ADAPT_RATE_LIMIT },
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         body: {
           type: 'object',
-          properties: { topic: { type: 'string', minLength: 1 }, territory: { type: 'string' } },
+          additionalProperties: false,
+          properties: {
+            topic: { type: 'string', minLength: 1, maxLength: 200 },
+            territory: { type: 'string', maxLength: 32 },
+          },
           required: ['topic'],
         },
         response: {
@@ -517,7 +542,13 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
 
       const play = bestPlayFor(cluster);
       if (!play) {
-        return { playId: null, adaptedSteps: [], whatPeopleAreSaying: '', modelVersion: '', adapted: false };
+        return {
+          playId: null,
+          adaptedSteps: [],
+          whatPeopleAreSaying: '',
+          modelVersion: '',
+          adapted: false,
+        };
       }
 
       /* The most negative signals carrying this topic — the ones the action is actually for.
@@ -539,11 +570,7 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
             .where(and(eq(signals.tenantId, tenantId), inArray(signals.id, [...ids])))
         : [];
 
-      const adapted = await adaptPlay(
-        play,
-        key,
-        rows.map((r) => r.content ?? '').filter(Boolean),
-      );
+      const adapted = await adaptPlay(play, key, rows.map((r) => r.content ?? '').filter(Boolean));
 
       return {
         playId: play.id,
@@ -572,13 +599,14 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         body: {
           type: 'object',
+          additionalProperties: false,
           properties: {
-            topic: { type: 'string', minLength: 1 },
-            territory: { type: 'string' },
-            note: { type: 'string' },
+            topic: { type: 'string', minLength: 1, maxLength: 200 },
+            territory: { type: 'string', maxLength: 32 },
+            note: { type: 'string', maxLength: 2000 },
           },
           required: ['topic'],
         },
@@ -657,7 +685,7 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         response: {
           200: {
             type: 'array',
@@ -750,13 +778,15 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
         security: [{ BearerAuth: [] }],
         params: {
           type: 'object',
-          properties: { id: { type: 'string' }, actionId: { type: 'string' } },
+          required: ['id', 'actionId'],
+          properties: { id: UUID, actionId: UUID },
         },
         body: {
           type: 'object',
+          additionalProperties: false,
           properties: {
             status: { type: 'string', enum: ['accepted', 'completed', 'abandoned'] },
-            note: { type: 'string' },
+            note: { type: 'string', maxLength: 2000 },
           },
         },
       },

@@ -7,6 +7,7 @@ import {
   dimensionScores,
   signals,
   sentimentResults,
+  sourceConfigs,
 } from '@project-signal/db';
 import {
   brandImpact,
@@ -21,9 +22,9 @@ import {
   type ScoredItem,
 } from '@project-signal/scoring';
 import { TERRITORY_ALL, type Dimension, type SentimentLabel } from '@project-signal/shared-types';
-import { and, asc, count, desc, eq, gte, lt, lte, max, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, lt, lte, max, sql } from 'drizzle-orm';
 import { requireBrandAccess } from '../plugins/auth.js';
-import { sourceConfigs } from '@project-signal/db';
+import { DATE, ID_PARAMS } from '../lib/http.js';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -92,7 +93,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         querystring: {
           type: 'object',
           properties: {
@@ -101,8 +102,10 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
               description:
                 "Restrict to one territory (ISO 3166-1 alpha-2, or GLOBAL). Omit, or pass 'all', for every territory combined.",
             },
-            from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to 90 days ago.' },
-            to: { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
+            /* `format: 'date'`: an arbitrary string reached the date comparison and Postgres
+               rejected it as a 500 carrying the query text. Now a 400 at the schema. */
+            from: { ...DATE, description: 'Inclusive YYYY-MM-DD. Defaults to 90 days ago.' },
+            to: { ...DATE, description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
           },
         },
         response: { 200: { type: 'array', items: DIMENSION_ROW } },
@@ -157,7 +160,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         querystring: {
           type: 'object',
           properties: {
@@ -198,25 +201,46 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
         .from(brandEntities)
         .where(and(eq(brandEntities.id, id), eq(brandEntities.tenantId, request.user.tenantId)));
 
-      const rows = await database
-        .select({
-          dimension: dimensionScores.dimension,
-          score: dimensionScores.score,
-          date: dimensionScores.date,
-          signalCount: dimensionScores.signalCount,
-        })
+      const scope = and(
+        eq(dimensionScores.tenantId, request.user.tenantId),
+        eq(dimensionScores.brandEntityId, id),
+        /* The aggregate unless a territory is asked for. Without this the "latest rollup"
+           logic below picks whichever territory's row happens to sort first and reports it
+           as the brand's index — a real number for a real subset, presented as the whole. */
+        eq(dimensionScores.territory, territory || TERRITORY_ALL),
+      );
+
+      /* BOUNDED. This read the brand's ENTIRE rollup history — a row per dimension per day, for
+         ever, growing hourly — to use two dates of it. It now finds the latest date, then the
+         most recent date at least a week before it, and reads only those two days' rows. */
+      const [latest] = await database
+        .select({ date: max(dimensionScores.date) })
         .from(dimensionScores)
-        .where(
-          and(
-            eq(dimensionScores.tenantId, request.user.tenantId),
-            eq(dimensionScores.brandEntityId, id),
-            /* The aggregate unless a territory is asked for. Without this the "latest rollup"
-               logic below picks whichever territory's row happens to sort first and reports it
-               as the brand's index — a real number for a real subset, presented as the whole. */
-            eq(dimensionScores.territory, territory || TERRITORY_ALL),
-          ),
-        )
-        .orderBy(desc(dimensionScores.date));
+        .where(scope);
+      const latestKey = latest?.date ?? null;
+
+      let rows: { dimension: string; score: number; date: string; signalCount: number }[] = [];
+      if (latestKey) {
+        const cutoffKey = toDateKey(
+          new Date(new Date(latestKey).getTime() - COMPARISON_DAYS * MS_PER_DAY),
+        );
+        const [prior] = await database
+          .select({ date: max(dimensionScores.date) })
+          .from(dimensionScores)
+          .where(and(scope, lte(dimensionScores.date, cutoffKey)));
+        const dates = prior?.date ? [latestKey, prior.date] : [latestKey];
+
+        rows = await database
+          .select({
+            dimension: dimensionScores.dimension,
+            score: dimensionScores.score,
+            date: dimensionScores.date,
+            signalCount: dimensionScores.signalCount,
+          })
+          .from(dimensionScores)
+          .where(and(scope, inArray(dimensionScores.date, dates)))
+          .orderBy(desc(dimensionScores.date));
+      }
 
       if (rows.length === 0) {
         return {
@@ -273,7 +297,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         querystring: {
           type: 'object',
           properties: {
@@ -317,7 +341,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         querystring: {
           type: 'object',
           properties: {
@@ -374,7 +398,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         querystring: {
           type: 'object',
           properties: {
@@ -411,7 +435,7 @@ const scoresRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: requireBrandAccess,
       schema: {
         security: [{ BearerAuth: [] }],
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         response: {
           200: {
             type: 'object',

@@ -48,7 +48,10 @@ describe('GET /brands/:id/dimension-scores', () => {
   it('returns history rows', async () => {
     _rows = [row(), row({ dimension: 'quality', score: 60 })];
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/dimension-scores' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/dimension-scores',
+    });
 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toHaveLength(2);
@@ -59,7 +62,7 @@ describe('GET /brands/:id/dimension-scores', () => {
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'GET',
-      url: '/brands/brand-1/dimension-scores?from=2026-01-01&to=2026-02-01',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/dimension-scores?from=2026-01-01&to=2026-02-01',
     });
 
     expect(res.statusCode).toBe(200);
@@ -68,8 +71,29 @@ describe('GET /brands/:id/dimension-scores', () => {
   it('is brand-scoped', async () => {
     _rows = [];
     const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/dimension-scores' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/dimension-scores',
+    });
     expect(res.statusCode).toBe(403);
+  });
+
+  it.each(['garbage', '2026-13-45', '01/02/2026'])(
+    'rejects a malformed date (%s) as a 400, where it used to reach Postgres and 500',
+    async (from) => {
+      const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+      const res = await app.inject({
+        method: 'GET',
+        url: `/brands/b1111111-1111-4111-8111-111111111111/dimension-scores?from=${encodeURIComponent(from)}`,
+      });
+      expect(res.statusCode).toBe(400);
+    },
+  );
+
+  it('rejects a malformed brand id before any query', async () => {
+    const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
+    const res = await app.inject({ method: 'GET', url: '/brands/x/dimension-scores' });
+    expect(res.statusCode).toBe(400);
   });
 });
 
@@ -80,7 +104,10 @@ describe('GET /brands/:id/score', () => {
     _queue.push([{ weights: null }]); // brand lookup
     _queue.push([]); // dimension rows
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/score' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/score',
+    });
 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
@@ -96,14 +123,21 @@ describe('GET /brands/:id/score', () => {
     });
   });
 
+  /* The route is bounded: brand weights, then the latest rollup date, then the latest date at
+     least a week before it, then ONLY those two dates' rows. It used to read the brand's entire
+     history to use two days of it. Each test queues those four results in that order. */
   it('composites the latest rollup under the default weights', async () => {
     _queue.push([{ weights: null }]);
+    _queue.push([{ date: '2026-08-06' }], [{ date: null }]);
     _queue.push([
       row({ dimension: 'trust', score: 80, date: '2026-08-06' }),
       row({ dimension: 'quality', score: 40, date: '2026-08-06' }),
     ]);
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/score' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/score',
+    });
 
     const body = JSON.parse(res.body);
     expect(body.score).toBeCloseTo(60, 6);
@@ -113,25 +147,33 @@ describe('GET /brands/:id/score', () => {
 
   it('honours per-brand weights', async () => {
     _queue.push([{ weights: { trust: 0.9, quality: 0.1 } }]);
+    _queue.push([{ date: '2026-08-06' }], [{ date: null }]);
     _queue.push([
       row({ dimension: 'trust', score: 100, date: '2026-08-06' }),
       row({ dimension: 'quality', score: 0, date: '2026-08-06' }),
     ]);
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/score' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/score',
+    });
 
     expect(JSON.parse(res.body).score).toBeCloseTo(90, 6);
   });
 
   it('compares against a rollup at least a week older', async () => {
     _queue.push([{ weights: null }]);
+    // Latest 08-06; the most recent date on or before 07-30 is 07-28 (08-05 is too recent).
+    _queue.push([{ date: '2026-08-06' }], [{ date: '2026-07-28' }]);
     _queue.push([
       row({ score: 80, date: '2026-08-06' }),
-      row({ score: 70, date: '2026-08-05' }), // too recent to be the comparison
       row({ score: 50, date: '2026-07-28' }), // 9 days back
     ]);
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/score' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/score',
+    });
 
     const body = JSON.parse(res.body);
     expect(body.previousDate).toBe('2026-07-28');
@@ -140,9 +182,13 @@ describe('GET /brands/:id/score', () => {
 
   it('reports no comparison when history is shorter than a week', async () => {
     _queue.push([{ weights: null }]);
-    _queue.push([row({ date: '2026-08-06' }), row({ date: '2026-08-05' })]);
+    _queue.push([{ date: '2026-08-06' }], [{ date: null }]);
+    _queue.push([row({ date: '2026-08-06' })]);
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/score' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/score',
+    });
 
     const body = JSON.parse(res.body);
     expect(body.previousScore).toBeNull();
@@ -151,7 +197,10 @@ describe('GET /brands/:id/score', () => {
 
   it('is brand-scoped', async () => {
     const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/score' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/score',
+    });
     expect(res.statusCode).toBe(403);
   });
 });
@@ -175,7 +224,10 @@ describe('GET /brands/:id/brand-impact', () => {
       scored({ signalId: 'c', topics: ['queues'], score: -0.3 }),
     ];
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/brand-impact' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/brand-impact',
+    });
 
     const body = JSON.parse(res.body);
     expect(body[0].topic).toBe('fees');
@@ -188,7 +240,10 @@ describe('GET /brands/:id/brand-impact', () => {
       scored({ signalId: t, topics: [t], score: -1 + i * 0.1 }),
     );
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/brand-impact' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/brand-impact',
+    });
 
     expect(JSON.parse(res.body)).toHaveLength(3);
   });
@@ -198,7 +253,10 @@ describe('GET /brands/:id/brand-impact', () => {
       scored({ signalId: t, topics: [t], score: -1 + i * 0.1 }),
     );
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/brand-impact?limit=2' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/brand-impact?limit=2',
+    });
 
     expect(JSON.parse(res.body)).toHaveLength(2);
   });
@@ -207,14 +265,20 @@ describe('GET /brands/:id/brand-impact', () => {
   it('omits clusters with no negativity', async () => {
     _rows = [scored({ score: 1, topics: ['praise'] })];
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/brand-impact' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/brand-impact',
+    });
 
     expect(JSON.parse(res.body)).toEqual([]);
   });
 
   it('is brand-scoped', async () => {
     const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/brand-impact' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/brand-impact',
+    });
     expect(res.statusCode).toBe(403);
   });
 });
@@ -238,7 +302,10 @@ describe('GET /brands/:id/strengths', () => {
       scored({ signalId: 'c', topics: ['liked'], score: 0.3 }),
     ];
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/strengths' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/strengths',
+    });
 
     const body = JSON.parse(res.body);
     expect(body[0].topic).toBe('loved');
@@ -249,13 +316,19 @@ describe('GET /brands/:id/strengths', () => {
   it('omits clusters with no positive sentiment', async () => {
     _rows = [scored({ score: -1, topics: ['bad'] })];
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/strengths' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/strengths',
+    });
     expect(JSON.parse(res.body)).toEqual([]);
   });
 
   it('is brand-scoped', async () => {
     const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/strengths' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/strengths',
+    });
     expect(res.statusCode).toBe(403);
   });
 });
@@ -269,7 +342,10 @@ describe('GET /brands/:id/stats', () => {
     _queue.push([{ lastDate: '2026-08-16' }]);
     _queue.push([{ configured: 5, active: '3' }]);
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/stats' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/stats',
+    });
 
     expect(JSON.parse(res.body)).toEqual({
       signalsThisWeek: 9,
@@ -298,7 +374,10 @@ describe('GET /brands/:id/stats', () => {
     _queue.push([{ lastDate: null }]);
     _queue.push([{ configured: 1, active: '1' }]);
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/stats' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/stats',
+    });
 
     const body = JSON.parse(res.body);
     expect(body.scoredSignals).toBe(10);
@@ -313,7 +392,10 @@ describe('GET /brands/:id/stats', () => {
     _queue.push([{ lastDate: null }]);
     _queue.push([{ configured: 0, active: '0' }]);
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/stats' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/stats',
+    });
 
     expect(JSON.parse(res.body).totalSignals).toBe(0);
   });
@@ -333,7 +415,10 @@ describe('GET /brands/:id/stats', () => {
     _queue.push([{ lastDate: '2026-08-17' }]);
     _queue.push([{ configured: 1, active: '1' }]);
     const app = await buildTestApp(scoresRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/stats?territory=GB' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/stats?territory=GB',
+    });
 
     expect(res.statusCode).toBe(200);
     expect(territoryFilter).toHaveBeenCalledWith('GB');
@@ -341,7 +426,10 @@ describe('GET /brands/:id/stats', () => {
 
   it('is brand-scoped', async () => {
     const app = await buildTestApp(scoresRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/stats' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/stats',
+    });
     expect(res.statusCode).toBe(403);
   });
 });

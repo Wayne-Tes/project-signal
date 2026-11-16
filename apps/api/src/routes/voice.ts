@@ -1,9 +1,17 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { accounts, attributedTo, db, sentimentResults, signals } from '@project-signal/db';
+import {
+  accounts,
+  attributedTo,
+  db,
+  sentimentResults,
+  signals,
+  territoryFilter,
+} from '@project-signal/db';
 import { corroborate, rankByExposure, type ExposureItem } from '@project-signal/scoring';
 import type { ArrBand } from '@project-signal/shared-types';
 import { and, eq, gte } from 'drizzle-orm';
 import { requireBrandAccess } from '../plugins/auth.js';
+import { ID_PARAMS } from '../lib/http.js';
 
 /**
  * Voice of the customer — what Sales and Customer Success hear directly.
@@ -54,7 +62,7 @@ const voiceRoutes: FastifyPluginAsync = async (fastify) => {
         security: [{ BearerAuth: [] }],
         description:
           'What customers tell Sales and Customer Success directly. Ranked by distinct accounts and their commercial bands rather than by volume, and never mixed into the Brand Perception Index.',
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         querystring: {
           type: 'object',
           properties: {
@@ -120,7 +128,10 @@ const voiceRoutes: FastifyPluginAsync = async (fastify) => {
           and(
             attributedTo(id, tenantId, 'reported'),
             gte(signals.publishedAt, since),
-            territory ? eq(signals.territory, territory) : undefined,
+            /* The shared filter, as every other read uses: `'all'` (and absent) means no
+               restriction. A bare equality made `territory=all` match no signal at all, so the
+               view the territory picker sends by default reported "no CRM data". */
+            territoryFilter(territory),
             arrBand ? eq(accounts.arrBand, arrBand) : undefined,
           ),
         );
@@ -147,7 +158,9 @@ const voiceRoutes: FastifyPluginAsync = async (fastify) => {
           .where(and(attributedTo(id, tenantId, 'direct'), gte(signals.publishedAt, since)));
 
         corroborated = corroborate(
-          publicRows.flatMap((r) => (r.topics ?? []).map((t) => ({ topic: t, score: r.score ?? 0 }))),
+          publicRows.flatMap((r) =>
+            (r.topics ?? []).map((t) => ({ topic: t, score: r.score ?? 0 })),
+          ),
           items,
         );
       }

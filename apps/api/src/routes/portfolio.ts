@@ -1,7 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { brandEntities, db, dimensionScores } from '@project-signal/db';
+import { compositeScore, parseWeights, type DimensionRollup } from '@project-signal/scoring';
+import { TERRITORY_ALL, type Dimension } from '@project-signal/shared-types';
 import { requireBrandAccess } from '../plugins/auth.js';
+import { ID_PARAMS } from '../lib/http.js';
 
 /**
  * The portfolio index — how everything beneath a brand is perceived, as distinct from how the
@@ -60,9 +63,7 @@ export async function descendantsOf(tenantId: string, rootId: string): Promise<s
       .get()
       .select({ id: brandEntities.id })
       .from(brandEntities)
-      .where(
-        and(eq(brandEntities.tenantId, tenantId), inArray(brandEntities.parentId, frontier)),
-      );
+      .where(and(eq(brandEntities.tenantId, tenantId), inArray(brandEntities.parentId, frontier)));
 
     frontier = [];
     for (const c of children) {
@@ -85,7 +86,7 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
         security: [{ BearerAuth: [] }],
         description:
           "The volume-weighted index across everything beneath this brand, and each member's own score. Distinct from the brand's own index, which measures only signals attributed to the brand itself.",
-        params: { type: 'object', properties: { id: { type: 'string' } } },
+        params: ID_PARAMS,
         response: {
           200: {
             type: 'object',
@@ -120,12 +121,22 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
 
       const entities = await db
         .get()
-        .select({ id: brandEntities.id, name: brandEntities.name, kind: brandEntities.kind })
+        .select({
+          id: brandEntities.id,
+          name: brandEntities.name,
+          kind: brandEntities.kind,
+          weights: brandEntities.dimensionWeights,
+        })
         .from(brandEntities)
         .where(and(eq(brandEntities.tenantId, tenantId), inArray(brandEntities.id, descendantIds)));
 
       /* Every dimension row for the descendants, newest first. The latest date per entity is the
-         one that counts; earlier ones are history and belong to the trend chart. */
+         one that counts; earlier ones are history and belong to the trend chart.
+
+         THE `'all'` AGGREGATE ONLY. `dimension_scores` holds one row per territory PLUS the
+         `'all'` row for the same (entity, date, dimension). Reading it unfiltered averaged the
+         aggregate together with each of its own parts — the double-count `scores.ts` warns about
+         — so a product with three territories counted its data four times over. */
       const rows = await db
         .get()
         .select({
@@ -140,22 +151,26 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
           and(
             eq(dimensionScores.tenantId, tenantId),
             inArray(dimensionScores.brandEntityId, descendantIds),
+            eq(dimensionScores.territory, TERRITORY_ALL),
           ),
         )
         .orderBy(desc(dimensionScores.date));
 
-      /* Latest date per entity, then that date's dimensions averaged into the entity's index. */
+      /* Latest date per entity, then that date's dimensions combined into the entity's index. */
       const latestDate = new Map<string, string>();
       for (const r of rows) {
         if (!latestDate.has(r.brandEntityId)) latestDate.set(r.brandEntityId, r.date);
       }
 
-      const perEntity = new Map<string, { total: number; count: number; signals: number }>();
+      const perEntity = new Map<string, { rollups: DimensionRollup[]; signals: number }>();
       for (const r of rows) {
         if (r.date !== latestDate.get(r.brandEntityId)) continue;
-        const acc = perEntity.get(r.brandEntityId) ?? { total: 0, count: 0, signals: 0 };
-        acc.total += r.score ?? 0;
-        acc.count += 1;
+        const acc = perEntity.get(r.brandEntityId) ?? { rollups: [], signals: 0 };
+        acc.rollups.push({
+          dimension: r.dimension as Dimension,
+          score: r.score,
+          signalCount: r.signalCount,
+        });
         /* Signal counts are per DIMENSION and a signal can touch several, so summing them across
            dimensions would over-count. The maximum is the closest honest proxy for "how many
            signals stand behind this entity". */
@@ -165,11 +180,16 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
 
       const members: PortfolioMember[] = entities.map((e) => {
         const acc = perEntity.get(e.id);
+        /* The member's index exactly as its own dashboard computes it — `compositeScore` with ITS
+           dimension weights, renormalised over the dimensions that have data. A plain mean of the
+           dimensions made the portfolio disagree with the number shown for the same product one
+           click away. */
+        const composite = acc ? compositeScore(acc.rollups, parseWeights(e.weights)) : null;
         return {
           id: e.id,
           name: e.name,
           kind: e.kind,
-          score: acc && acc.count > 0 ? round(acc.total / acc.count) : null,
+          score: composite === null ? null : round(composite),
           signalCount: acc?.signals ?? 0,
         };
       });

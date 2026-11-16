@@ -9,7 +9,16 @@ const _written: Record<string, unknown>[] = [];
 vi.mock('@project-signal/db', async (importOriginal) => {
   const actual = await importOriginal<typeof DbModule>();
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'where', 'innerJoin', 'leftJoin', 'orderBy', 'limit', 'update']) {
+  for (const m of [
+    'select',
+    'from',
+    'where',
+    'innerJoin',
+    'leftJoin',
+    'orderBy',
+    'limit',
+    'update',
+  ]) {
     chain[m] = vi.fn(() => chain);
   }
   chain['set'] = vi.fn((v: Record<string, unknown>) => {
@@ -32,7 +41,9 @@ beforeEach(() => {
 });
 
 /** brand → items → latest date → competitors → (per competitor) → territory rows. */
-function sequence(opts: { target?: number | null; items?: unknown[]; competitors?: unknown[] } = {}) {
+function sequence(
+  opts: { target?: number | null; items?: unknown[]; competitors?: unknown[] } = {},
+) {
   _queue.push([{ weights: null, targetScore: opts.target ?? null }]);
   _queue.push(opts.items ?? []);
   _queue.push([]); // latest rollup date
@@ -43,7 +54,10 @@ describe('GET /brands/:id/roadmap', () => {
   it('reports no target rather than inventing one when nothing is measurable', async () => {
     sequence();
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/roadmap' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap',
+    });
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
@@ -57,7 +71,10 @@ describe('GET /brands/:id/roadmap', () => {
   it("prefers the owner's target and says so", async () => {
     sequence({ target: 72 });
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/roadmap' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap',
+    });
 
     expect(JSON.parse(res.body).target).toMatchObject({ value: 72, source: 'owner' });
   });
@@ -65,7 +82,10 @@ describe('GET /brands/:id/roadmap', () => {
   it('always states the target’s provenance', async () => {
     sequence({ target: 72 });
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/roadmap' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap',
+    });
     expect(JSON.parse(res.body).target.label.length).toBeGreaterThan(0);
   });
 
@@ -85,7 +105,10 @@ describe('GET /brands/:id/roadmap', () => {
       ],
     });
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/roadmap' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap',
+    });
 
     /* A projection whose assumption is not on screen beside it will be read as a prediction. */
     expect(JSON.parse(res.body).projection.assumption).toContain('no new signals');
@@ -93,18 +116,21 @@ describe('GET /brands/:id/roadmap', () => {
 
   it('is brand-scoped', async () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/roadmap' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/roadmap',
+    });
     expect(res.statusCode).toBe(403);
   });
 });
 
 describe('PATCH /brands/:id/target', () => {
   it('stores a target', async () => {
-    _rows = [{ id: 'brand-1', targetScore: 70 }];
+    _rows = [{ id: 'b1111111-1111-4111-8111-111111111111', targetScore: 70 }];
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/target',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/target',
       payload: { targetScore: 70 },
     });
 
@@ -115,11 +141,11 @@ describe('PATCH /brands/:id/target', () => {
   /* Clearing differs from omitting: it returns the brand to a competitor-derived default, and
      there has to be a way back from a target set in error. */
   it('accepts null to clear it', async () => {
-    _rows = [{ id: 'brand-1', targetScore: null }];
+    _rows = [{ id: 'b1111111-1111-4111-8111-111111111111', targetScore: null }];
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/target',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/target',
       payload: { targetScore: null },
     });
 
@@ -132,7 +158,7 @@ describe('PATCH /brands/:id/target', () => {
     for (const targetScore of [-1, 101]) {
       const res = await app.inject({
         method: 'PATCH',
-        url: '/brands/brand-1/target',
+        url: '/brands/b1111111-1111-4111-8111-111111111111/target',
         payload: { targetScore },
       });
       expect(res.statusCode).toBe(400);
@@ -143,7 +169,7 @@ describe('PATCH /brands/:id/target', () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_PINNED_USER);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/target',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/target',
       payload: { targetScore: 70 },
     });
     expect(res.statusCode).toBe(403);
@@ -154,7 +180,7 @@ describe('PATCH /brands/:id/target', () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/other-tenant-brand/target',
+      url: '/brands/f0000000-0000-4000-8000-00000000f0e2/target',
       payload: { targetScore: 70 },
     });
     expect(res.statusCode).toBe(404);
@@ -170,9 +196,9 @@ describe('PATCH /brands/:id/target', () => {
 /** One action row, shaped as the table returns it. `baselineAt` is a Date, not a string. */
 function action(over: Record<string, unknown> = {}) {
   return {
-    id: 'action-1',
-    tenantId: 'tenant-1',
-    brandEntityId: 'brand-1',
+    id: 'ac111111-1111-4111-8111-111111111111',
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    brandEntityId: 'b1111111-1111-4111-8111-111111111111',
     topic: 'pricing',
     territory: 'all',
     status: 'open',
@@ -193,7 +219,10 @@ describe('GET /brands/:id/roadmap/actions', () => {
        asked for. */
     _queue.push([]);
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/roadmap/actions' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions',
+    });
 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual([]);
@@ -207,7 +236,10 @@ describe('GET /brands/:id/roadmap/actions', () => {
     _queue.push([]); // readItems for territory 'all'
 
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/roadmap/actions' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions',
+    });
 
     expect(res.statusCode).toBe(200);
     const [row] = JSON.parse(res.body);
@@ -224,7 +256,10 @@ describe('GET /brands/:id/roadmap/actions', () => {
     _queue.push([]);
 
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/roadmap/actions' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions',
+    });
 
     expect(JSON.parse(res.body)[0].baselineAt).toBe('2026-07-01T00:00:00.000Z');
   });
@@ -243,7 +278,10 @@ describe('GET /brands/:id/roadmap/actions', () => {
     _queue.push([]); // territory 'GB'
 
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-1/roadmap/actions' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions',
+    });
 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toHaveLength(3);
@@ -251,7 +289,10 @@ describe('GET /brands/:id/roadmap/actions', () => {
 
   it('is brand-scoped', async () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_PINNED_USER);
-    const res = await app.inject({ method: 'GET', url: '/brands/brand-2/roadmap/actions' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/roadmap/actions',
+    });
     expect(res.statusCode).toBe(403);
   });
 });
@@ -262,7 +303,7 @@ describe('PATCH /brands/:id/roadmap/actions/:actionId', () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/roadmap/actions/action-1',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions/ac111111-1111-4111-8111-111111111111',
       payload: { status: 'completed' },
     });
 
@@ -282,7 +323,7 @@ describe('PATCH /brands/:id/roadmap/actions/:actionId', () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/roadmap/actions/action-1',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions/ac111111-1111-4111-8111-111111111111',
       payload: { status: 'accepted' },
     });
 
@@ -296,7 +337,7 @@ describe('PATCH /brands/:id/roadmap/actions/:actionId', () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/roadmap/actions/action-1',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions/ac111111-1111-4111-8111-111111111111',
       payload: { status: 'donee' },
     });
 
@@ -309,7 +350,7 @@ describe('PATCH /brands/:id/roadmap/actions/:actionId', () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
     await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/roadmap/actions/action-1',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions/ac111111-1111-4111-8111-111111111111',
       payload: { note: '   ' },
     });
 
@@ -325,7 +366,7 @@ describe('PATCH /brands/:id/roadmap/actions/:actionId', () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
     await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/roadmap/actions/action-1',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions/ac111111-1111-4111-8111-111111111111',
       payload: { note: 'progress update' },
     });
 
@@ -339,7 +380,7 @@ describe('PATCH /brands/:id/roadmap/actions/:actionId', () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
     await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/roadmap/actions/action-1',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions/ac111111-1111-4111-8111-111111111111',
       payload: { note: 'x' },
     });
 
@@ -354,7 +395,7 @@ describe('PATCH /brands/:id/roadmap/actions/:actionId', () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_ADMIN);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-1/roadmap/actions/someone-elses-action',
+      url: '/brands/b1111111-1111-4111-8111-111111111111/roadmap/actions/f0000000-0000-4000-8000-00000000f0e3',
       payload: { status: 'completed' },
     });
 
@@ -365,7 +406,7 @@ describe('PATCH /brands/:id/roadmap/actions/:actionId', () => {
     const app = await buildTestApp(roadmapRoutes, DEFAULT_PINNED_USER);
     const res = await app.inject({
       method: 'PATCH',
-      url: '/brands/brand-2/roadmap/actions/action-1',
+      url: '/brands/b2222222-2222-4222-8222-222222222222/roadmap/actions/ac111111-1111-4111-8111-111111111111',
       payload: { status: 'completed' },
     });
     expect(res.statusCode).toBe(403);
