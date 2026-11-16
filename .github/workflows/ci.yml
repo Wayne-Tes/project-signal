@@ -10,63 +10,66 @@ permissions:
   contents: read
   pull-requests: read
 
+# One run per branch at a time. A new push to a PR supersedes the run for the previous push —
+# its result could only ever describe code that is no longer the head. Pushes to main are never
+# cancelled, so every merge commit gets a complete result.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Third-party actions are pinned to a full commit SHA, not a tag. A tag is mutable — whoever
+# controls the action's repository can move `v4` to different code — and every step here runs
+# with this repository checked out. The trailing comment names the release the SHA was resolved
+# from (`git ls-remote --tags`, 2026-11-16); bump SHA and comment together.
+
 jobs:
   # ── Detect which apps have changed (used by docker-check) ──────────────────
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       apps: ${{ steps.filter.outputs.changes }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         id: filter
         with:
+          # Every image COPYs package.json, yarn.lock, .yarnrc.yml, tsconfig.base.json, apps/,
+          # libs/ and scripts/ (each apps/*/Dockerfile), so a change to any of them can break any
+          # image. `scripts/**` and `.yarnrc.yml` were missing before 2026-11-16.
           filters: |
+            shared: &shared
+              - 'libs/**'
+              - 'scripts/**'
+              - 'package.json'
+              - 'yarn.lock'
+              - '.yarnrc.yml'
+              - 'tsconfig.base.json'
+              - '.dockerignore'
             api:
               - 'apps/api/**'
-              - 'libs/**'
-              - 'package.json'
-              - 'yarn.lock'
-              - 'tsconfig.base.json'
+              - *shared
             ingestion:
               - 'apps/ingestion/**'
-              - 'libs/**'
-              - 'package.json'
-              - 'yarn.lock'
-              - 'tsconfig.base.json'
+              - *shared
             report-worker:
               - 'apps/report-worker/**'
-              - 'libs/**'
-              - 'package.json'
-              - 'yarn.lock'
-              - 'tsconfig.base.json'
+              - *shared
             sentiment-worker:
               - 'apps/sentiment-worker/**'
-              - 'libs/**'
-              - 'package.json'
-              - 'yarn.lock'
-              - 'tsconfig.base.json'
+              - *shared
             web:
               - 'apps/web/**'
-              - 'libs/**'
-              - 'package.json'
-              - 'yarn.lock'
-              - 'tsconfig.base.json'
+              - *shared
 
   # ── Lint + typecheck ───────────────────────────────────────────────────────
   code-quality:
     name: Lint & typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - name: Enable Corepack
-        run: corepack enable
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: yarn
-      - name: Install dependencies
-        run: yarn install --immutable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup-yarn
       - name: Lint
         run: yarn nx run-many -t lint --parallel=4
       - name: Typecheck
@@ -78,44 +81,93 @@ jobs:
       # the old image while reporting the new task definition. Every other signal stays green.
       - name: Workspace dependencies are declared
         run: yarn check:deps
+      # A new top-level API route that the ALB does not forward is served by the WEB target group
+      # and 404s in every deployed environment while every other signal stays green. It has
+      # shipped twice. This check used to run only in terraform-plan.yml, which triggers on
+      # infra-aws/** — but the defect is introduced by a PR to apps/api, which never touched that
+      # path. It runs here, on every PR. Pure text comparison: no AWS call, no credentials.
+      - name: Every API route prefix must be reachable through the ALB
+        run: bash infra-aws/scripts/test/alb-routes.test.sh
 
   # ── Unit tests — fail if any project is below 80 % coverage ───────────────
   test:
     name: Unit tests (≥80% coverage)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - name: Enable Corepack
-        run: corepack enable
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: yarn
-      - name: Install dependencies
-        run: yarn install --immutable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup-yarn
       - name: Run tests with coverage
         # Per-project coverage thresholds (80%) live in each vitest.config.ts so deferred
         # skeletons (e.g. report-worker) can be exempt and barrels excluded.
         run: yarn nx run-many -t test --parallel=4 -- --coverage --coverage.reporter=text
 
+  # ── API integration tests against a real Postgres ──────────────────────────
+  #
+  # Every API route test mocks drizzle, so none of them executes SQL — which is how a JS Date
+  # interpolated into raw SQL shipped twice with a green suite (DEVRULES), and why tenant
+  # isolation was only ever asserted as a status code. `test:integration` runs the API's
+  # integration suite against a disposable Postgres 16 — the same major version as RDS and
+  # docker-compose — so migrations, queries and tenant filters execute for real.
+  integration:
+    name: API integration tests (Postgres 16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: project_signal_test
+          POSTGRES_USER: project_signal_app
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U project_signal_app -d project_signal_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # A throwaway CI-only database on the runner; the password is the docker-compose dev value,
+      # not a credential for anything that exists outside this job.
+      DATABASE_URL: postgresql://project_signal_app:password@localhost:5432/project_signal_test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup-yarn
+      - name: Run API integration tests
+        run: yarn nx run @project-signal/api:test:integration
+
   # ── Verify changed Docker images build successfully (no push) ──────────────
   docker-check:
     name: Docker build (${{ matrix.app }})
     needs: changes
+    # `shared` is a YAML anchor in the filter, not an app with a Dockerfile.
     if: ${{ needs.changes.outputs.apps != '[]' && needs.changes.outputs.apps != '' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         app: ${{ fromJson(needs.changes.outputs.apps) }}
+        exclude:
+          - app: shared
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: Build ${{ matrix.app }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile
           push: false
+          # The web image inlines NEXT_PUBLIC_* at build time and its Cognito config throws when
+          # they are empty, so a build without them is not the build that ships. These are
+          # syntactically valid PLACEHOLDERS — this job proves the image builds, it never runs
+          # or publishes it. Real values come from `terraform output` in 20-build-push.sh.
+          # Ignored by the backend Dockerfiles, which declare no such ARG.
+          build-args: |
+            NEXT_PUBLIC_COGNITO_USER_POOL_ID=eu-west-2_CIplaceholder
+            NEXT_PUBLIC_COGNITO_CLIENT_ID=ciplaceholderclientid000000
+            NEXT_PUBLIC_API_URL=http://localhost:8080
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}

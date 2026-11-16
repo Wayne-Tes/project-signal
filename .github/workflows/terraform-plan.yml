@@ -23,25 +23,36 @@ on:
   pull_request:
     paths:
       - 'infra-aws/**'
+      - 'scripts/**'
       - '.github/workflows/terraform-plan.yml'
   push:
     branches: [main]
     paths:
       - 'infra-aws/**'
+      - 'scripts/**'
       - '.github/workflows/terraform-plan.yml'
 
 # Read-only. No `id-token`, because nothing here authenticates to any cloud.
 permissions:
   contents: read
 
+# Supersede an in-flight run for the same branch; never cancel a run on main.
+concurrency:
+  group: tf-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Actions are pinned to commit SHAs (resolved from the named tag with `git ls-remote --tags`,
+# 2026-11-16) — a tag can be moved to different code by whoever controls the action's repo.
+
 jobs:
   validate:
     name: fmt + validate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           # `use_lockfile` on the S3 backend needs >= 1.10; infra-aws/*/versions.tf pins that as
           # required_version. Keep this in step with it.
@@ -57,20 +68,26 @@ jobs:
       # credential-free: it initialises providers for validation without configuring the S3
       # backend, so no state is read and no AWS call is made.
       #
+      # `-lockfile=readonly` makes a provider-lock drift FAIL here instead of being silently
+      # rewritten in the runner. Until 2026-11-16 the committed locks carried only the Windows
+      # `h1:` hash, so every Linux init quietly amended them and nothing noticed; they now record
+      # windows_amd64, linux_amd64 and darwin_{amd64,arm64}. After a provider upgrade, regenerate
+      # with `terraform providers lock -platform=...` for all four and commit the result.
+      #
       # Add new root modules to this list. A module that is not listed is not checked.
       - name: terraform validate (bootstrap)
         run: |
-          terraform -chdir=infra-aws/bootstrap init -backend=false -input=false
+          terraform -chdir=infra-aws/bootstrap init -backend=false -input=false -lockfile=readonly
           terraform -chdir=infra-aws/bootstrap validate
 
       - name: terraform validate (account)
         run: |
-          terraform -chdir=infra-aws/account init -backend=false -input=false
+          terraform -chdir=infra-aws/account init -backend=false -input=false -lockfile=readonly
           terraform -chdir=infra-aws/account validate
 
       - name: terraform validate (stack)
         run: |
-          terraform -chdir=infra-aws/stack init -backend=false -input=false
+          terraform -chdir=infra-aws/stack init -backend=false -input=false -lockfile=readonly
           terraform -chdir=infra-aws/stack validate
 
   # The account guard is the control the whole sandbox rule rests on. If a script that calls AWS
@@ -80,17 +97,18 @@ jobs:
   scripts:
     name: shell scripts
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Syntax-check every script
         run: |
-          for f in infra-aws/scripts/*.sh infra-aws/scripts/test/*.sh; do
+          for f in infra-aws/scripts/*.sh infra-aws/scripts/test/*.sh scripts/*.sh; do
             bash -n "$f" || exit 1
           done
 
       - name: shellcheck
-        run: shellcheck -S warning infra-aws/scripts/*.sh infra-aws/scripts/test/*.sh
+        run: shellcheck -S warning infra-aws/scripts/*.sh infra-aws/scripts/test/*.sh scripts/*.sh
 
       # The guard is the control the entire sandbox rule rests on, so it is the one piece of
       # shell in this repository that has tests. They stub the AWS CLI, so this step makes no

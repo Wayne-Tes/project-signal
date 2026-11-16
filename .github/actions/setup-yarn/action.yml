@@ -1,0 +1,39 @@
+name: Set up Node 26 + Yarn 4
+description: >-
+  Node from .nvmrc, Yarn 4.9.2 via a pinned corepack, a cached Yarn download cache, and an
+  immutable install. One definition shared by every CI job, so the toolchain cannot drift
+  between them.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        # Single source of truth for the Node major — the same file nvm/fnm read locally.
+        node-version-file: .nvmrc
+
+    # Node 25+ no longer bundles corepack, so `corepack enable` on its own fails on Node 26. It is
+    # installed explicitly and PINNED (the same version as every Dockerfile), so CI cannot pick up
+    # a corepack release nobody has tested. corepack then provides the exact Yarn named in the
+    # root package.json "packageManager" field.
+    #
+    # setup-node's built-in `cache: yarn` cannot be used: it runs `yarn` during setup, before this
+    # step has made Yarn exist. The cache below does the same job explicitly.
+    - name: Enable Yarn via corepack
+      shell: bash
+      run: |
+        npm install -g corepack@0.36.0
+        corepack enable
+        echo "COREPACK_ENABLE_DOWNLOAD_PROMPT=0" >> "$GITHUB_ENV"
+        echo "YARN_CACHE_DIR=$(yarn config get cacheFolder)" >> "$GITHUB_ENV"
+        yarn --version
+
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ env.YARN_CACHE_DIR }}
+        key: yarn-${{ runner.os }}-${{ hashFiles('.nvmrc', 'yarn.lock') }}
+        restore-keys: yarn-${{ runner.os }}-
+
+    - name: Install dependencies
+      shell: bash
+      run: yarn install --immutable
