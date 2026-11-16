@@ -1,6 +1,5 @@
 'use client';
 import { sourceMeta } from '@/config/sources';
-import { sentColor, sentLabel } from '@/lib/utils';
 
 export function Delta({
   value,
@@ -40,53 +39,6 @@ export function SourceGlyph({ name, size = 16 }: { name: string; size?: number }
       style={{ width: size, height: size, borderColor: tone, color: tone, fontSize: size * 0.62 }}
     >
       {glyph}
-    </span>
-  );
-}
-
-export function SourceBadge({ name }: { name: string }) {
-  const s = sourceMeta(name);
-  return (
-    <span className="src-badge">
-      <SourceGlyph name={name} size={14} />
-      <span>{s.short}</span>
-    </span>
-  );
-}
-
-export function Stars({ n }: { n: number | null }) {
-  if (n == null) return null;
-  return (
-    <span className="stars" aria-label={`${n} of 5`}>
-      {[1, 2, 3, 4, 5].map((i) => (
-        <svg
-          key={i}
-          width="12"
-          height="12"
-          viewBox="0 0 12 12"
-          fill={i <= n ? 'var(--gold)' : 'none'}
-          stroke={i <= n ? 'var(--gold)' : 'var(--line2)'}
-          strokeWidth="1"
-        >
-          <path d="M6 1 L7.5 4.3 L11 4.7 L8.4 7.1 L9.1 10.6 L6 8.8 L2.9 10.6 L3.6 7.1 L1 4.7 L4.5 4.3 Z" />
-        </svg>
-      ))}
-    </span>
-  );
-}
-
-export function SentChip({ value }: { value: number }) {
-  return (
-    <span
-      className="sent-chip"
-      style={{
-        color: sentColor(value),
-        borderColor: `color-mix(in srgb, currentColor 35%, transparent)`,
-      }}
-    >
-      <span className="dot" style={{ background: 'currentColor' }} />
-      {sentLabel(value)} · {value > 0 ? '+' : ''}
-      {value.toFixed(2)}
     </span>
   );
 }

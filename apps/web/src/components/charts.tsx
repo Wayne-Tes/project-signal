@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect } from 'react';
-import type { VolumeData } from '@/lib/types';
 
 /**
  * A chart row: a display label plus any number of numeric series keyed by name.
@@ -13,7 +12,6 @@ export interface ChartRow {
   label: string;
   [series: string]: number | string | Date | undefined;
 }
-import { sourceMeta } from '@/config/sources';
 
 /** Series values are numbers; anything else (the label) reads as absent. */
 function asNumber(value: number | string | Date | undefined): number {
@@ -209,105 +207,6 @@ export function Sparkline({
         fill={color}
         style={{ opacity: draw > 0.9 ? 1 : 0 }}
       />
-    </svg>
-  );
-}
-
-export function VolumeBars({
-  vol,
-  width = 720,
-  height = 180,
-  play = true,
-}: {
-  vol: VolumeData;
-  width?: number;
-  height?: number;
-  play?: boolean;
-}) {
-  const pad = { t: 10, r: 8, b: 24, l: 8 };
-  const iw = width - pad.l - pad.r,
-    ih = height - pad.t - pad.b;
-  const max = Math.max(
-    ...vol.weeks.map((w) => vol.sources.reduce((a, s) => a + (w[s] as number), 0)),
-  );
-  const bw = (iw / vol.weeks.length) * 0.62;
-  const gap = iw / vol.weeks.length;
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" className="volbars">
-      {vol.weeks.map((w, i) => {
-        let acc = 0;
-        const cx = pad.l + i * gap + (gap - bw) / 2;
-        return (
-          <g key={i}>
-            {vol.sources.map((s) => {
-              const h = ((w[s] as number) / max) * ih;
-              const yTop = pad.t + ih - acc - h;
-              acc += h;
-              return (
-                <rect
-                  key={s}
-                  x={cx}
-                  y={yTop}
-                  width={bw}
-                  height={Math.max(0, h - 1)}
-                  rx="1.5"
-                  fill={sourceMeta(s).tone}
-                  style={{
-                    opacity: 0.85,
-                    transformOrigin: 'bottom',
-                    animation: play
-                      ? `growbar .8s ${i * 0.03}s both cubic-bezier(.2,.8,.2,1)`
-                      : 'none',
-                  }}
-                />
-              );
-            })}
-            {i % 3 === 0 && (
-              <text x={cx + bw / 2} y={height - 8} textAnchor="middle" className="chart-axis">
-                {w.label as string}
-              </text>
-            )}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-export function MixDonut({ mix, size = 96 }: { mix: Record<string, number>; size?: number }) {
-  const entries = Object.entries(mix);
-  const total = entries.reduce((a, [, v]) => a + v, 0);
-  const r = size / 2 - 8,
-    cx = size / 2,
-    c = 2 * Math.PI * r;
-  let acc = 0;
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={`0 0 ${size} ${size}`}
-      style={{ transform: 'rotate(-90deg)' }}
-    >
-      {entries.map(([k, v]) => {
-        const frac = v / total;
-        const seg = (
-          <circle
-            key={k}
-            cx={cx}
-            cy={cx}
-            r={r}
-            fill="none"
-            stroke={sourceMeta(k).tone}
-            strokeWidth="10"
-            strokeDasharray={`${c * frac} ${c}`}
-            strokeDashoffset={-c * acc}
-            style={{ transition: 'stroke-dasharray .9s', opacity: 0.9 }}
-          />
-        );
-        acc += frac;
-        return seg;
-      })}
     </svg>
   );
 }
