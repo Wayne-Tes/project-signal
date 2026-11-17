@@ -94,14 +94,23 @@ test('never claims evidence it does not have', async ({ page }) => {
   test.skip(count === 0, 'no play matched for this brand yet');
 
   for (let i = 0; i < count; i += 1) {
-    const caveat = plays.nth(i).locator('.rm-caveat');
-    const text = await caveat.innerText();
+    /* The evidence note is the play's own paragraph; a reworded play adds a second .rm-caveat
+       inside its commit row, so the locator is pinned to the direct child. */
+    const text = await plays.nth(i).locator(':scope > p.rm-caveat').innerText();
 
-    if (/published source/i.test(text)) {
+    /* Anchored on the count. The unevidenced wording — "not yet backed by a published source" —
+       also contains "published source", so an unanchored match read the disclaimer as a claim
+       and demanded a citation the play rightly does not have. It only surfaced once scored data
+       made plays appear at all (2026-11-17). */
+    if (/^d+ published sources? — open to check$/i.test(text)) {
       /* If it claims a source, the link must actually be there to click. */
       await expect(plays.nth(i).locator('.rm-cite').first()).toBeVisible();
+    } else if (/^Backed by your own measured outcomes/i.test(text)) {
+      /* Internal evidence is the brand's own tracked results, not a link. */
+      await expect(plays.nth(i).locator('.rm-cite')).toHaveCount(0);
     } else {
       expect(text).toMatch(/not yet backed by a published source/i);
+      await expect(plays.nth(i).locator('.rm-cite')).toHaveCount(0);
       /* And it must not borrow the language of proof it has not got. */
       expect(text).not.toMatch(/proven|studies show|research shows/i);
     }

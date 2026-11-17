@@ -59,6 +59,18 @@ test.beforeEach(async ({ page }) => {
  * positive, so a spec that always drilled into the worst-performing one would have passed against
  * the broken build every time.
  */
+/**
+ * How many topics and signals the open panel shows. Polled, never read once: the title renders
+ * as soon as the level is pushed and the rows arrive with the fetch behind it, so a single count
+ * taken on the title raced the data and reported a populated level as empty.
+ */
+async function behind(page: Page): Promise<number> {
+  return (
+    (await panel(page).locator('.drill-row').count()) +
+    (await panel(page).locator('.signal').count())
+  );
+}
+
 async function openBestDimension(page: Page): Promise<string> {
   await openDrillDown(page);
 
@@ -86,9 +98,9 @@ test('the best-performing dimension does not dead-end', async ({ page }) => {
 
   /* Something must be behind the number: a topic, or the signals themselves. Both are acceptable
      outcomes; an empty panel is not. */
-  const topics = await panel(page).locator('.drill-row').count();
-  const signals = await panel(page).locator('.signal').count();
-  expect(topics + signals, `nothing rendered behind ${name}`).toBeGreaterThan(0);
+  await expect
+    .poll(() => behind(page), { message: `nothing rendered behind ${name}`, timeout: 15_000 })
+    .toBeGreaterThan(0);
 });
 
 test('every dimension the index counts leads somewhere', async ({ page }) => {
@@ -107,12 +119,12 @@ test('every dimension the index counts leads somewhere', async ({ page }) => {
     await expect(panel(page).locator('.drill-title')).toHaveText(label, { timeout: 15_000 });
 
     if (contributed > 0) {
-      const topics = await panel(page).locator('.drill-row').count();
-      const signals = await panel(page).locator('.signal').count();
-      expect(
-        topics + signals,
-        `${label} says ${contributed} signals contributed but shows nothing`,
-      ).toBeGreaterThan(0);
+      await expect
+        .poll(() => behind(page), {
+          message: `${label} says ${contributed} signals contributed but shows nothing`,
+          timeout: 15_000,
+        })
+        .toBeGreaterThan(0);
     }
 
     /* Back to level 1 via the spine — which also exercises that the stacked step navigates. */

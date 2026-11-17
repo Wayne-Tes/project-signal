@@ -29,7 +29,10 @@ test('the shell renders no non-http link', async ({ page }) => {
 
 test('every source link in the drill-down is http(s)', async ({ page }) => {
   await page.getByRole('button', { name: /dig into score/i }).click();
-  const row = page.locator('.drill-row').first();
+  /* Scoped to the open panel: the Dashboard's "Top negative clusters" card also uses .drill-row,
+     sits under the scrim, and appears as soon as anything is scored. */
+  const row = page.locator('.drill-panel:not(.stacked) .drill-row').first();
+  await row.waitFor({ timeout: 15_000 }).catch(() => undefined);
   test.skip((await row.count()) === 0, 'nothing scored for this brand yet');
   await row.click();
   await page

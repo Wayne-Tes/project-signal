@@ -164,8 +164,10 @@ test('the drill-down stacks a numbered step for each level passed', async ({ pag
   /* One level in: an open panel, no spines yet. */
   await expect(page.locator('.drill-panel.stacked')).toHaveCount(0);
 
-  /* Go one level deeper. The first row in the drill list is a dimension. */
-  const deeper = page.locator('.drill-row').first();
+  /* Go one level deeper. The first row in the OPEN PANEL is a dimension — scoped, because the
+     Dashboard's own "Top negative clusters" card uses .drill-row too and sits under the scrim.
+     It only renders once signals are scored, which is why an unscoped locator passed for months. */
+  const deeper = page.locator('.drill-panel:not(.stacked) .drill-row').first();
   if ((await deeper.count()) > 0) {
     await deeper.click();
 
