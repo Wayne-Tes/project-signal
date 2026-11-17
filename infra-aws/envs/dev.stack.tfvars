@@ -111,15 +111,18 @@ rds_log_groups_existing = ["postgresql"]
 # ACTIVE by `list-inference-profiles`, and `get-foundation-model-availability` reported
 # NOT_AVAILABLE for profiles that answered. Re-invoke before changing any value here.
 #
+# 2026-11-17: moved off Haiku 4.5 at the owner's direction. Each value INVOKED that day from
+# eu-west-2 through Converse with a tool (docs/HANDOVER.md §4.5). Sonnet 5.5 refuses a FORCED tool
+# choice; libs/llm falls back to offering it. Takes effect on the next apply, which must ship an
+# image containing that fallback.
+#
 # SCORER: runs once per signal — the cost-sensitive slot, and the reason it is Haiku.
-scorer_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+scorer_model = "eu.anthropic.claude-haiku-5-5"
 
-# REPORTER: deliberately the SAME model as the scorer. Opus 5 also works and the reporter is the
-# slot that would benefit — but nothing reads it until Epic 12 and no output has been measured.
-# Shipping an unmeasured "better" default is a smaller version of how this project came to ship
-# gemini-2.0-pro-001, a model that never existed. Change it when Epic 12 can compare two outputs.
-reporter_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+# REPORTER: roadmap rewording today (apps/api/src/lib/adapt-play.ts), and Epic 12's reports later
+# — text a person reads, so the larger model.
+reporter_model = "eu.anthropic.claude-sonnet-5-5"
 
 # ASSISTANT: the interactive in-product assistant. Separate variable so a latency-sensitive
 # surface can be tuned without disturbing the queue-driven scoring pipeline.
-assistant_model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+assistant_model = "eu.anthropic.claude-sonnet-5-5"
