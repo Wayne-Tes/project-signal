@@ -61,6 +61,10 @@ unrelated applications, so local dev runs **web on 3100** and **API on 9080**; t
 8081–8083. The API's port is passed as a _per-process_ `PORT` env var, never set in the root
 `.env` — that file is shared by all four backends, and the workers read `process.env.PORT` too,
 so a single `PORT` there makes them all fight for one socket (see the comment in `.env.example`).
+Every local process binds **`127.0.0.1` only** (`listenHost()` in `libs/config`; containers bind
+`0.0.0.0` because they run with `NODE_ENV=production`), so the local sign-in endpoint is not reachable
+from the office or home network. Set `HOST` to override. The e2e container still reaches the host
+through `host.docker.internal`, which Docker Desktop proxies to loopback.
 `corepack yarn dev` (one shared environment, api 8080) still works on a machine where 8080 is
 free. The web app reads `apps/web/.env.local`, not the root `.env`; copy `apps/web/.env.example`.
 In local auth mode the `NEXT_PUBLIC_COGNITO_*` values can stay empty; for Cognito sign-in, fill

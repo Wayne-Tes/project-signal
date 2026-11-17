@@ -1,3 +1,4 @@
+import { listenHost } from '@project-signal/config';
 import { client } from '@project-signal/db';
 import { buildApp, createItemConsumer } from './consumer.js';
 
@@ -15,7 +16,7 @@ const start = async () => {
     consumer.start();
     app.log.info('SQS consumer started on the item queue');
 
-    await app.listen({ port: Number(process.env['PORT'] ?? 8082), host: '0.0.0.0' });
+    await app.listen({ port: Number(process.env['PORT'] ?? 8082), host: listenHost() });
   } catch (err) {
     app.log.error(err);
     process.exit(1);

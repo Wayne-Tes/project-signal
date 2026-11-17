@@ -4,6 +4,9 @@ const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().default(8080),
+    // Interface to bind. Unset: 0.0.0.0 under NODE_ENV=production (a container, reached through
+    // its task ENI), 127.0.0.1 otherwise — see listenHost() below.
+    HOST: z.string().optional(),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
     // Connect either via a DATABASE_URL (local TCP) or discrete socket parts (Cloud Run +
     // Cloud SQL Auth Proxy, whose /cloudsql/PROJECT:REGION:INSTANCE path is not URL-parseable
@@ -158,4 +161,19 @@ export function getEnv(): Env {
     _env = parsed.data;
   }
   return _env;
+}
+
+/**
+ * The interface a service binds to. A container must listen on every interface or the load
+ * balancer and health checks cannot reach it, and every Dockerfile sets NODE_ENV=production. A
+ * developer machine must not: with AUTH_MODE=local the API mints tokens for anyone who can reach
+ * it, and 0.0.0.0 put it on the office or home network. HOST overrides either default.
+ *
+ * Reads process.env directly rather than getEnv(), because the workers boot without the API's
+ * full environment.
+ */
+export function listenHost(env: NodeJS.ProcessEnv = process.env): string {
+  const host = env['HOST']?.trim();
+  if (host) return host;
+  return env['NODE_ENV'] === 'production' ? '0.0.0.0' : '127.0.0.1';
 }

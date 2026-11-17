@@ -206,3 +206,24 @@ describe('getEnv', () => {
     });
   });
 });
+
+describe('listenHost', () => {
+  it('binds loopback outside production, so local sign-in is not reachable from the network', async () => {
+    const { listenHost } = await import('../src/index.js');
+    expect(listenHost({ NODE_ENV: 'development' })).toBe('127.0.0.1');
+    expect(listenHost({})).toBe('127.0.0.1');
+    expect(listenHost({ NODE_ENV: 'test' })).toBe('127.0.0.1');
+  });
+
+  it('binds every interface in production, where the container is reached through its ENI', async () => {
+    const { listenHost } = await import('../src/index.js');
+    expect(listenHost({ NODE_ENV: 'production' })).toBe('0.0.0.0');
+  });
+
+  it('honours an explicit HOST either way, and ignores a blank one', async () => {
+    const { listenHost } = await import('../src/index.js');
+    expect(listenHost({ NODE_ENV: 'development', HOST: '0.0.0.0' })).toBe('0.0.0.0');
+    expect(listenHost({ NODE_ENV: 'production', HOST: '10.0.0.5' })).toBe('10.0.0.5');
+    expect(listenHost({ NODE_ENV: 'production', HOST: '  ' })).toBe('0.0.0.0');
+  });
+});

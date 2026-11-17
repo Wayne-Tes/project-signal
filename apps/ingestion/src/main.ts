@@ -1,3 +1,4 @@
+import { listenHost } from '@project-signal/config';
 import { client } from '@project-signal/db';
 import { queueUrl } from '@project-signal/messaging';
 import { buildApp } from './app.js';
@@ -25,7 +26,7 @@ const start = async () => {
     scanConsumer.start();
     app.log.info('SQS consumer started on the scan queue');
 
-    await app.listen({ port: Number(process.env['PORT'] ?? 8081), host: '0.0.0.0' });
+    await app.listen({ port: Number(process.env['PORT'] ?? 8081), host: listenHost() });
   } catch (err) {
     app.log.error(err);
     process.exit(1);

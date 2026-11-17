@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { getEnv } from '@project-signal/config';
+import { getEnv, listenHost } from '@project-signal/config';
 import { buildApp } from './app.js';
 import { runMigrations } from './migrate.js';
 
@@ -11,7 +11,7 @@ const start = async () => {
     app.log.info('applying database migrations');
     await runMigrations();
 
-    await app.listen({ port: getEnv().PORT, host: '0.0.0.0' });
+    await app.listen({ port: getEnv().PORT, host: listenHost() });
   } catch (err) {
     // buildApp itself can fail (an invalid environment), before there is a logger to use.
     if (app) app.log.error(err);

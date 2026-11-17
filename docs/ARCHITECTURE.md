@@ -732,7 +732,9 @@ Fastify 5, port **8080**, ESM. Target: a public ECS Fargate service behind an AL
 ### Boot sequence (`src/main.ts` → `src/app.ts`)
 
 `main.ts` calls **`buildApp()`** (`src/app.ts`), runs **`runMigrations()`**, then
-`listen(PORT, '0.0.0.0')`. `buildApp()` is separate so the integration suite exercises the
+`listen(PORT, listenHost())`. `listenHost()` (`libs/config`) is `0.0.0.0` under
+`NODE_ENV=production` (every Dockerfile and ECS task) and `127.0.0.1` otherwise, so local sign-in is
+never reachable from the network; `HOST` overrides it. All four backends use it. `buildApp()` is separate so the integration suite exercises the
 production wiring, in this order:
 
 1. `httpBasics` (`src/lib/http.ts`): `@fastify/sensible` plus the **error boundary** (below)
@@ -1204,7 +1206,7 @@ Epic 12 — deliberately unbuilt. It carries the same 80% coverage gate as every
 ## 10. apps/web — dashboard
 
 Next.js 16 (App Router) + React 19, `output: 'standalone'`. Local dev serves on **3100**
-(`next dev --port 3100`).
+(`next dev --port 3100 --hostname 127.0.0.1`: loopback only, like the backends).
 
 ### Overlay features — `src/features/`
 
