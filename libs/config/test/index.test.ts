@@ -12,6 +12,10 @@ describe('getEnv', () => {
   beforeEach(() => {
     vi.resetModules();
     process.env = { ...original, ...BASE_ENV } as NodeJS.ProcessEnv;
+    /* vitest loads the repo-root .env, which holds a developer's Bedrock key locally; it would
+       trip the production refusal in every NODE_ENV=production case below. */
+    delete process.env['AWS_BEARER_TOKEN_BEDROCK'];
+    delete process.env['BEDROCK_REGION'];
   });
 
   afterEach(() => {
@@ -80,34 +84,63 @@ describe('getEnv', () => {
   });
 
   /**
-   * The default changed on 2026-08-09, and the reason is the point of the test.
+   * The defaults changed on 2026-11-17, off Haiku 4.5, at the owner's direction.
    *
-   * It was Haiku 4.5, recorded as verified via `list-inference-profiles`. That listing was not
-   * evidence: every profile this account may NOT invoke is still listed and still reports
-   * ACTIVE. Verified by actually invoking it, only Sonnet 5 and Opus 5 answer — so the deployed
-   * sentiment worker was carrying a model id it could no longer call.
-   *
-   * All three default to the same profile deliberately. Asserting that keeps them from drifting
-   * apart silently onto a value nobody has invoked.
+   * Each value was INVOKED from eu-west-2 that day through the Converse API with a tool — not
+   * read from `list-inference-profiles`, which lists profiles an account may not call (that is
+   * how a model this account could not use was once recorded as verified). Pinned here so a
+   * default can never drift onto a value nobody has invoked.
    */
-  const VERIFIED_MODEL = 'eu.anthropic.claude-haiku-4-5-20251001-v1:0';
+  const SCORER = 'eu.anthropic.claude-haiku-5-5';
+  const WRITER = 'eu.anthropic.claude-sonnet-5-5';
 
   it('applies SCORER_MODEL default', async () => {
     delete process.env['SCORER_MODEL'];
     const { getEnv } = await import('../src/index.js');
-    expect(getEnv().SCORER_MODEL).toBe(VERIFIED_MODEL);
+    expect(getEnv().SCORER_MODEL).toBe(SCORER);
   });
 
   it('applies ASSISTANT_MODEL default', async () => {
     delete process.env['ASSISTANT_MODEL'];
     const { getEnv } = await import('../src/index.js');
-    expect(getEnv().ASSISTANT_MODEL).toBe(VERIFIED_MODEL);
+    expect(getEnv().ASSISTANT_MODEL).toBe(WRITER);
   });
 
   it('applies REPORTER_MODEL default', async () => {
     delete process.env['REPORTER_MODEL'];
     const { getEnv } = await import('../src/index.js');
-    expect(getEnv().REPORTER_MODEL).toBe(VERIFIED_MODEL);
+    expect(getEnv().REPORTER_MODEL).toBe(WRITER);
+  });
+
+  describe('Bedrock API key', () => {
+    it('is refused in production, where the task role is the only credential', async () => {
+      process.env['NODE_ENV'] = 'production';
+      process.env['AWS_BEARER_TOKEN_BEDROCK'] = 'k';
+      process.env['BEDROCK_REGION'] = 'eu-west-2';
+      const { getEnv } = await import('../src/index.js');
+      expect(() => getEnv()).toThrow(/AWS_BEARER_TOKEN_BEDROCK is refused/);
+    });
+
+    it('requires BEDROCK_REGION alongside it', async () => {
+      process.env['NODE_ENV'] = 'development';
+      process.env['AWS_BEARER_TOKEN_BEDROCK'] = 'k';
+      const { getEnv } = await import('../src/index.js');
+      expect(() => getEnv()).toThrow(/BEDROCK_REGION=eu-west-2 is required/);
+    });
+
+    it('is accepted locally with the sandbox region', async () => {
+      process.env['NODE_ENV'] = 'development';
+      process.env['AWS_BEARER_TOKEN_BEDROCK'] = 'k';
+      process.env['BEDROCK_REGION'] = 'eu-west-2';
+      const { getEnv } = await import('../src/index.js');
+      expect(getEnv().AWS_BEARER_TOKEN_BEDROCK).toBe('k');
+    });
+
+    it('refuses any Bedrock region but the sandbox one', async () => {
+      process.env['BEDROCK_REGION'] = 'us-east-1';
+      const { getEnv } = await import('../src/index.js');
+      expect(() => getEnv()).toThrow(/BEDROCK_REGION/);
+    });
   });
 
   it('accepts the SQS queue URLs', async () => {

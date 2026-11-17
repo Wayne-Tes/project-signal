@@ -371,7 +371,7 @@ schema default, so any process launched without `NODE_ENV` trusted them.
 injects the stack's mandatory tags into the API task, and the API stamps them on the CRM secrets
 it creates at runtime (which `default_tags` cannot reach). Unset locally.
 
-**Bedrock from a laptop.** `BEDROCK_AWS_PROFILE` / `BEDROCK_REGION` are optional and local-only
+**Bedrock from a laptop.** `AWS_BEARER_TOKEN_BEDROCK` / `BEDROCK_REGION` are optional and local-only
 — see `libs/llm` below. Deployed tasks leave them unset.
 
 Models are named by **use case** (`SCORER_MODEL` / `REPORTER_MODEL`), not by provider, so the
@@ -465,12 +465,20 @@ on `stopReason = max_tokens`** rather than returning a truncated tool call. Its 
 **unchecked** — the provider guarantees a tool call, not that its fields are in range — so every
 caller validates (the scorer's `validateScore`, for instance).
 
-**Endpoint and credentials.** The Bedrock client **ignores `AWS_ENDPOINT_URL`**: LocalStack has
-no Bedrock, and honouring the override sent every local LLM call to LocalStack. When
-`BEDROCK_AWS_PROFILE` is set (local only, e.g. `psignal-dev`), it is passed as the client's
-`profile`, which makes the SDK skip the LocalStack `test` keys in the environment
-(`@aws-sdk/credential-provider-node`, `defaultProvider`). `BEDROCK_REGION` overrides
-`AWS_REGION`. Deployed tasks set neither and use the task role.
+**Endpoint and credentials.** Locally the LLM client presents a Bedrock API key
+(`AWS_BEARER_TOKEN_BEDROCK`) as a bearer token, with `authSchemePreference: ['httpBearerAuth']`
+so the LocalStack `test` keys in the environment are never used to sign, and with the endpoint
+**named** (`https://bedrock-runtime.<BEDROCK_REGION>.amazonaws.com`) so `AWS_ENDPOINT_URL` —
+LocalStack — cannot redirect it. Config requires `BEDROCK_REGION=eu-west-2` with the key and
+refuses the key under `NODE_ENV=production`. Deployed tasks set neither and use the task role.
+An SSO profile was the previous route and was **removed** (2026-11-17): its cached token reaches
+every account the developer can, and anything running as that user can read it (HANDOVER §4.5).
+
+**Forced tool choice is not universal.** Sonnet 5.5 and Opus 5.5 reject `toolChoice: { tool }`
+(`tool_choice: type "tool" and "any" are not supported for this model`). `structured()` then
+retries once with the tool offered (`auto`) and the obligation stated in the system prompt,
+remembers the model for the life of the process, and still refuses an answer with no tool call.
+No other validation error is retried.
 
 > **Model ids on Bedrock are inference profiles**, and availability is per account and changes.
 > The bare `anthropic.claude-…` id is rejected with _"on-demand throughput isn't supported"_; the
@@ -1467,7 +1475,7 @@ on `source_configs.last_error` and is retried by the next hourly sweep.
 
 The deployed system runs this path in `290304998906` / `eu-west-2` (HANDOVER §0a). Locally it runs
 against Docker Postgres and LocalStack, with scoring reaching real Bedrock only when
-`BEDROCK_AWS_PROFILE` is set.
+`AWS_BEARER_TOKEN_BEDROCK` is set.
 
 ### Dashboard read path
 
@@ -1805,9 +1813,9 @@ written to S3, read back, published to SQS, deduplicated on re-run and swept by 
 See [`HANDOVER.md`](HANDOVER.md) §5.
 
 The one link that cannot be closed locally is **LLM calls** (scoring, the assistant, roadmap
-rewording) — LocalStack does not emulate Bedrock. Set `BEDROCK_AWS_PROFILE=psignal-dev` and
-`aws sso login --profile psignal-dev`: the LLM client alone uses that profile and ignores
-`AWS_ENDPOINT_URL`, while S3 and SQS stay on LocalStack.
+rewording) — LocalStack does not emulate Bedrock. Put a Bedrock API key in
+`AWS_BEARER_TOKEN_BEDROCK`: the LLM client alone presents it, to the real eu-west-2 endpoint,
+while S3 and SQS stay on LocalStack.
 
 **Sign-in is local too.** With `AUTH_MODE=local` (root `.env`) and `NEXT_PUBLIC_AUTH_MODE=local`
 (`apps/web/.env.local`) the web app shows a local sign-in screen backed by the API's

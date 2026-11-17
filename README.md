@@ -88,8 +88,9 @@ seeding, or `yarn db:seed` fails with `relation "tenants" does not exist`.
 and the deployed visibility timeouts — so the local stack fails the way the real one will.
 
 **LocalStack does not emulate Bedrock.** Scoring, the assistant and roadmap rewording need the
-real service: set `BEDROCK_AWS_PROFILE=psignal-dev` in `.env` and `aws sso login --profile
-psignal-dev`. Only the LLM client uses that profile; S3 and SQS stay on LocalStack.
+real service: put a Bedrock API key in `AWS_BEARER_TOKEN_BEDROCK` in `.env`, with
+`BEDROCK_REGION=eu-west-2`. Only the LLM client uses it; S3 and SQS stay on LocalStack. How the
+key is created and what it may do: `docs/HANDOVER.md` §4.5.
 
 ### Running the pipeline locally
 
@@ -202,8 +203,8 @@ backed by the API's `POST /auth/local/sign-in`. `yarn db:seed` creates three use
 `LOCAL_AUTH_PASSWORD`. The API **refuses to start** with `AUTH_MODE=local` when
 `NODE_ENV=production`, and the deployed stack never sets it.
 
-LLM calls are the one thing that still needs AWS locally (LocalStack has no Bedrock): set
-`BEDROCK_AWS_PROFILE=psignal-dev` and run `aws sso login --profile psignal-dev`.
+LLM calls are the one thing that still needs AWS locally (LocalStack has no Bedrock): a Bedrock
+API key in `AWS_BEARER_TOKEN_BEDROCK` (`docs/HANDOVER.md` §4.5).
 
 The `users` table mirrors roles for the management UI; in Cognito mode it is **not** what
 authorises a request (in local mode the row is the claim).

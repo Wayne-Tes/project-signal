@@ -96,8 +96,8 @@
 >   a local sign-in; `yarn db:seed` creates `local-owner`, `local-admin`, `local-user`, all with
 >   `LOCAL_AUTH_PASSWORD`. Unsigned `dev:` tokens are accepted **only** in that mode, never because
 >   `NODE_ENV` is `development`, and the API refuses local mode under `NODE_ENV=production`.
-> - **Bedrock from a laptop** via `BEDROCK_AWS_PROFILE=psignal-dev` (plus `aws sso login`); the LLM
->   client alone uses it and ignores `AWS_ENDPOINT_URL`. Everything else stays on LocalStack.
+> - **Bedrock from a laptop** via a Bedrock API key in `AWS_BEARER_TOKEN_BEDROCK` (§4.5); the LLM
+>   client alone presents it, to the real eu-west-2 endpoint. Everything else stays on LocalStack.
 > - **Real-Postgres integration suite:** `yarn nx run api:test:integration` (database
 >   `project_signal_test`).
 > - **Pipeline:** `/ingest/dispatch` and the sentiment worker's `/pubsub/item` are gone; all
@@ -545,7 +545,8 @@ which is documentation of it and is allowed to drift. Notable current state:
   since the use-case form was submitted (§3.4, `OWNER-ACTIONS.md` #1). Verify by invoking.
 - `AUTH_MODE` (`cognito` default | `local`), `LOCAL_AUTH_PASSWORD` (≥ 12 chars, local only),
   `RESOURCE_TAGS` (JSON tags for runtime-created CRM secrets, injected by Terraform),
-  `BEDROCK_AWS_PROFILE` / `BEDROCK_REGION` (local only) — added 2026-11-16. `AUTH_MODE=local` is
+  `AWS_BEARER_TOKEN_BEDROCK` / `BEDROCK_REGION` (local only; replaced `BEDROCK_AWS_PROFILE` on
+  2026-11-17, see §4.5; the key is refused under production and the region is pinned to eu-west-2). `AUTH_MODE=local` is
   **rejected under `NODE_ENV=production`**.
 - `DB_SOCKET_PATH` still exists and is Cloud-SQL-proxy-only. **It simplifies away on RDS** —
   delete it when the database lands.
@@ -570,6 +571,41 @@ replaces Firebase must populate `request.user.{role, tenantId, brandEntityId}` i
 `requireRole` and `requireBrandAccess` both depend on it.
 
 ---
+
+### 4.5 Bedrock from a laptop: an API key, never an SSO login
+
+**Decided 2026-11-17 by the owner, who holds organisation-administrator rights.** An `aws sso login`
+caches a token on the machine that reaches every account and role its owner can — for an org
+administrator, production — and anything running as that Windows user, a coding agent included,
+can read the cache. No instruction file changes that. So local development reaches Bedrock with a
+credential that AWS itself confines, and nothing else:
+
+| What                              | Value                                                                                                                                                                                                                                                           |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Credential                        | Long-term **Bedrock API key**, 30-day expiry, in `AWS_BEARER_TOKEN_BEDROCK` in the git-ignored root `.env` only                                                                                                                                                 |
+| IAM user                          | `BedrockAPIKey-pdte`, account `290304998906` — created by the Bedrock console's "Generate long-term API key", 2026-11-17                                                                                                                                        |
+| Default policy                    | `AmazonBedrockLimitedAccess` **removed** — it reaches well beyond model calls                                                                                                                                                                                   |
+| Inline policy `psignal-local-llm` | `bedrock:CallWithBearerToken`; `bedrock:InvokeModel` + `InvokeModelWithResponseStream` on `arn:aws:bedrock:*:290304998906:inference-profile/*` and `arn:aws:bedrock:*::foundation-model/*`; `bedrock:List/GetFoundationModel(s)`, `List/GetInferenceProfile(s)` |
+
+**Proven, not assumed** (2026-11-17, with the key): `GET /inference-profiles` → 200;
+`GET /guardrails` → **403** and `GET /custom-models` → **403**, AWS naming the caller
+`arn:aws:iam::290304998906:user/BedrockAPIKey-pdte` — which also confirms the account. A bearer key
+cannot sign S3, IAM, STS or any non-Bedrock call at all.
+
+**Console, not Terraform — a recorded exception.** The owner chose the console for speed. The IAM
+user and its inline policy are therefore **not in Terraform state**; `99-teardown.sh` (which
+inventories by tag and name prefix) will not find them. Before the key expires, either rotate it in
+the console or bring the user and policy under `infra-aws/stack`.
+
+**Code guards:** `libs/config` refuses the key under `NODE_ENV=production` and requires
+`BEDROCK_REGION=eu-west-2` with it; `libs/llm` names the regional endpoint so `AWS_ENDPOINT_URL`
+(LocalStack) cannot redirect the key. The `BEDROCK_AWS_PROFILE` route was removed outright.
+
+**Models moved off Haiku 4.5 the same day**, at the owner's direction. Invoked through Converse with
+a tool from eu-west-2: `eu.anthropic.claude-haiku-5-5` (scorer; accepts a forced tool),
+`eu.anthropic.claude-sonnet-5-5` (assistant and roadmap rewording; refuses a forced tool, answers
+with it offered — handled in `libs/llm`), `eu.anthropic.claude-opus-5-5` (same). The deployed
+stack still runs Haiku 4.5 until `infra-aws/envs/dev.stack.tfvars` is applied.
 
 ## 5. What is proven, and what is not
 
@@ -771,8 +807,7 @@ curl -X POST localhost:8081/ingest -H 'Content-Type: application/json' \
 
 Sign in to the web app (`yarn nx run @project-signal/web:dev`, `http://localhost:3100`, with
 `NEXT_PUBLIC_AUTH_MODE=local` in `apps/web/.env.local`) as any seeded user with
-`LOCAL_AUTH_PASSWORD`. Scoring needs Bedrock: set `BEDROCK_AWS_PROFILE=psignal-dev` and run
-`aws sso login --profile psignal-dev`.
+`LOCAL_AUTH_PASSWORD`. Scoring needs Bedrock: a Bedrock API key in `AWS_BEARER_TOKEN_BEDROCK` (§4.5).
 
 `scripts/localstack-init.sh` creates the bucket and the item, report and scan queues with their
 DLQs on boot, with `maxReceiveCount: 5` and the deployed visibility timeouts — so the local stack

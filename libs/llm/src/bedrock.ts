@@ -34,24 +34,58 @@ import {
  * **`AWS_ENDPOINT_URL` is deliberately NOT honoured here**, unlike the S3 and SQS clients. Locally
  * it points at LocalStack, which does not emulate Bedrock, so following it would turn every
  * scoring call into a connection error against an endpoint that cannot answer. Instead a developer
- * names an AWS profile (`BEDROCK_AWS_PROFILE`, see libs/config) and this client — alone — uses that
- * profile's credentials to reach the real service. Passing `profile` in the client config makes the
- * SDK skip environment credentials, which locally are LocalStack's dummy `test` pair.
+ * puts a Bedrock API key in `AWS_BEARER_TOKEN_BEDROCK` (see libs/config) and this client — alone —
+ * presents it, with the real regional endpoint named explicitly so LocalStack is never asked.
+ *
+ * **Why an API key and not an SSO profile.** An SSO login caches a token on the developer's machine
+ * that reaches every account and role the developer can — for an organisation administrator, that
+ * is production. Anything running as that user, a coding agent included, can read the cache. A
+ * Bedrock API key can do nothing but call Bedrock, and its IAM user is held to invoke-and-list by
+ * an inline policy (docs/HANDOVER.md), so the worst a leaked key can do is run model calls in the
+ * sandbox until it expires. The profile route was removed for that reason, not deprecated.
  */
 export interface BedrockClientOptions {
-  /** Named AWS profile for credentials. Unset in a deployed environment (task role). */
-  profile?: string;
-  /** Bedrock region. Unset means the SDK's own resolution (AWS_REGION). */
+  /** Bedrock API key. Local development only; unset in a deployed environment (task role). */
+  apiKey?: string;
+  /** Bedrock region. Unset means the SDK's own resolution (AWS_REGION). Required with `apiKey`. */
   region?: string;
+}
+
+/**
+ * Some models refuse a forced tool choice outright — Claude Sonnet 5.5 and Opus 5.5 on Bedrock
+ * answer `tool_choice: type "tool" and "any" are not supported for this model` (invoked
+ * 2026-11-17). Matched on the provider's message because the error class alone,
+ * ValidationException, also covers genuinely malformed requests that must not be retried.
+ */
+const FORCED_TOOL_UNSUPPORTED = /tool_choice[^]*not supported/i;
+
+function isForcedToolUnsupported(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    err.name === 'ValidationException' &&
+    FORCED_TOOL_UNSUPPORTED.test(err.message)
+  );
 }
 
 export class BedrockLlmClient implements LlmClient {
   private readonly client: BedrockRuntimeClient;
+  /** Models seen to refuse a forced tool choice, so each pays for the refusal once per process. */
+  private readonly offerToolOnly = new Set<string>();
 
   constructor(options: BedrockClientOptions = {}) {
+    if (options.apiKey && !options.region) {
+      throw new Error('A Bedrock API key needs an explicit region (BEDROCK_REGION)');
+    }
     this.client = new BedrockRuntimeClient({
-      ...(options.profile ? { profile: options.profile } : {}),
       ...(options.region ? { region: options.region } : {}),
+      ...(options.apiKey
+        ? {
+            token: { token: options.apiKey },
+            authSchemePreference: ['httpBearerAuth'],
+            /* Named, so AWS_ENDPOINT_URL (LocalStack, locally) can never redirect the key. */
+            endpoint: `https://bedrock-runtime.${options.region}.amazonaws.com`,
+          }
+        : {}),
     });
   }
 
@@ -64,23 +98,42 @@ export class BedrockLlmClient implements LlmClient {
     schema,
     maxTokens = 1024,
   }: StructuredRequest): Promise<T> {
-    const res = await this.client.send(
-      new ConverseCommand({
-        // Newer models reject a bare model id with "on-demand throughput isn't supported" and
-        // require an inference profile instead. Callers pass the profile id; this client does
-        // not rewrite it, because which profile is correct is a data-residency decision
-        // (`eu.` keeps routing inside the EU, `global.` does not) and not one to make silently.
-        modelId: model,
-        ...(system ? { system: [{ text: system }] } : {}),
-        messages: [{ role: 'user', content: [{ text: prompt }] }],
-        toolConfig: {
-          tools: [{ toolSpec: { name, description, inputSchema: { json: schema } } }],
-          toolChoice: { tool: { name } },
-        },
-        /* A ceiling, so a runaway answer costs a bounded amount. Hitting it is checked below. */
-        inferenceConfig: { maxTokens },
-      }),
-    );
+    const send = (forced: boolean) => {
+      /* Without a forced choice the instruction carries the obligation instead; the missing-call
+         check below still refuses an answer that ignores it, so nothing unstructured gets through. */
+      const instruction = forced ? undefined : `Respond only by calling the ${name} tool.`;
+      const systemText = [system, instruction].filter(Boolean).join('\n\n');
+      return this.client.send(
+        new ConverseCommand({
+          // Newer models reject a bare model id with "on-demand throughput isn't supported" and
+          // require an inference profile instead. Callers pass the profile id; this client does
+          // not rewrite it, because which profile is correct is a data-residency decision
+          // (`eu.` keeps routing inside the EU, `global.` does not) and not one to make silently.
+          modelId: model,
+          ...(systemText ? { system: [{ text: systemText }] } : {}),
+          messages: [{ role: 'user', content: [{ text: prompt }] }],
+          toolConfig: {
+            tools: [{ toolSpec: { name, description, inputSchema: { json: schema } } }],
+            toolChoice: forced ? { tool: { name } } : { auto: {} },
+          },
+          /* A ceiling, so a runaway answer costs a bounded amount. Hitting it is checked below. */
+          inferenceConfig: { maxTokens },
+        }),
+      );
+    };
+
+    let res;
+    if (this.offerToolOnly.has(model)) {
+      res = await send(false);
+    } else {
+      try {
+        res = await send(true);
+      } catch (err) {
+        if (!isForcedToolUnsupported(err)) throw err;
+        this.offerToolOnly.add(model);
+        res = await send(false);
+      }
+    }
 
     /* A tool call cut off at the output ceiling can still parse — as a PARTIAL object with
        fields missing. That is worse than no answer, so it is refused here rather than handed to

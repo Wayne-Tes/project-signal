@@ -106,26 +106,35 @@ const envSchema = z
     //     the database stay in eu-west-2 regardless; this governs where inference runs.
     //   - `temperature` must NOT be sent to Sonnet 5 — it rejects the request outright. See
     //     libs/llm/src/bedrock.ts.
-    SCORER_MODEL: z.string().default('eu.anthropic.claude-haiku-4-5-20251001-v1:0'),
-    REPORTER_MODEL: z.string().default('eu.anthropic.claude-haiku-4-5-20251001-v1:0'),
+    //   - Sonnet 5.5 and Opus 5.5 refuse a FORCED tool choice; the client falls back to offering
+    //     the tool (libs/llm/src/bedrock.ts). Haiku 5.5 accepts it.
+    //
+    // MOVED OFF HAIKU 4.5 on 2026-11-17, at the owner's direction: a generation behind, and the
+    // product was judged on it. Each value below was INVOKED that day from eu-west-2, through
+    // the Converse API with a tool, and answered: Haiku 5.5 with the tool forced, Sonnet 5.5 with
+    // it offered. The scorer stays the small model for the cost reason above; the reporter
+    // (roadmap rewording, adapt-play.ts) and the assistant are the surfaces a person reads.
+    SCORER_MODEL: z.string().default('eu.anthropic.claude-haiku-5-5'),
+    REPORTER_MODEL: z.string().default('eu.anthropic.claude-sonnet-5-5'),
     // The interactive assistant. Separate from the two above so a latency-sensitive surface can
-    // be tuned without touching the queue-driven pipeline — and on Haiku deliberately: the
-    // assistant is the surface a person judges, so it is where right-sizing has to be proven
-    // rather than assumed. Raise it to Sonnet 5 if answer quality does not hold.
-    ASSISTANT_MODEL: z.string().default('eu.anthropic.claude-haiku-4-5-20251001-v1:0'),
+    // be tuned without touching the queue-driven pipeline.
+    ASSISTANT_MODEL: z.string().default('eu.anthropic.claude-sonnet-5-5'),
     // LOCAL DEVELOPMENT ONLY — how a developer's machine reaches the real Bedrock.
     //
     // Locally, AWS_ENDPOINT_URL points every AWS client at LocalStack, and AWS_ACCESS_KEY_ID /
-    // AWS_SECRET_ACCESS_KEY hold LocalStack's dummy `test` pair. LocalStack has no Bedrock, so the
-    // LLM client ignores AWS_ENDPOINT_URL; and because environment credentials outrank a profile
-    // in the SDK's default chain, it would still sign with the dummy pair. Naming a profile here
-    // makes the Bedrock client — and ONLY it — use that profile's credentials (an SSO profile on
-    // the sandbox account), so S3 and SQS stay on LocalStack while scoring calls the real model.
+    // AWS_SECRET_ACCESS_KEY hold LocalStack's dummy `test` pair. LocalStack has no Bedrock. A
+    // Bedrock API key here makes the LLM client — and ONLY it — call the real regional endpoint
+    // with that key, so S3 and SQS stay on LocalStack while scoring calls the real model.
+    //
+    // A key, not an SSO profile: an SSO login caches a token that reaches every account its owner
+    // can, and anything running as that user can read it. The key can only call Bedrock, and its
+    // IAM user is held to invoke-and-list (docs/HANDOVER.md). Never commit it; `.env` only.
     //
     // Leave both UNSET in a deployed environment: the ECS task role is then used, unchanged.
-    BEDROCK_AWS_PROFILE: z.string().min(1).optional(),
-    // Region for Bedrock calls. Defaults to the SDK's own resolution (AWS_REGION).
-    BEDROCK_REGION: z.string().min(1).optional(),
+    AWS_BEARER_TOKEN_BEDROCK: z.string().min(1).optional(),
+    // Region for Bedrock calls. Defaults to the SDK's own resolution (AWS_REGION). Pinned to the
+    // sandbox region: this repository works in eu-west-2 only (CLAUDE.md).
+    BEDROCK_REGION: z.literal('eu-west-2').optional(),
     // Cloud Storage buckets, injected per environment by Terraform. RAW_BUCKET holds the
     // verbatim ingested payloads that sentiment scoring reads back.
     RAW_BUCKET: z.string().optional(),
@@ -142,6 +151,16 @@ const envSchema = z
       'AUTH_MODE=local is refused when NODE_ENV=production: it accepts unsigned tokens and must ' +
       'never run in a deployed environment',
     path: ['AUTH_MODE'],
+  })
+  .refine((e) => !(e.AWS_BEARER_TOKEN_BEDROCK && e.NODE_ENV === 'production'), {
+    message:
+      'AWS_BEARER_TOKEN_BEDROCK is refused when NODE_ENV=production: a deployed service calls ' +
+      'Bedrock as its task role, never with a developer key',
+    path: ['AWS_BEARER_TOKEN_BEDROCK'],
+  })
+  .refine((e) => !e.AWS_BEARER_TOKEN_BEDROCK || e.BEDROCK_REGION === 'eu-west-2', {
+    message: 'BEDROCK_REGION=eu-west-2 is required with AWS_BEARER_TOKEN_BEDROCK',
+    path: ['BEDROCK_REGION'],
   })
   .refine((e) => e.AUTH_MODE !== 'local' || (e.LOCAL_AUTH_PASSWORD?.length ?? 0) >= 12, {
     message: 'LOCAL_AUTH_PASSWORD (at least 12 characters) is required when AUTH_MODE=local',

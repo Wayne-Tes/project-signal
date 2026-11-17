@@ -22,14 +22,14 @@ let _client: LlmClient | undefined;
 /**
  * Returns the process-wide LLM client, memoised.
  *
- * `BEDROCK_AWS_PROFILE` / `BEDROCK_REGION` exist for local development only — see libs/config.
- * Deployed, both are unset and the client uses the task role.
+ * `AWS_BEARER_TOKEN_BEDROCK` / `BEDROCK_REGION` exist for local development only — see
+ * libs/config. Deployed, both are unset and the client uses the task role.
  */
 export function getLlmClient(): LlmClient {
   if (!_client) {
     const env = getEnv();
     _client = new BedrockLlmClient({
-      profile: env.BEDROCK_AWS_PROFILE,
+      apiKey: env.AWS_BEARER_TOKEN_BEDROCK,
       region: env.BEDROCK_REGION,
     });
   }

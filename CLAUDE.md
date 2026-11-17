@@ -274,9 +274,12 @@ Local development needs **no AWS account and no Cognito**, except for LLM calls:
   `apps/web/.env.local`). The seed creates `local-owner`, `local-admin` and `local-user`; the
   password is `LOCAL_AUTH_PASSWORD` in the root `.env` (git-ignored). The API **refuses to start**
   with `AUTH_MODE=local` when `NODE_ENV=production`, and the deployed stack never sets it.
-- **Bedrock:** LocalStack does not emulate it. Set `BEDROCK_AWS_PROFILE=psignal-dev` and run
-  `aws sso login --profile psignal-dev`; only the LLM client uses that profile, and it bypasses
-  `AWS_ENDPOINT_URL`. Everything else stays on LocalStack.
+- **Bedrock:** LocalStack does not emulate it. Put a Bedrock API key in `AWS_BEARER_TOKEN_BEDROCK`
+  (root `.env`, with `BEDROCK_REGION=eu-west-2`); only the LLM client uses it, against the real
+  eu-west-2 endpoint. Everything else stays on LocalStack. **Never an SSO login for this** — its
+  cached token reaches every account its owner can, and an agent on the machine can read it. The
+  key's IAM user is held to invoke-and-list (HANDOVER §4.5), and the API refuses the key under
+  `NODE_ENV=production`.
 
 There is no `db:migrate` script — **the API applies migrations on startup**, guarded by a
 Postgres advisory lock. Never add migration calls to a worker.
