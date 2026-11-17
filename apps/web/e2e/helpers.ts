@@ -66,13 +66,42 @@ export async function presetAppearance(
   }, prefs);
 }
 
+/** sessionStorage key of the local-mode session — `src/lib/local-auth.ts`. */
+const LOCAL_SESSION_KEY = 'ps.local-session';
+
+/**
+ * The local session from this worker's first real sign-in, replayed into every later test.
+ *
+ * WHY. `POST /auth/local/sign-in` is rate-limited to 10 attempts a minute per address — a
+ * brute-force guard on a password endpoint, and the right limit. The suite signs in for every test,
+ * so typing the password each time tripped the guard partway through the run and a third of the
+ * suite failed on "Too many sign-in attempts". The sign-in FORM is still driven for real: once per
+ * worker here, and by every test in local-auth.spec.ts, which passes `{ viaForm: true }`.
+ *
+ * Cognito mode is unaffected: its session lives in Amplify's storage and is always signed in
+ * through the form.
+ */
+let localSession: string | null = null;
+
 /** Signs in and waits for the shell. Throws rather than returning a bad state. */
-export async function signIn(page: Page): Promise<void> {
+export async function signIn(page: Page, opts: { viaForm?: boolean } = {}): Promise<void> {
+  const nav = page.locator('nav[aria-label="Main"]');
+  const reuse = authMode() === 'local' && !opts.viaForm ? localSession : null;
+  if (reuse) {
+    /* Before any app script runs, so the shell boots already signed in. */
+    await page.addInitScript(
+      ([key, value]) => {
+        if (!window.sessionStorage.getItem(key)) window.sessionStorage.setItem(key, value);
+      },
+      [LOCAL_SESSION_KEY, reuse] as const,
+    );
+  }
+
   const { identifier, password } = credentials();
   await page.goto('/');
 
   /* An already-authenticated context lands straight on the shell. */
-  const nav = page.locator('nav[aria-label="Main"]');
+  if (reuse) await expect(nav).toBeVisible({ timeout: 30_000 });
   if (await nav.isVisible().catch(() => false)) return;
 
   /* One field id for both modes — its label is "Email" or "Username". */
@@ -80,6 +109,13 @@ export async function signIn(page: Page): Promise<void> {
   await page.locator('#password').fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
   await expect(nav).toBeVisible({ timeout: 30_000 });
+
+  if (authMode() === 'local') {
+    localSession = await page.evaluate(
+      (key) => window.sessionStorage.getItem(key),
+      LOCAL_SESSION_KEY,
+    );
+  }
 }
 
 /** Navigates via the real sidebar link, as a user would. */

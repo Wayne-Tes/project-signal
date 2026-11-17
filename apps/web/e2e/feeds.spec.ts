@@ -27,12 +27,23 @@ async function sweep(page: Page): Promise<void> {
   const panel = page.locator('section', { hasText: 'Feeds' }).first();
   for (let guard = 0; guard < 10; guard += 1) {
     const stale = panel.getByRole('button', { name: new RegExp(`^Remove ${MARK}`) });
-    if ((await stale.count()) === 0) return;
-    await stale.first().click();
-    await panel.getByRole('button', { name: 'Confirm remove' }).click();
-    await expect(stale).toHaveCount(await stale.count().then((n) => Math.max(0, n - 1)), {
-      timeout: 15_000,
-    });
+    /* Race-tolerant. The list re-renders after every remove, so a row counted here can be gone
+       by the time it is clicked; an exact "before - 1" expectation also failed whenever the
+       delete landed before the count. Recount instead of trusting a stale number. */
+    const before = await stale.count();
+    if (before === 0) return;
+    const clicked = await stale
+      .first()
+      .click({ timeout: 5_000 })
+      .then(
+        () => true,
+        () => false,
+      );
+    if (!clicked) continue;
+    const confirm = panel.getByRole('button', { name: 'Confirm remove' });
+    await confirm.click();
+    await expect(confirm).toHaveCount(0, { timeout: 15_000 });
+    await expect.poll(() => stale.count(), { timeout: 15_000 }).toBeLessThan(before);
   }
 }
 
@@ -125,10 +136,14 @@ test('renames one feed without touching the other', async ({ page }) => {
   await expect(target).toBeVisible({ timeout: 15_000 });
 
   await target.getByRole('button', { name: `Edit ${MARK} Rename` }).click();
-  await page.getByLabel('Name').fill(`${MARK} Renamed`);
+  /* Scoped and exact: the Admin page also has Tenant name, Brand name, the entity Name and the
+     add form's 'Name (optional)'. */
+  await panel.getByLabel('Name', { exact: true }).fill(`${MARK} Renamed`);
   await panel.getByRole('button', { name: 'Save' }).click();
 
-  await expect(panel.locator('li', { hasText: `${MARK} Renamed` })).toBeVisible({ timeout: 15_000 });
+  await expect(panel.locator('li', { hasText: `${MARK} Renamed` })).toBeVisible({
+    timeout: 15_000,
+  });
   /* The other one is untouched. Editing by source TYPE would have hit whichever row the API
      happened to find first. */
   await expect(panel.locator('li', { hasText: `${MARK} Keep` })).toBeVisible();
@@ -139,7 +154,8 @@ test('renames one feed without touching the other', async ({ page }) => {
 test('the drill-down stacks a numbered step for each level passed', async ({ page }) => {
   /* The feature the owner remembered and could not find. Each completed level collapses to a
      narrow spine — 01, 02 — standing as its own column beside the open panel. */
-  await goToView(page, /overview/i);
+  /* The Dashboard opens the overview drill-down; there is no sidebar item called Overview. */
+  await goToView(page, /dashboard/i);
 
   const opener = page.locator('.drill-hint, .clickable').first();
   await opener.click();
@@ -191,14 +207,16 @@ test('no panel overflows its card', async ({ page }) => {
       const s = getComputedStyle(d);
       return s.borderRadius === '14px' && s.borderStyle === 'solid';
     });
-    return cards
-      .map((c) => ({
-        title: c.querySelector('h2')?.textContent?.trim() ?? '(untitled)',
-        clientWidth: c.clientWidth,
-        scrollWidth: c.scrollWidth,
-      }))
-      /* One pixel of slack for sub-pixel rounding; 245 is not rounding. */
-      .filter((c) => c.scrollWidth > c.clientWidth + 1);
+    return (
+      cards
+        .map((c) => ({
+          title: c.querySelector('h2')?.textContent?.trim() ?? '(untitled)',
+          clientWidth: c.clientWidth,
+          scrollWidth: c.scrollWidth,
+        }))
+        /* One pixel of slack for sub-pixel rounding; 245 is not rounding. */
+        .filter((c) => c.scrollWidth > c.clientWidth + 1)
+    );
   });
 
   expect(overflowing, `panels wider than their card: ${JSON.stringify(overflowing)}`).toEqual([]);

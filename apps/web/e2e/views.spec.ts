@@ -19,7 +19,7 @@ test('Trends renders history or says why it cannot', async ({ page }) => {
   await goToView(page, /trends/i);
   await expect(page.getByText(/could not load this view/i)).toHaveCount(0);
   await expect(page.locator('.ds-content')).toContainText(
-    /trust|quality|service|value|experience|no brand perception index/i,
+    /trust|quality|service|value|experience|no dimension scores yet/i,
   );
 });
 
@@ -42,7 +42,8 @@ test('Brand impact cards are not buttons, and each opens its evidence', async ({
 test('Competitors lists the set and never draws an unscored brand as zero', async ({ page }) => {
   await goToView(page, /competitors/i);
   await expect(page.getByText(/could not load this view/i)).toHaveCount(0);
-  await expect(page.getByText('Yours')).toBeVisible({ timeout: 15_000 });
+  /* first(): the owned brand AND each owned product carry the badge. */
+  await expect(page.getByText('Yours').first()).toBeVisible({ timeout: 15_000 });
   const unscored = page.getByText('not yet scored');
   for (let i = 0; i < (await unscored.count()); i += 1) {
     await expect(unscored.nth(i)).toBeVisible();

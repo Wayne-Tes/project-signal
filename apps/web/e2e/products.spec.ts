@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { goToView, presetAppearance, signIn } from './helpers';
 
 /**
@@ -36,6 +36,20 @@ async function sweep(page: Page): Promise<void> {
   }
 }
 
+/**
+ * The row for one entity, found by the span that shows its name, matched exactly.
+ *
+ * NOT `locator('li', { hasText })`: every row carries a Parent select whose options list every
+ * entity's name, so a text filter matched ALL rows as soon as the scratch entity existed. Nor the
+ * Delete button, which is swapped for "Confirm delete" mid-flow. The name span stays.
+ */
+function rowFor(list: Locator, name: string): Locator {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return list
+    .locator('li')
+    .filter({ has: list.page().locator('span', { hasText: new RegExp(`^${escaped}$`) }) });
+}
+
 test.describe.configure({ mode: 'serial' });
 
 test.beforeEach(async ({ page }) => {
@@ -64,7 +78,7 @@ test('creates, renames and deletes a product', async ({ page }) => {
   await page.locator('#entityKind').selectOption('product');
   await list.getByRole('button', { name: 'Add' }).click();
 
-  const row = list.locator('li', { hasText: TEMP });
+  const row = rowFor(list, TEMP);
   await expect(row).toBeVisible({ timeout: 15_000 });
 
   /* Rename. This is the remedy for a wrong name, and the reason delete refuses once signals
@@ -74,24 +88,24 @@ test('creates, renames and deletes a product', async ({ page }) => {
   await page.getByLabel(`Name of ${TEMP}`).fill(renamed);
   await page.getByRole('button', { name: 'Save' }).click();
 
-  const after = list.locator('li', { hasText: renamed });
+  const after = rowFor(list, renamed);
   await expect(after).toBeVisible({ timeout: 15_000 });
 
   /* Ownership round-trips too, and shows up in the badge rather than only in the request. */
   await after.getByRole('button', { name: 'Edit' }).click();
   await page.getByLabel(`Ownership of ${renamed}`).selectOption('competitor');
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(list.locator('li', { hasText: renamed })).toContainText('competitor', {
+  await expect(rowFor(list, renamed)).toContainText('competitor', {
     timeout: 15_000,
   });
 
   /* Delete takes two clicks. The first must not remove anything. */
-  const target = list.locator('li', { hasText: renamed });
+  const target = rowFor(list, renamed);
   await target.getByRole('button', { name: `Delete ${renamed}` }).click();
   await expect(target).toBeVisible();
 
   await target.getByRole('button', { name: 'Confirm delete' }).click();
-  await expect(list.locator('li', { hasText: renamed })).toHaveCount(0, { timeout: 15_000 });
+  await expect(rowFor(list, renamed)).toHaveCount(0, { timeout: 15_000 });
 });
 
 test('refuses to delete an entity that has collected signals, and says why', async ({ page }) => {
@@ -108,5 +122,5 @@ test('refuses to delete an entity that has collected signals, and says why', asy
   /* Whichever blocker fires, the message must name it. "Cannot delete" alone sends someone to a
      database they have no access to. */
   await expect(list.getByRole('alert')).toContainText(/because .+/, { timeout: 15_000 });
-  await expect(list.locator('li', { hasText: label })).toHaveCount(1);
+  await expect(rowFor(list, label)).toHaveCount(1);
 });

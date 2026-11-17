@@ -10,6 +10,11 @@ import { authMode, credentials, signIn } from './helpers';
 
 test.skip(authMode() !== 'local', 'local sign-in specs run only against a local-mode build');
 
+/* The first-run tour is a full-screen overlay that intercepts clicks; help.spec.ts covers it. */
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem('ps_tour_completed', '1'));
+});
+
 test('is labelled as local development', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('local-auth-badge')).toHaveText(/local development sign-in/i);
@@ -22,12 +27,15 @@ test('refuses a wrong password, and says so', async ({ page }) => {
   await page.locator('#identifier').fill(identifier);
   await page.locator('#password').fill('definitely-not-the-password');
   await page.getByRole('button', { name: /sign in/i }).click();
-  await expect(page.getByRole('alert')).toContainText(/check your username and password/i);
+  /* Filtered, not bare: Next.js renders its own role=alert route announcer on every page. */
+  await expect(
+    page.getByRole('alert').filter({ hasText: /check your username and password/i }),
+  ).toBeVisible();
   await expect(page.locator('nav[aria-label="Main"]')).toHaveCount(0);
 });
 
 test('signs in, survives a reload in the same tab, and signs out', async ({ page }) => {
-  await signIn(page);
+  await signIn(page, { viaForm: true });
   await page.reload();
   await expect(page.locator('nav[aria-label="Main"]')).toBeVisible();
   await page.getByRole('button', { name: /sign out/i }).click();

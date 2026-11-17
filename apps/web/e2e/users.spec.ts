@@ -28,7 +28,7 @@ test.beforeEach(async ({ page }) => {
 test('lists the tenant’s users', async ({ page }) => {
   /* The panel exists and rendered. It has been reachable but unexercised, and a panel behind
      AuthGate that nobody has opened is a panel nobody knows is broken. */
-  await expect(page.getByLabel('Cognito user ID (sub)')).toBeVisible();
+  await expect(page.getByLabel('Cognito user ID (sub)', { exact: true })).toBeVisible();
   /* No email field: the API never stored one (the users table has no email column), so asking
      for it implied a record that did not exist. */
   await expect(page.getByLabel('Email')).toHaveCount(0);
@@ -78,15 +78,19 @@ test('the brand pin defaults to no pin, rather than silently restricting a new u
 test('will not submit without the fields the API requires', async ({ page }) => {
   /* `required`, so the browser blocks submission. Without it the API 400s and the user learns
      nothing about which field was wrong. */
-  await expect(page.getByLabel('Cognito user ID (sub)')).toHaveAttribute('required', '');
+  await expect(page.getByLabel('Cognito user ID (sub)', { exact: true })).toHaveAttribute(
+    'required',
+    '',
+  );
 });
 
 test('an API refusal is shown, not swallowed', async ({ page }) => {
   /* Provisioning collides on a duplicate sub. The message must reach the screen — an action that
      silently does nothing is the failure mode this panel is most likely to have, because it is
      the one nobody tests for. */
-  const alert = page.locator('[role="alert"]');
-  await page.getByLabel('Cognito user ID (sub)').fill('e2e-duplicate-probe');
+  /* Not Next.js's route announcer, which is an always-present, usually empty role=alert. */
+  const alert = page.locator('[role="alert"]:not(#__next-route-announcer__)');
+  await page.getByLabel('Cognito user ID (sub)', { exact: true }).fill('e2e-duplicate-probe');
   await page.getByRole('button', { name: /provision user/i }).click();
 
   /* Either it succeeded, or it failed and said why. Both are acceptable; silence is not. */
