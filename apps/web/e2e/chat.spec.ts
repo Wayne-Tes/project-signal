@@ -55,7 +55,9 @@ test.describe('assistant dock', () => {
     await page.getByRole('button', { name: /^ask$/i }).click();
     const dock = page.getByTestId('assistant-dock');
 
-    await dock.getByLabel('Ask the assistant').fill('How is the Brand Perception Index calculated?');
+    await dock
+      .getByLabel('Ask the assistant')
+      .fill('How is the Brand Perception Index calculated?');
     await page.keyboard.press('Enter');
 
     /* Whichever arrives, it must arrive. A dock stuck on "Looking at your data…" is the
@@ -68,7 +70,8 @@ test.describe('assistant dock', () => {
       await expect(failed).toContainText(/unavailable|went wrong/i);
       test.info().annotations.push({
         type: 'note',
-        description: 'Assistant unavailable — model access is gated at account level; not a code defect.',
+        description:
+          'Assistant unavailable — model access is gated at account level; not a code defect.',
       });
       return;
     }

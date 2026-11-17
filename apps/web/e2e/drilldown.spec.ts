@@ -65,7 +65,8 @@ async function openBestDimension(page: Page): Promise<string> {
   const rows = panel(page).locator('.drill-row');
   const scores = await rows.locator('.lead').allInnerTexts();
   const best = scores.reduce(
-    (acc, text, i) => (Number.parseFloat(text) > acc.value ? { i, value: Number.parseFloat(text) } : acc),
+    (acc, text, i) =>
+      Number.parseFloat(text) > acc.value ? { i, value: Number.parseFloat(text) } : acc,
     { i: 0, value: Number.NEGATIVE_INFINITY },
   );
 
@@ -125,10 +126,13 @@ test('a positive topic reports strength, never a damage of 0.0', async ({ page }
      and it is what a positive cluster produces by construction. */
   await openBestDimension(page);
   const rows = panel(page).locator('.drill-row');
-  if ((await rows.count()) === 0) test.skip(true, 'no topic clusters formed for this dimension yet');
+  if ((await rows.count()) === 0)
+    test.skip(true, 'no topic clusters formed for this dimension yet');
 
   for (const text of await rows.locator('.ds').allInnerTexts()) {
-    expect(text, 'a cluster reported damage 0.0 instead of its strength').not.toMatch(/damage 0\.0/);
+    expect(text, 'a cluster reported damage 0.0 instead of its strength').not.toMatch(
+      /damage 0\.0/,
+    );
   }
 });
 
@@ -173,10 +177,10 @@ test('the stacked steps are numbered in order, and are legible', async ({ page }
 
   /* The reported symptom, asserted directly: consecutive numbers, not '01' twice. */
   const numbers = await page.locator('.drill-spine .lvl').allInnerTexts();
-  expect(numbers.map((n) => n.trim()), 'the stacked steps are not numbered in order').toEqual([
-    '01',
-    '02',
-  ]);
+  expect(
+    numbers.map((n) => n.trim()),
+    'the stacked steps are not numbered in order',
+  ).toEqual(['01', '02']);
 
   /* Zero-padding is what makes 01 and 10 the same width so the spines line up; a bare '1' would
      pass the equality above only by accident of there being fewer than ten levels. */

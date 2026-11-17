@@ -85,7 +85,6 @@ test.describe('appearance popover', () => {
     const bg = await active.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bg, 'active nav item should carry the accent tint').not.toBe('rgba(0, 0, 0, 0)');
   });
-
 });
 
 test.describe('navigation', () => {

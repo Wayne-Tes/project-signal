@@ -57,7 +57,10 @@ test.describe('help centre', () => {
     await page.getByRole('button', { name: /understanding the brand perception index/i }).click();
     await expect(page.getByTestId('help-centre')).toContainText('50 is genuinely neutral');
 
-    await page.getByRole('button', { name: /how recency works/i }).first().click();
+    await page
+      .getByRole('button', { name: /how recency works/i })
+      .first()
+      .click();
     await expect(page.getByTestId('help-centre')).toContainText('half-life');
 
     await page.getByRole('button', { name: /all articles/i }).click();
@@ -132,6 +135,9 @@ test.describe('first-run tour', () => {
     await openHelpIndex(page);
     await page.getByRole('button', { name: /start tour/i }).click();
     await expect(page.getByTestId('tour')).toBeVisible();
-    await page.getByTestId('tour').getByRole('button', { name: /^skip$/i }).click();
+    await page
+      .getByTestId('tour')
+      .getByRole('button', { name: /^skip$/i })
+      .click();
   });
 });

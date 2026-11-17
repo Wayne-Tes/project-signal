@@ -91,9 +91,10 @@ test.describe('primary actions carry the chosen accent', () => {
 
     /* Default accent is lime. Asserting it is not the old navy, and not a near-black — an exact
        hex would break on any palette re-tune, which is how colour assertions get deleted. */
-    expect(luminance(bg), `primary button background ${bg} should not be near-black`).toBeGreaterThan(
-      0.12,
-    );
+    expect(
+      luminance(bg),
+      `primary button background ${bg} should not be near-black`,
+    ).toBeGreaterThan(0.12);
   });
 
   test('the accent chosen in Appearance reaches the primary button', async ({ page }) => {
