@@ -753,7 +753,8 @@ Postgres client errors map to 4xx: `22P02`, `22007`, `22008` → 400; `23505`, `
 
 **Rate limiting** (`src/lib/rate-limit.ts`, `@fastify/rate-limit`) is keyed **per user**, not per
 IP — the assistant's tool calls re-enter the API via `inject` from 127.0.0.1, and many users share
-an egress address. Default 300/min; `POST /assistant/messages` 10/min; `POST
+an egress address. Default 600/min (one Dashboard load is ~12 requests; 300 was reachable by a
+person switching territories); `POST /assistant/messages` 10/min; `POST
 /brands/:id/roadmap/adapt` 20/min; `POST /auth/local/sign-in` 10/min.
 
 **Health.** `/health` is liveness. `/ready` runs `select 1` and returns **503** when the database

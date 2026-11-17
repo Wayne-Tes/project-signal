@@ -7,8 +7,14 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
  * Per USER, not per IP. Behind the load balancer many people can share an egress address, and
  * the assistant re-enters this API through `app.inject` (assistant/tools.ts) — from 127.0.0.1,
  * for every user at once. Keyed by IP, one busy assistant would rate-limit everybody.
+ *
+ * 600, not 300. One Dashboard load is ~12 requests and every brand or territory switch repeats
+ * them, so an analyst flicking through territories reaches 300 inside a minute; the e2e suite,
+ * one user at machine speed, did (2026-11-17: 429s on /brands/tree, /admin/users, /crm/connections
+ * mid-run). Ten a second per user is still a wall for a runaway client. Sign-in and the LLM
+ * routes keep their own, much tighter, limits.
  */
-export const DEFAULT_RATE_LIMIT = { max: 300, timeWindow: '1 minute' } as const;
+export const DEFAULT_RATE_LIMIT = { max: 600, timeWindow: '1 minute' } as const;
 
 /**
  * The key a request is counted against: the authenticated subject when there is one, the client
